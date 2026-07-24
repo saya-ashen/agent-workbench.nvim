@@ -365,6 +365,20 @@ require("pi").setup({
         },
     },
 
+    -- Prompt buffer behavior.
+    prompt = {
+        -- Readline-style recall of previously submitted prompts.
+        history = {
+            -- Record submissions and allow recalling them with
+            -- <C-p>/<C-n> and <Up>/<Down>.
+            enabled = true,
+            -- Maximum entries kept; oldest are dropped first.
+            max = 500,
+            -- History file. nil = stdpath("data")/pi/prompt_history.json.
+            path = nil,
+        },
+    },
+
     -- Verb pairs for status messages, picked randomly per run.
     verbs = {
         -- When true, user pairs are appended to the built-in list;
@@ -565,6 +579,33 @@ When the agent is **streaming**, the two diverge. Both options queue your messag
 - `<A-CR>` sends a **follow-up**. The message waits until the agent has fully finished the current turn (no more tool calls, no pending steers) and is then delivered as the next message. Use it when you want to add something for the agent to address _after_ it's done with the current work, without interrupting the flow.
 
 Both queued messages are rendered in the history with distinct labels (`labels.steer_message` and `labels.follow_up_message`) so you can tell them apart later.
+
+### Prompt history
+
+Every prompt you submit is recorded (raw, before `@mention` expansion) so you can recall it later, readline-style. Multi-line prompts are stored intact.
+
+| Key | Mode | Action |
+| --- | --- | --- |
+| `<C-p>` | normal, insert | Recall the previous (older) prompt |
+| `<C-n>` | normal, insert | Recall the next (newer) prompt |
+| `<Up>` | insert | Recall older — only on the **top** line, so multi-line editing still works |
+| `<Down>` | insert | Recall newer — only at the **bottom** line or while already browsing |
+
+Walking up stashes whatever you're currently typing; walking back down past the newest entry restores that draft. Editing the buffer by hand leaves browse mode, so a stray `<Down>` never clobbers your typing. Recall is a no-op while the completion menu is open.
+
+History persists to `stdpath("data")/pi/prompt_history.json` (written atomically) and survives restarts. Configure it under `prompt.history`:
+
+```lua
+require("pi").setup({
+    prompt = {
+        history = {
+            enabled = true, -- set false to disable recording/recall entirely
+            max = 500,      -- entries kept; oldest are dropped first
+            -- path = "...",  -- override the history file location
+        },
+    },
+})
+```
 
 ### Mentions
 
