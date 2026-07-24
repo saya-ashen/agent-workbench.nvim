@@ -11,6 +11,7 @@
 ---@field _prompt pi.ChatPrompt
 ---@field _keymaps_set boolean
 ---@field _streaming boolean
+---@field _abort_esc_at number? Timestamp (ms) of the first <Esc> in a double-<Esc> abort gesture
 ---@field _compacting boolean
 ---@field _assistant_block_open boolean
 ---@field _assistant_message_header_rendered boolean
@@ -60,6 +61,7 @@ function Chat.new(tab, mode, agent)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
     self._streaming = false
+    self._abort_esc_at = nil
     self._compacting = false
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
@@ -184,6 +186,23 @@ function Chat:_set_keymaps()
     vim.keymap.set("i", "<S-CR>", function()
         vim.api.nvim_put({ "", "" }, "c", false, true)
     end, { buffer = pbuf, desc = "New line" })
+
+    -- Double-<Esc> abort: while streaming, the first <Esc> shows a gentle hint
+    -- and arms the gesture; a second <Esc> within the configured window aborts
+    -- the agent (same as :PiAbort). Insert mode always leaves insert (returns
+    -- the literal "<Esc>", see gotcha G2); normal mode only arms/aborts.
+    vim.keymap.set("i", "<Esc>", function()
+        self:_handle_abort_esc()
+        return "<Esc>"
+    end, { buffer = pbuf, expr = true, desc = "Leave insert (double-<Esc> aborts π)" })
+
+    vim.keymap.set("n", "<Esc>", function()
+        self:_handle_abort_esc()
+    end, { buffer = pbuf, desc = "Double-<Esc> aborts π" })
+
+    vim.keymap.set("n", "<Esc>", function()
+        self:_handle_abort_esc()
+    end, { buffer = hbuf, desc = "Double-<Esc> aborts π" })
 
     -- Prompt history recall (readline-style). <C-p>/<C-n> are the canonical
     -- readline keys and never conflict with multi-line cursor movement.
@@ -507,6 +526,39 @@ end
 ---@return boolean
 function Chat:is_streaming()
     return self._streaming
+end
+
+--- Handle one <Esc> press of the double-<Esc> abort gesture.
+---
+--- While the agent is streaming, the first press records a timestamp and shows
+--- a gentle echo hint; a second press within `abort.timeout` ms aborts the
+--- agent (same as :PiAbort / pi.abort()). Outside of streaming, or when the
+--- feature is disabled, this is a no-op so <Esc> keeps its normal behavior.
+--- Side effects are deferred with vim.schedule so the insert-mode <expr>
+--- mapping stays free of buffer/UI mutations (see gotcha G1).
+function Chat:_handle_abort_esc()
+    if not self._streaming then
+        self._abort_esc_at = nil
+        return
+    end
+    local cfg = Config.options.abort or {}
+    if cfg.enabled == false then
+        return
+    end
+    local now = vim.uv.now()
+    local timeout = cfg.timeout or 1500
+    if self._abort_esc_at and (now - self._abort_esc_at) <= timeout then
+        self._abort_esc_at = nil
+        vim.schedule(function()
+            require("pi").abort()
+        end)
+        return
+    end
+    self._abort_esc_at = now
+    local message = cfg.message or "Press <Esc> again to abort"
+    vim.schedule(function()
+        vim.api.nvim_echo({ { "π │ " .. message, "PiWelcomeHint" } }, false, {})
+    end)
 end
 
 ---@return boolean

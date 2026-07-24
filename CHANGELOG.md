@@ -2,6 +2,7 @@
 
 ## 2026-07-25
 
+- **ADDED:** Double-`<Esc>` aborts the running agent (same as `:PiAbort`). The first `<Esc>` shows a gentle command-line hint; the second within `abort.timeout` ms aborts. Configurable via the new `abort` option (`enabled`, `timeout`, `message`).
 - **CHANGED:** Status spinner and pending-queue display moved from virtual lines to a pinned floating overlay at the bottom of the history viewport.
 - **CHANGED:** Per-tool icons in tool headers; completed inline tools fade to a muted style.
 - **FIXED:** Thinking preview no longer corrupts non-ASCII text (CJK, emoji) when truncating to fit the display width.

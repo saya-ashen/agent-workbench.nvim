@@ -340,6 +340,16 @@ require("pi").setup({
         notify_on_completion = true,
     },
 
+    -- Double-<Esc> aborts the running agent (same as :PiAbort).
+    abort = {
+        -- Enable the double-<Esc> abort gesture.
+        enabled = true,
+        -- Window in ms for the second <Esc> to count.
+        timeout = 1500,
+        -- Hint echoed (after the "π │ " prefix) on the first <Esc>.
+        message = "Press <Esc> again to abort",
+    },
+
     -- Selects, confirmation dialogs
     dialog = {
         border = "rounded",
@@ -594,6 +604,24 @@ When the agent is **streaming**, the two diverge. Both options queue your messag
 - `<A-CR>` sends a **follow-up**. The message waits until the agent has fully finished the current turn (no more tool calls, no pending steers) and is then delivered as the next message. Use it when you want to add something for the agent to address _after_ it's done with the current work, without interrupting the flow.
 
 Both queued messages are rendered in the history with distinct labels (`labels.steer_message` and `labels.follow_up_message`) so you can tell them apart later.
+
+### Aborting with double `<Esc>`
+
+While the agent is **streaming**, pressing `<Esc>` twice in quick succession aborts the current turn — the same as `:PiAbort` / `pi.abort()`. The first `<Esc>` only shows a gentle hint in the command line (`π │ Press <Esc> again to abort`); the second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
+
+When the agent is **idle**, `<Esc>` keeps its normal behavior (leaves insert mode) and the gesture is inert — no hint, no abort.
+
+Controlled by the `abort` config:
+
+```lua
+require("pi").setup({
+    abort = {
+        enabled = true, -- set false to disable double-<Esc> abort entirely
+        timeout = 1500, -- ms window for the second <Esc> to count
+        message = "Press <Esc> again to abort", -- hint shown on the first <Esc>
+    },
+})
+```
 
 ### Prompt history
 

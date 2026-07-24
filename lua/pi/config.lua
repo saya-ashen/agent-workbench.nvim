@@ -153,6 +153,11 @@
 ---@field auto_open_on_prompt_focus boolean Automatically open the next pending attention request for the current tab when the prompt gains focus and has no draft.
 ---@field notify_on_completion boolean Show an info notification when the agent finishes a turn and the prompt does not have focus.
 
+---@class pi.AbortConfig
+---@field enabled? boolean Enable double-<Esc> to abort the running agent (default: true)
+---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
+---@field message? string Hint echoed on the first <Esc>, after the "π │ " prefix (default: "Press <Esc> again to abort")
+
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
 ---@field cancel? pi.KeySpecs
@@ -216,6 +221,7 @@
 ---@field statusline pi.StatusLineConfig
 ---@field diff pi.DiffConfig
 ---@field attention pi.UiAttentionConfig
+---@field abort pi.AbortConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
 ---@field render pi.RenderConfig
@@ -324,6 +330,11 @@ local defaults = {
     attention = {
         auto_open_on_prompt_focus = true,
         notify_on_completion = true,
+    },
+    abort = {
+        enabled = true,
+        timeout = 1500,
+        message = "Press <Esc> again to abort",
     },
     dialog = {
         border = "rounded",
