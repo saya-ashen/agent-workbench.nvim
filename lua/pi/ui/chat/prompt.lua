@@ -16,6 +16,7 @@ local Ft = require("pi.filetypes")
 local Config = require("pi.config")
 local Keys = require("pi.keys")
 local Decorators = require("pi.ui.chat.decorators")
+local Draft = require("pi.draft")
 local StatusLine = require("pi.ui.chat.statusline")
 
 Prompt.HEIGHT = 5
@@ -69,6 +70,39 @@ function Prompt.new(tab, attachments)
     vim.bo[self._buf].swapfile = false
     vim.bo[self._buf].bufhidden = "hide"
     vim.api.nvim_buf_set_name(self._buf, name)
+
+    -- Unsent-draft persistence: restore a draft saved before a restart (once
+    -- per process) and keep saving the current text (debounced) thereafter.
+    local draft_cfg = Config.options.prompt and Config.options.prompt.draft
+    if draft_cfg and draft_cfg.enabled ~= false then
+        local draft = Draft.restore_once()
+        if draft and draft ~= "" then
+            vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, vim.split(draft, "\n", { plain = true }))
+        end
+
+        local save_timer = assert(vim.uv.new_timer())
+        vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+            buffer = self._buf,
+            callback = function()
+                save_timer:stop()
+                save_timer:start(
+                    300,
+                    0,
+                    vim.schedule_wrap(function()
+                        self:_save_draft()
+                    end)
+                )
+            end,
+        })
+        vim.api.nvim_create_autocmd("BufWipeout", {
+            buffer = self._buf,
+            once = true,
+            callback = function()
+                save_timer:stop()
+                save_timer:close()
+            end,
+        })
+    end
 
     vim.bo[self._buf].completefunc = "v:lua.require'pi.completion.omnifunc'.completefunc"
     Decorators.attach(self._buf)
@@ -264,6 +298,17 @@ function Prompt:clear_text()
         self:resize()
         self:_render_statusline()
     end
+end
+
+--- Persist the current prompt text as the unsent draft (empty text clears it).
+--- Called (debounced) on text changes; exposed as a method so the save logic is
+--- testable independent of the TextChanged event.
+function Prompt:_save_draft()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return
+    end
+    local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")
+    Draft.save(vim.trim(text) == "" and "" or text)
 end
 
 ---@return integer

@@ -49,6 +49,10 @@
 
 ---@class pi.PromptConfig
 ---@field history pi.PromptHistoryConfig
+---@field draft pi.PromptDraftConfig
+
+---@class pi.PromptDraftConfig
+---@field enabled? boolean Persist the unsent prompt and restore it once after a restart (default: true)
 
 ---@class pi.RenderConfig
 ---@field engine? string Markdown renderer for the chat history: "builtin" (default, treesitter + custom extmarks) or "render-markdown" (requires render-markdown.nvim)
@@ -342,6 +346,9 @@ local defaults = {
         history = {
             enabled = true,
             max = 500,
+        },
+        draft = {
+            enabled = true,
         },
     },
     render = {

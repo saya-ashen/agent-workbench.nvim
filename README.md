@@ -377,6 +377,10 @@ require("pi").setup({
             -- History file. nil = stdpath("data")/pi/prompt_history.json.
             path = nil,
         },
+        -- Unsent-draft persistence across restarts.
+        draft = {
+            enabled = true,
+        },
     },
 
     -- Markdown rendering of the chat history.
@@ -610,6 +614,20 @@ require("pi").setup({
             max = 500,      -- entries kept; oldest are dropped first
             -- path = "...",  -- override the history file location
         },
+    },
+})
+```
+
+### Draft persistence
+
+While [prompt history](#prompt-history) remembers what you've *sent*, draft persistence makes sure you don't lose what you're *typing*. The unsent prompt is saved to `stdpath("data")/pi/draft.txt` as you edit (debounced) and restored into the prompt the next time Neovim starts — so a crash or restart no longer costs you a half-written message. Sending or clearing the prompt removes the stored draft. To avoid surprises, a draft is restored at most once per Neovim process (an in-session `:PiNewSession` won't re-restore a stale draft).
+
+Disable it under `prompt.draft`:
+
+```lua
+require("pi").setup({
+    prompt = {
+        draft = { enabled = false },
     },
 })
 ```
