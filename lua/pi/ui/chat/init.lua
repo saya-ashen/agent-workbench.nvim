@@ -73,7 +73,7 @@ function Chat.new(tab, mode, agent)
     self._last_turn_stop_reason = nil
     self._zen = Zen.new(self._prompt)
     self._prompt_history = nil
-    self._applying_history = false
+    self._last_applied_prompt = nil
     return self
 end
 
@@ -225,10 +225,21 @@ function Chat:_set_keymaps()
 
     -- Leave history-navigation mode when the user edits the prompt by hand, so
     -- a later <Down> doesn't clobber their typing with a stale entry.
+    --
+    -- We can't use a boolean "applying" flag here: TextChangedI is a *deferred*
+    -- event, so it fires after the schedule that would clear such a flag, and
+    -- the flag would already be false by the time this runs. Instead, compare
+    -- the buffer text against what we last wrote programmatically — equal means
+    -- a recall edit (keep navigation), different means a manual edit (reset).
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
         buffer = pbuf,
         callback = function()
-            if self._applying_history then
+            local buf = self._prompt:buf()
+            if not vim.api.nvim_buf_is_valid(buf) then
+                return
+            end
+            local cur = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+            if cur == self._last_applied_prompt then
                 return
             end
             local store = self:_history_store()
@@ -655,14 +666,15 @@ function Chat:_set_prompt_draft(text)
     if not vim.api.nvim_buf_is_valid(buf) then
         return
     end
+    -- Record what we are about to write so the TextChangedI reset-autocmd can
+    -- tell this programmatic edit apart from a manual one (see the autocmd).
+    self._last_applied_prompt = text
     -- Defer the buffer edit: <expr> mappings (e.g. <Up>/<Down>) must not
     -- modify the buffer while their expression is being evaluated, or Neovim
     -- silently drops the change. Scheduling is harmless for the plain
     -- <C-p>/<C-n> mappings too.
-    self._applying_history = true
     vim.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then
-            self._applying_history = false
             return
         end
         local lines = vim.split(text, "\n", { plain = true })
@@ -673,9 +685,6 @@ function Chat:_set_prompt_draft(text)
             local col = #(lines[row] or "")
             pcall(vim.api.nvim_win_set_cursor, win, { row, col })
         end
-        vim.schedule(function()
-            self._applying_history = false
-        end)
     end)
 end
 
