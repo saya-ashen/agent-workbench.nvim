@@ -13,6 +13,28 @@ M.GLYPHS = {
     BOT = "  ",
 }
 
+--- Per-tool nerd font icons (by codepoint so PUA glyphs never get lost in edits).
+--- Falls back to config.labels.tool when a tool is not listed.
+local nf = function(cp) return vim.fn.nr2char(cp, 1) end
+---@type table<string, string>
+local TOOL_ICONS = {
+    bash       = nf(0xE795), -- nf-dev-terminal
+    read       = nf(0xF0219), -- nf-md-file-document
+    edit       = nf(0xF3EB), -- nf-md-pencil
+    write      = nf(0xF193), -- nf-md-content-save
+    grep       = nf(0xF349), -- nf-md-magnify
+    glob       = nf(0xF24B), -- nf-md-folder
+    web_fetch  = nf(0xF593), -- nf-md-web
+    web_search = nf(0xF349), -- nf-md-magnify
+}
+
+--- Get the nerd font icon for a tool name.
+---@param tool_name string
+---@return string
+function M.get_tool_icon(tool_name)
+    return TOOL_ICONS[tool_name] or require("pi.config").options.labels.tool
+end
+
 ---@param text string?
 ---@return string
 function M.sanitize_text(text)
@@ -112,12 +134,13 @@ end
 
 ---@param history pi.ChatHistory
 ---@param row integer 0-indexed
----@param glyph string
+---@param glyph string indent prefix ("  ")
 function M.set_border(history, row, glyph)
     vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), row, 0, {
-        virt_text = { { glyph, "PiToolBorder" } },
+        virt_text = { { glyph } },
         virt_text_pos = "inline",
-        hl_mode = "replace",
+        hl_mode = "combine",
+        line_hl_group = "PiToolBody",
     })
 end
 

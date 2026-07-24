@@ -12,18 +12,20 @@ local function set_defaults()
     local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
     local title = vim.api.nvim_get_hl(0, { name = "Title", link = false })
     local func = vim.api.nvim_get_hl(0, { name = "Function", link = false })
+    local special = vim.api.nvim_get_hl(0, { name = "Special", link = false })
     local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })
     local warning = vim.api.nvim_get_hl(0, { name = "WarningMsg", link = false })
     local diagnostic_error = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
+    local cursorline = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
 
     local user = title
     local agent = func
 
     if user.fg then
-        vim.api.nvim_set_hl(0, "PiUserMessageLabel", { default = true, fg = normal.bg, bg = user.fg, bold = true })
+        vim.api.nvim_set_hl(0, "PiUserMessageLabel", { default = true, fg = user.fg, bold = true })
     end
     if agent.fg then
-        vim.api.nvim_set_hl(0, "PiAgentResponseLabel", { default = true, fg = normal.bg, bg = agent.fg, bold = true })
+        vim.api.nvim_set_hl(0, "PiAgentResponseLabel", { default = true, fg = agent.fg, bold = true })
     end
     vim.api.nvim_set_hl(0, "PiDebugLabel", { default = true, fg = normal.bg, bg = comment.fg, bold = true })
     vim.api.nvim_set_hl(
@@ -32,11 +34,6 @@ local function set_defaults()
         { default = true, fg = normal.bg, bg = comment.fg, bold = true, nocombine = true }
     )
     vim.api.nvim_set_hl(0, "PiStartupHint", { default = true, fg = comment.fg, italic = true })
-    vim.api.nvim_set_hl(
-        0,
-        "PiStartupErrorLabel",
-        { default = true, fg = normal.bg, bg = diagnostic_error.fg, bold = true, nocombine = true }
-    )
     vim.api.nvim_set_hl(0, "PiStartupDetail", { default = true, fg = comment.fg, nocombine = true })
     vim.api.nvim_set_hl(0, "PiStartupError", { default = true, fg = diagnostic_error.fg, nocombine = true })
     vim.api.nvim_set_hl(
@@ -44,18 +41,29 @@ local function set_defaults()
         "PiCompactionLabel",
         { default = true, fg = normal.bg, bg = comment.fg, bold = true, nocombine = true }
     )
-    vim.api.nvim_set_hl(0, "PiCompactionText", { default = true, fg = comment.fg, nocombine = true })
+    vim.api.nvim_set_hl(0, "PiCompactionText", { default = true, fg = comment.fg, italic = true, nocombine = true })
     vim.api.nvim_set_hl(0, "PiCompactionHint", { default = true, fg = comment.fg, italic = true, nocombine = true })
     vim.api.nvim_set_hl(0, "PiMessageDateTime", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiMessageQueueTag", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiPendingQueueLabel", { default = true, fg = warning.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiPendingQueueText", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiMessageAttachments", { default = true, fg = comment.fg, italic = true })
-    vim.api.nvim_set_hl(0, "PiThinking", { default = true, fg = comment.fg, italic = true })
+    vim.api.nvim_set_hl(0, "PiUserBody", { default = true, fg = title.fg })
+    vim.api.nvim_set_hl(0, "PiErrorRail", { default = true, fg = diagnostic_error.fg })
+    vim.api.nvim_set_hl(0, "PiSystemErrorIcon", { default = true, fg = diagnostic_error.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiToolInlineDone", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(0, "PiThinking", { default = true, fg = special.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolBorder", { default = true, fg = comment.fg })
+    -- Subtle background for tool body lines (only when terminal has opaque bg)
+    local tool_bg = cursorline.bg
+    if tool_bg then
+        vim.api.nvim_set_hl(0, "PiToolBody", { default = true, bg = tool_bg })
+    else
+        vim.api.nvim_set_hl(0, "PiToolBody", { default = true })
+    end
     vim.api.nvim_set_hl(0, "PiToolHeader", { default = true, fg = func.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiToolCall", { default = true, fg = comment.fg })
-    vim.api.nvim_set_hl(0, "PiToolOutput", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(0, "PiToolOutput", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolStatus", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolCollapsed", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolError", { default = true, fg = diagnostic_error.fg, italic = true })
@@ -123,6 +131,12 @@ local function set_defaults()
 end
 
 function M.setup()
+    -- Apply immediately: pi is typically lazy-loaded on demand (e.g. via a
+    -- keymap), which happens *after* VimEnter and without a ColorScheme event,
+    -- so the autocmds below would otherwise never fire and every Pi* group
+    -- would stay undefined (fg = nil → role icons render in the default color).
+    -- The autocmds remain to refresh on a later :colorscheme / VimEnter.
+    set_defaults()
     vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, { callback = set_defaults })
 end
 

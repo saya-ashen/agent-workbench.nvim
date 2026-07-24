@@ -1,11 +1,12 @@
 # π.nvim — Visual Design Specification
 
-> **Refined Terminal** — order through restraint, not emptiness.
+> **Quiet hierarchy** — let color and whitespace speak; never draw a border
+> that doesn't carry information.
 >
-> A terminal is dense by nature. The design goal is not to impose web-style
-> whitespace onto 80 columns, but to build **visual hierarchy inside density**:
-> fewer borders, one accent color, icons that agree with each other, and
-> status that speaks only when something is happening.
+> A chat UI is read, not scanned like code. The design goal is the same as
+> good book typography: the reader should never notice the design, only the
+> content. Differentiation comes from color temperature and rhythm, not from
+> box-drawing characters or structural glyphs.
 
 ---
 
@@ -13,652 +14,335 @@
 
 | # | Principle | What it means in practice |
 |---|-----------|--------------------------|
-| 1 | **De-frame, don't de-densify** | Remove box-drawing borders (`╭│├╰`). Replace with indentation + optional 1-col left rail. Content stays compact; chrome disappears. |
-| 2 | **One accent, semantic states** | A single accent color (from the user's colorscheme `Function` group) marks the agent and active elements. State colors (green/red/amber) appear *only* on status glyphs — never decoratively. |
-| 3 | **Icons from one family** | Every glyph is a Nerd Font monochrome icon from `config.labels`. No emoji. No mixed icon sets. One visual weight across the entire surface. |
-| 4 | **Silence is the default** | Successful tool calls show no footer. The spinner lives only on the active line. Completed work recedes; only running and errored work draws the eye. |
-| 5 | **Aligned axis, consistent rhythm** | Everything left-aligns to column 0. One blank line between turns; zero blank lines within a tool block; one blank line after a tool block before the next element. |
+| 1 | **Color over chrome** | Role identification via foreground color on text, not via rails, borders, or structural symbols. Three role hues + one semantic hue. |
+| 2 | **Whitespace over lines** | Turn boundaries are extra blank lines, never drawn rules. The eye reads a pause; it doesn't parse a glyph. |
+| 3 | **One weight per role** | User = colored text. Agent = default text. Tool = muted + indented. Thinking = muted + italic + indented. No two roles share the same visual weight. |
+| 4 | **Silence is the default** | Successful tools show no footer. Completed inline tools fade. The spinner lives only on the active line. |
+| 5 | **Icons from one family** | Every glyph is a Nerd Font icon from `config.labels`. No emoji. No mixed sets. |
 
 ---
 
-## 1 · Color Tokens
+## 1 · Color System
 
-All colors derive from the user's colorscheme via `nvim_get_hl`. No hardcoded hex values. The token table below is the **single source of truth** — every highlight group in `highlights.lua` maps to exactly one token.
+All colors derive from the user's colorscheme via `nvim_get_hl`. No hardcoded hex.
 
-### 1.1 Semantic Roles
-
-```
-┌─────────────┬──────────────────────┬──────────────────────────────────────┐
-│ Token       │ Source               │ Used for                             │
-├─────────────┼──────────────────────┼──────────────────────────────────────┤
-│ fg.strong   │ Normal.fg            │ User message body, tool name header  │
-│ fg.body     │ Normal.fg            │ Agent response body                  │
-│ fg.muted    │ Comment.fg           │ Timestamps, fold hints, left rail,   │
-│             │                      │   meta info, tool input/output text  │
-│ fg.accent   │ Function.fg          │ Agent label, spinner, focus, links   │
-│ fg.warn     │ WarningMsg.fg        │ Attention, pending queue, notes      │
-│ fg.error    │ DiagnosticError.fg   │ Error messages, failed tool status   │
-│ bg.surface  │ Normal.bg            │ All panel backgrounds                │
-│ bg.label    │ (per-role, see §1.2) │ User/agent label pill bg (retained)  │
-└─────────────┴──────────────────────┴──────────────────────────────────────┘
-```
-
-### 1.2 Label Pill Colors (retained, refined)
-
-The user/agent label pills (`PiUserMessageLabel`, `PiAgentResponseLabel`) are **kept** — they appear once per turn and provide strong role identification. But they are refined:
-
-- **User pill**: `bg = Title.fg`, `fg = Normal.bg`, `bold = true` (unchanged)
-- **Agent pill**: `bg = Function.fg`, `fg = Normal.bg`, `bold = true` (unchanged)
-- **System/error pill**: `bg = DiagnosticError.fg`, `fg = Normal.bg`, `bold = true` (unchanged)
-
-These are the *only* filled-background elements in the history buffer. Everything else is foreground-only.
-
-### 1.3 State Colors (glyph-only, never decorative)
+### 1.1 The Palette — 3 Role Hues + 1 Semantic
 
 ```
-  running   → fg.accent     (spinner frame)
-  success   → (invisible)   (no glyph, no color — silence)
-  error     → fg.error      (✕ glyph + error text)
-  attention → fg.warn       (amber indicator)
-  thinking  → fg.muted      (italic, same as meta text)
+┌─────────────┬──────────────────┬─────────────────────────────────────┐
+│ Hue         │ Source           │ Applied to                          │
+├─────────────┼──────────────────┼─────────────────────────────────────┤
+│ user        │ Title.fg         │ User icon + indented user body text │
+│ agent       │ Function.fg      │ Agent icon + tool header + spinner  │
+│ thinking    │ Special.fg       │ Thinking header + body (italic)     │
+│ error       │ DiagnosticError  │ Error rail + error text             │
+├─────────────┼──────────────────┼─────────────────────────────────────┤
+│ muted       │ Comment.fg       │ Timestamps, tool body, fold glyph   │
+│ body        │ Normal.fg        │ Agent prose (the default voice)     │
+└─────────────┴──────────────────┴─────────────────────────────────────┘
 ```
+
+### 1.2 The Rule
+
+**Color goes on text, not on structure.** The user's message body is colored
+with `Title.fg` — the same hue as their icon — and indented two columns, so
+indent + color together mark it as quoted input. The agent's prose stays
+`Normal.fg`, flush-left — the absence of color and indent IS the signal that
+this is the primary content.
+
+Tool bodies use `Comment.fg` (muted) — they are subordinate actions, not
+content to read. Thinking uses `Special.fg` italic — a distinct hue that says
+"internal, skippable."
+
+### 1.3 Role Icons (colored foreground, no fill)
+
+Each message type leads with a Nerd Font icon tinted in its role hue — a
+small colored marker, never a filled pill. The icon + timestamp sit on one
+line; the message body follows after a breathing blank line.
+
+- **User icon**: `fg = Title.fg`, bold
+- **Agent icon**: `fg = Function.fg`, bold
+- **Error icon**: `fg = DiagnosticError.fg`, bold
+
+There are **no filled-background elements** in the history buffer. Role is
+carried by the icon color and (for the user) the body text color. Everything
+is foreground-only.
 
 ---
 
-## 2 · Icon System
+## 2 · Message Rendering
 
-### 2.1 Rule
-
-Every icon is a Nerd Font glyph resolved from `config.labels.*`. The defaults already form a coherent set. The one violation in the current code is the **emoji `🧠`** used for the thinking block header — this must be replaced with `config.labels.thinking` (default `󰟶`).
-
-Similarly, the status-line spinner prefix currently uses `config.labels.agent_response` (the robot icon) which is correct, but the thinking suffix uses a raw emoji in some code paths — all must go through `config.labels`.
-
-### 2.2 Icon Registry
+### 2.1 User Message
 
 ```
-┌──────────────────┬───────────┬──────────────────────────────────┐
-│ Semantic role    │ Config    │ Default glyph                    │
-├──────────────────┼───────────┼──────────────────────────────────┤
-│ user_message     │ labels.*  │                                  │
-│ agent_response   │ labels.*  │ 󰚩                               │
-│ tool             │ labels.*  │ 󰻂                               │
-│ tool_success     │ labels.*  │                                  │
-│ tool_failure     │ labels.*  │                                  │
-│ thinking         │ labels.*  │ 󰟶                               │
-│ compaction       │ labels.*  │ 󰏗                               │
-│ attachment       │ labels.*  │                                  │
-│ steer_message    │ labels.*  │ 󰾘                               │
-│ follow_up_message│ labels.*  │ 󱇼                               │
-│ system_error     │ labels.*  │ 󱚟                               │
-│ error            │ labels.*  │ 󰘨 󱚟                           │
-└──────────────────┴───────────┴──────────────────────────────────┘
+ [icon]  Jul 24 2026, 21:41
+
+  I need you to refactor the auth module to use JWT tokens
+  instead of session cookies.
 ```
 
-### 2.3 Prohibited
+- Icon line: role-colored icon (`Title.fg`) + timestamp (muted)
+- Blank line (breathing room between header and body)
+- Body text: **2-space indented** and tinted **Title.fg** (`PiUserBody`)
+- Indent + color together mark this as quoted user input, subordinate to the
+  agent's flush-left prose
 
-- **No emoji** anywhere in rendered output. All `🧠`, `🤖`, `📎`, `⚡` etc. must be replaced by their `config.labels` equivalent.
-- **No ad-hoc unicode symbols** (`●`, `◆`, `▸`, ``) outside the tool-block fold indicators defined in §4.
+### 2.2 Agent Response
+
+```
+ [icon]  Jul 24 2026, 21:41
+
+I'll look at the auth module now. Let me read the current
+implementation first.
+```
+
+- Icon line: role-colored icon (`Function.fg`) + timestamp (muted)
+- Blank line
+- Body text: **Normal.fg**, flush-left (the default — no decoration needed)
+- Completion: `  · 7s` as virtual text on last prose line (muted)
+
+### 2.3 Turn Separation
+
+```
+  [end of agent response]
+                              ← blank line (normal spacing)
+                              ← blank line (turn_separator adds this)
+ [user icon]  Jul 24 2026, 21:43
+```
+
+When `turn_separator = true` (default), an **extra blank line** is inserted
+between turns. No drawn line, no dots, no symbols. Just whitespace — the
+typographic equivalent of a paragraph break vs a section break.
 
 ---
 
-## 3 · Message Headers
+## 3 · Tool Blocks
 
-### 3.1 User Message
-
-**Before:**
-```
- ██  13:02
- Some message text here
-```
-(filled pill with nerd-font icon + space + timestamp)
-
-**After:** (unchanged — the pill works well at turn boundaries)
-```
- ██  13:02
- Some message text here
-```
-
-The user pill is retained as-is. It provides a strong visual anchor at the top of each turn. The timestamp uses `PiMessageDateTime` (muted). Queue tags (`steer`/`follow_up`) use their respective muted-italic styles.
-
-### 3.2 Agent Response
-
-**Before:**
-```
- ██  13:02
-
- Response text streams here…
-```
-
-**After:** (unchanged — same rationale)
-```
- ██  13:02
-
- Response text streams here…
-```
-
-### 3.3 Vertical Rhythm Between Turns
+### 3.1 Expanded
 
 ```
-  [agent response ends]
-                          ← 1 blank line (turn separator)
-  [user pill]  13:05
-  [user message body]
-                          ← 1 blank line (turn separator)
-  [agent pill]  13:05
-  [agent response body]
+▾ [icon] bash
+  xdotool search --name "nvim"
+
+  39845891
+  48234500
 ```
 
-This is already the current behavior (`_begin_conversation_content` inserts a blank line). **No change needed.**
+- Header: fold glyph (Comment.fg) + icon + name (Function.fg bold)
+- The icon is **per-tool**: each tool name maps to its own Nerd Font glyph
+  (e.g. `bash`→terminal, `read`→file, `edit`→pencil, `write`→save), with
+  `config.labels.tool` as the fallback for unknown tools. The mapping lives
+  in `tools.lua` (`TOOL_ICONS`, by codepoint) and is not user-configurable.
+- Body: 2-space indent (virtual text) + Comment.fg
+- Input: regular weight
+- Output: **italic** (texture shift distinguishes result from command)
+- Optional: subtle background from CursorLine.bg (when terminal is opaque)
+- No footer on success. Error footer in DiagnosticError.fg.
+
+### 3.2 Collapsed
+
+```
+▸ [icon] bash  xdotool search --name "nvim"…
+```
+
+### 3.3 Inline (completed)
+
+```
+  [icon] read  lua/pi/config.lua  (42 lines)
+```
+
+Icon + name fade to Comment.fg after completion. Only running tools stay
+accent-colored.
 
 ---
 
-## 4 · Tool Blocks — The Primary Redesign
-
-This is the highest-impact change. Tool blocks occupy the most screen area and currently use full box-drawing borders on every line.
-
-### 4.1 Glyph System
-
-**Before** (`tools.lua` GLYPHS):
-```lua
-M.GLYPHS = { TOP = "╭─ ", MID = "│  ", SEP = "├──── ", BOT = "╰─ " }
-```
-
-**After:**
-```lua
-M.GLYPHS = {
-    RAIL  = "  ",    -- 2-space indent (replaces │  on body lines)
-    SEP   = "  ",    -- blank indent (replaces ├──── separator)
-    FOLD_OPEN  = "▾ ",  -- expanded indicator (replaces ╭─ on header)
-    FOLD_CLOSE = "▸ ",  -- collapsed indicator
-}
-```
-
-The left rail is **pure indentation** — no visible character. The tool block is identified by its header line (icon + tool name in `fg.strong`) and its indented body. No border characters at all.
-
-> **Rationale**: In the screenshot, three consecutive tool blocks produce ~18 lines of `│`, `├`, `` characters. These are pure chrome — they carry zero information. Removing them recovers ~30% of vertical space and eliminates the "picket fence" effect.
-
-### 4.2 Expanded Tool Block
-
-**Before:**
-```
-╭─ 󰻂 bash
-│  xdotool search --name "nvim" 2>/dev/null; echo "---wezterm---"; xdotool sear…
-│
-├────
-│  …5 lines
-│    39845891
-╰─ ✓ completed
-```
-(8 lines: header + 1 input + blank-sep + 2 output + footer = 6 content + 2 chrome)
-
-**After:**
-```
-▾ 󰻂 bash
-  xdotool search --name "nvim" 2>/dev/null; echo "---wezterm---"; xdotool sear…
-
-  …5 lines
-    39845891
-```
-(5 lines: header + 1 input + blank-sep + 2 output = 5 content + 0 chrome)
-
-Changes:
-1. `╭─ ` → `▾ ` (fold indicator, 2 chars, same width)
-2. `│  ` → `  ` (pure indent, no visible rail character)
-3. `├──── ` → `  ` (separator becomes blank indent line; the blank line itself is the visual separator)
-4. `╰─ ✓ completed` → **removed entirely** (success is silent, §4.4)
-5. Header line: tool icon + tool name in `PiToolHeader` (fg.strong + bold). No border highlight on the fold indicator — it inherits `PiToolBorder` which becomes `fg.muted`.
-
-### 4.3 Collapsed Tool Block
-
-**Before:**
-```
-╭─  bash
-│  xdotool search --name "nvim" 2>/dev/null; echo "---wezterm---"; xdotool sear…
-│  …5 lines
-│    39845891
-╰─ ✓ completed
-```
-
-**After:**
-```
-▸ 󰻂 bash  xdotool search --name "nvim"…
-```
-Single line. The fold indicator `▸` + icon + tool name + truncated first input line as a muted preview. No footer. No border.
-
-For inline tools (e.g. `read`), the format is:
-```
-  󰻂 read  lua/pi/config.lua
-```
-No fold indicator (inline tools can't expand). Just indent + icon + name + path.
-
-### 4.4 Status Footer — Silence by Default
-
-**Rule**: The `╰─ ✓ completed` / `╰─ ✕ error` footer line is **removed for successful tools**. Only errored tools show a footer.
-
-**Before (success):**
-```
-╰─ ✓ completed
-```
-
-**After (success):**
-```
-(nothing — the block simply ends)
-```
-
-**Before (error):**
-```
-╰─ ✕ error: file not found
-```
-
-**After (error):**
-```
-  ✕ error: file not found
-```
-(Indented error line in `PiToolError`, no border prefix)
-
-**Running state**: No footer line. The spinner appears in the **header line** as a virtual-text suffix:
-```
-▾ 󰻂 bash  
-```
-The braille spinner frame is appended as inline virtual text on the header row, highlighted in `PiBusy` (accent color). When the tool completes, the spinner virtual text is removed — no line added or removed, zero reflow.
-
-### 4.5 Tool Block Spacing
+## 4 · Thinking Blocks
 
 ```
-  [previous element ends]
-                          ← 0 blank lines before tool header
-▾  bash
-  command here
-  output here
-                          ← 1 blank line after tool block (breathing room)
-  󰟶 Thought for 4s
-  thinking content…
-                          ← 1 blank line after thinking block
-▾  edit
-  file content…
-                          ← 1 blank line after tool block
-  Agent prose continues here…
+[icon] Thought for 4s
+  There are two windows with "nvim" in the name.
+  The wezterm window is 39845891 (active).
 ```
 
-Rule: **one blank line after every tool block and thinking block**. Zero blank lines before them (they follow naturally from the preceding content or blank line).
-
-### 4.6 Fold Indicator Highlight
-
-The `▸`/`▾` characters use `PiToolBorder` which is redefined from `fg = Comment.fg` to `fg = Comment.fg` (unchanged — muted is correct for fold indicators). They should not draw attention; the tool name in bold does that.
+- Header: flush-left, Special.fg italic
+- Body: 2-space indent, Special.fg italic
+- The distinct hue (pink/mauve/orange depending on colorscheme) + italic
+  creates immediate "this is internal monologue" recognition
 
 ---
 
-## 5 · Thinking Blocks
+## 5 · Error Blocks
 
-### 5.1 Header
+```
+▌ [icon] RPC connection lost: process exited unexpectedly
+▌ Stack trace:
+▌   at Rpc._on_close (rpc.lua:142)
+```
 
-**Before:**
-```
-🧠 Thought for 4s
-```
-(emoji icon, inconsistent with the nerd-font icon system)
-
-**After:**
-```
-󰟶 Thought for 4s
-```
-(config.labels.thinking icon, `PiThinking` highlight = muted italic)
-
-### 5.2 Body
-
-**Before:**
-```
-🧠 Thought for 4s
-There are two windows with "nvim" in the name: 48234500 and 39845891. The
-wezterm window is 39845891 (active). Let me get the names of both to understand.
-```
-(No indentation — thinking body is flush-left, same column as agent prose)
-
-**After:**
-```
-󰟶 Thought for 4s
-  There are two windows with "nvim" in the name: 48234500 and 39845891. The
-  wezterm window is 39845891 (active). Let me get the names of both to understand.
-```
-(2-space indent on body lines, matching tool block body indentation. This creates visual consistency: indented = subordinate content, flush-left = primary content.)
-
-### 5.3 Collapsed Thinking
-
-When thinking is collapsed (via toggle), show:
-```
-▸ 󰟶 Thought for 4s
-```
-Single line, same pattern as collapsed tool blocks.
+- `▌` left-half-block rail in DiagnosticError.fg
+- This is the **only** structural element in the entire design
+- Justified: errors must break the visual flow; color alone isn't enough
+  during fast scrolling
 
 ---
 
-## 6 · Status Line (In-History Spinner)
+## 6 · Compaction
 
-### 6.1 Alignment
-
-**Before:**
 ```
-              🤖 铺绢… for 27s · 🧠
+────── [icon] compacted · 142k tokens ──────
 ```
-(Centered via padding calculation in `_update_status_extmark`)
 
-**After:**
-```
-  󰚩 铺绢… 27s · 󰟶
-```
-(Left-aligned with 2-space indent, matching all other content. The centering logic — `pad = math.floor((win_width - full_width) / 2)` — is removed.)
-
-### 6.2 Format Changes
-
-| Element | Before | After |
-|---------|--------|-------|
-| Spinner icon | `config.labels.agent_response` (🤖 emoji in some themes) | `config.labels.agent_response` (nerd font, verified) |
-| Elapsed time | ` for 27s` | ` 27s` (drop "for", save 4 chars) |
-| Thinking suffix | ` · 🧠` | ` · 󰟶` (nerd font) |
-| Padding | Centered | Left-aligned, 2-space indent |
-
-### 6.3 Highlight
-
-- Spinner frame + model name: `PiBusy` (accent, bold)
-- Elapsed time: `PiBusyTime` (muted)
-- Thinking suffix: `PiThinking` (muted italic)
+- Centered, dash-delimited, Comment.fg italic
+- The only centered element — signals "interstitial event, not a message"
 
 ---
 
-## 7 · Prompt Panel Title
+## 7 · Status Spinner (pinned bottom overlay)
 
-### 7.1 Winbar Title
-
-**Before:**
 ```
-              󰫽󰫿󰫼󰫺󰫽󰬁
-```
-(Nerd-font PUA glyphs that render as stylized "PROMPT" with wide letter-spacing. Visually decorative but informationally empty — the user already knows this is the prompt because the cursor is in it.)
-
-**After:**
-```
- π › prompt
-```
-Or, more minimally, just keep the current nerd-font title but ensure it renders consistently. The key change is: **the title should not use letter-spaced PUA glyphs that look like a decorative banner**. Replace with a simple functional label.
-
-Recommended config default change:
-```lua
-panels = {
-    history = { title = "π" },           -- unchanged
-    prompt = { title = "prompt" },       -- was PUA glyphs
-    attachments = { title = "attached" }, -- was PUA glyphs
-}
+                  [spinner]  verb… 27s · [thinking icon]
 ```
 
-The winbar rendering (`set_winbar`) already centers the title with `%=`. With a short functional word, the centered title looks clean rather than like a decorative banner.
-
-### 7.2 Attention State
-
-When attention is pending, the prompt winbar title changes color (amber). This is already implemented and works well — **no change**.
+- Rendered as a **borderless floating window pinned to the bottom row** of the
+  history viewport (`relative="win"`, `row = win_height - height`). Because the
+  position is viewport-relative, it stays glued to the bottom — directly above
+  the prompt panel — regardless of where the history is scrolled.
+- The spinner line is **horizontally centered** within the history width.
+- Spinner + verb: `PiBusy` (Function.fg bold); time: `PiBusyTime` (Comment.fg);
+  thinking suffix: `PiThinking` (Special.fg italic).
+- The pending steer/follow-up queue is rendered in the same overlay, left-aligned
+  above the spinner row.
+- The overlay is torn down automatically when there is no active status and no
+  pending queue, and on `chat:clear()` (session switch).
 
 ---
 
-## 8 · Highlight Group Changes
-
-Summary of all highlight group modifications:
+## 8 · Highlight Groups
 
 ```
-┌─────────────────────────────┬────────────────────────────────────────────┐
-│ Group                       │ Change                                     │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolBorder                │ Unchanged (muted). Now used only on ▸/▾   │
-│                             │ fold indicators, not on │/╭/╰ borders.    │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolHeader                │ Unchanged (accent + bold). Now the only   │
-│                             │ strong element in a tool block.            │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolCall                  │ Unchanged (muted). Input text.             │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolOutput                │ Unchanged (muted). Output text.            │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolStatus                │ Repurposed: was the footer line highlight.│
-│                             │ Now used only on error footer lines.       │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolCollapsed             │ Unchanged (muted italic). Fold preview.   │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiToolError                 │ Unchanged (error color italic).            │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiThinking                  │ Unchanged (muted italic).                  │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiBusy                      │ Unchanged (accent bold). Spinner line.    │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ PiBusyTime                  │ Unchanged (muted). Elapsed time.          │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ (new) PiToolRunning         │ fg = accent. Spinner glyph on tool header │
-│                             │ virtual text while tool is in-flight.      │
-├─────────────────────────────┼────────────────────────────────────────────┤
-│ (new) PiToolSuccessGlyph    │ fg = DiagnosticOk. Optional: if we ever   │
-│                             │ want to show ✓ on hover/focus. Default:   │
-│                             │ not rendered (silence).                    │
-└─────────────────────────────┴────────────────────────────────────────────┘
+┌─────────────────────────┬───────────────────────────────────────────┐
+│ Group                   │ Definition                                │
+├─────────────────────────┼───────────────────────────────────────────┤
+│ PiUserMessageLabel      │ fg=Title.fg bold (user role icon)         │
+│ PiUserBody              │ fg=Title.fg (indented user body text)     │
+│ PiAgentResponseLabel    │ fg=Function.fg bold (agent role icon)     │
+│ PiSystemErrorIcon       │ fg=DiagnosticError.fg bold (error icon)   │
+│ PiToolHeader            │ fg=Function.fg bold                       │
+│ PiToolBorder            │ fg=Comment.fg (fold glyph ▾/▸)           │
+│ PiToolBody              │ bg=CursorLine.bg (optional, subtle)       │
+│ PiToolCall              │ fg=Comment.fg (input text)                │
+│ PiToolOutput            │ fg=Comment.fg italic (output text)        │
+│ PiToolRunning           │ fg=Function.fg (spinner on header)        │
+│ PiToolInlineDone        │ fg=Comment.fg (faded completed inline)    │
+│ PiToolError             │ fg=DiagnosticError.fg italic              │
+│ PiThinking              │ fg=Special.fg italic                      │
+│ PiErrorRail             │ fg=DiagnosticError.fg (▌ on errors)      │
+│ PiError                 │ fg=DiagnosticError.fg                     │
+│ PiBusy                  │ fg=Function.fg bold (status spinner)      │
+│ PiBusyTime              │ fg=Comment.fg (elapsed time)              │
+│ PiMessageDateTime       │ fg=Comment.fg                             │
+│ PiCompactionText        │ fg=Comment.fg italic                      │
+└─────────────────────────┴───────────────────────────────────────────┘
 ```
 
 ---
 
-## 9 · Animation & Feedback
-
-### 9.1 Spinner
-
-- **Braille frames** (`⠋⠹⠸⠴⠧⠏`) retained — they are smooth and legible at 80ms.
-- **Color**: spinner frame on the status line uses `PiBusy` (accent bold). Spinner frame on a tool header uses `PiToolRunning` (accent, not bold — lighter weight to not compete with the tool name).
-- **Location**: the spinner appears as **inline virtual text** on the active line (status line or tool header), never on its own line.
-
-### 9.2 State Transitions (zero reflow)
-
-All state changes modify **existing extmarks** — no lines are inserted or deleted during a tool's lifecycle:
+## 9 · Visual Hierarchy
 
 ```
-  Tool starts:
-    1. Header line inserted: "▾ 󰻂 bash"
-    2. Spinner virtual text appended to header: "▾  bash  ⠋"
-    3. Body lines inserted below header as they arrive
-
-  Tool completes (success):
-    1. Spinner virtual text removed from header (extmark update)
-    2. No footer line added
-    → Net line change: 0 (only virtual text removed)
-
-  Tool completes (error):
-    1. Spinner virtual text removed from header
-    2. Error line inserted below body: "  ✕ error: …"
-    → Net line change: +1 (only on error — the exception that proves the rule)
-```
-
-### 9.3 Streaming Text
-
-Agent response text streams via `_append_text` which appends to the last line. This is already smooth and requires no change. The cursor-follows-bottom behavior (`_scroll_to_bottom`) is correct.
-
-### 9.4 Thinking Block Lifecycle
-
-```
-  Thinking starts:
-    1. Thinking block inserted (header + empty body)
-    2. Status line shows "· 󰟶" suffix
-
-  Thinking streams:
-    1. Delta text appended to thinking body lines
-
-  Thinking ends:
-    1. Status line suffix removed
-    2. Thinking block remains visible (or auto-collapses per config)
+┌────────────────────────────────────────────────────────────────────┐
+│ Weight │ Type             │ Treatment                                │
+├────────┼──────────────────┼──────────────────────────────────────────┤
+│ LOUD   │ Error            │ ▌ rail + error color                     │
+│        │ Role icons       │ Colored fg icon per role (turn anchors)  │
+│        │ Tool header      │ Function.fg bold + per-tool icon         │
+│ MEDIUM │ User body        │ Title.fg colored text + 2-space indent   │
+│        │ Agent prose      │ Normal.fg flush-left (default = primary) │
+│ QUIET  │ Tool body        │ Comment.fg + indent                      │
+│        │ Thinking         │ Special.fg italic + indent               │
+│        │ Timestamps/meta  │ Comment.fg                               │
+│ SILENT │ Completed inline │ Comment.fg (faded)                       │
+│        │ Turn gap         │ Extra blank line (invisible)             │
+└────────┴──────────────────┴──────────────────────────────────────────┘
 ```
 
 ---
 
-## 10 · Complete Before/After — Full Turn Mockup
-
-### Before (current, from screenshot)
+## 10 · Complete Turn Mockup
 
 ```
 π
 
-╭─ 󰻂 bash
-│  xdotool search --name "nvim" 2>/dev/null; echo "---wezterm---"; xdotool sear…
-│
-├────
-│  …5 lines
-│    39845891
-╰─ ✓ completed
+ [icon]  Jul 24 2026, 21:41
 
-🧠 Thought for 4s
-There are two windows with "nvim" in the name: 48234500 and 39845891. The
-wezterm window is 39845891 (active). Let me get the names of both to understand.
-48234500 might be a nested/inner nvim or the pi chat. Let me check window names
-and geometry.
+  I need you to find the nvim window ID and take a screenshot.
+  The window might be nested inside wezterm.
 
-Actually 39845891 is the active wezterm window — that's likely the main nvim I'm
-operating in (the pi chat). Let me screenshot it. But the pi chat might be a
-side panel within it. Let me get window info first.
 
-╰─ ✓ completed
+ [icon]  Jul 24 2026, 21:41
 
-╭─ 󰻂 bash
-│  for w in 48234500 39845891; do echo "═══ $w ═══"; xdotool getwindowname "$w"…
-│
-├────
-│  …9 lines
-│      Map State: IsViewable
-╰─ ✓ completed
+▾ [icon] bash
+  xdotool search --name "nvim" 2>/dev/null
 
-🧠 Thinking…
-The active viewable window is 39845891 — a WezTerm running nvim (the one I'm
-operating through), which has the pi chat. The other is a Chrome window
-(unviewable). Let me screenshot the active wezterm window to see the current
-state of the pi chat UI.
+  39845891
+  48234500
 
-╰─ ✓ completed
+▸ [icon] bash  xdotool getwindowname 39845891
 
-              🤖 铺绢… for 27s · 🧠
+  [icon] read  lua/pi/config.lua
+  [icon] read  lua/pi/init.lua
 
-              󰫽󰫿󰫼󰫺󰫽󰬁
-│
+[icon] Thought for 4s
+  There are two windows with "nvim" in the name: 48234500 and 39845891.
+  The wezterm window is 39845891 (active).
+
+▾ [icon] bash  ⠋
+  maim -i 39845891 /tmp/screenshot.png
+
+The active window is 39845891 — a WezTerm running nvim. I've captured
+the screenshot to /tmp/screenshot.png.  · 27s
+
+
+ [icon]  Jul 24 2026, 21:43
+
+  Great, now analyze the screenshot and tell me what you see.
+
+────── [icon] compacted · 142k tokens ──────
+
+ [icon]  Jul 24 2026, 21:44
+
+The screenshot shows a Neovim instance with the pi chat panel open on
+the right side.  · 3s
 ```
 
-**Line count**: ~38 lines of content + ~12 lines of border chrome = **50 lines**
+**Color annotations** (not visible in plain text):
+- User body lines ("I need you to find...", "Great, now analyze..."): **Title.fg + 2-space indent**
+- Agent prose ("The active window is...", "The screenshot shows..."): **Normal.fg**
+- Tool headers (`▾ [icon] bash`): **Function.fg bold**
+- Tool body (`  xdotool...`, `  39845891`): **Comment.fg** (output italic)
+- Thinking (`[icon] Thought...` + body): **Special.fg italic**
+- Completed inline tools: **Comment.fg** (faded)
+- Running tool spinner: **Function.fg**
 
-### After (proposed)
+---
 
-```
-π
+## 11 · Config
 
-▾  bash
-  xdotool search --name "nvim" 2>/dev/null; echo "---wezterm---"; xdotool sear…
-
-  …5 lines
-    39845891
-
-  󰟶 Thought for 4s
-  There are two windows with "nvim" in the name: 48234500 and 39845891. The
-  wezterm window is 39845891 (active). Let me get the names of both to understand.
-  48234500 might be a nested/inner nvim or the pi chat. Let me check window names
-  and geometry.
-
-  Actually 39845891 is the active wezterm window — that's likely the main nvim I'm
-  operating in (the pi chat). Let me screenshot it. But the pi chat might be a
-  side panel within it. Let me get window info first.
-
-▾  bash
-  for w in 48234500 39845891; do echo "═══ $w ═══"; xdotool getwindowname "$w"…
-
-  …9 lines
-      Map State: IsViewable
-
-  󰟶 Thinking…
-  The active viewable window is 39845891 — a WezTerm running nvim (the one I'm
-  operating through), which has the pi chat. The other is a Chrome window
-  (unviewable). Let me screenshot the active wezterm window to see the current
-  state of the pi chat UI.
-
-  󰚩 铺绢… 27s · 󰟶
-
- prompt
-│
+```lua
+---@field turn_separator? boolean  Extra blank line between turns (default: true)
 ```
 
-**Line count**: ~38 lines of content + **0 lines of border chrome** = **38 lines**
-
-**Savings**: 12 lines (24% reduction). More importantly: the visual noise from `╭│├╰` characters is **eliminated entirely**. The eye flows through content without parsing structural glyphs.
-
 ---
 
-## 11 · Diff Review Panel
-
-The diff review panel (`diff.lua`) is a separate window with its own winbar. It is **not part of this redesign pass** — its current design (side-by-side or unified diff with accept/reject keymaps) is functional and visually distinct from the chat history. The only change that touches it:
-
-- **Winbar color**: currently `bg = Function.fg` (accent). This is correct and consistent with the accent-color-for-agent-actions principle. **No change.**
-
----
-
-## 12 · Dialog / Extension UI
-
-Floating dialogs (`dialog.lua`) use `PiFloat` / `PiFloatBorder` / `PiDialogTitle`. These are **not part of this redesign pass** — they are modal overlays with their own visual context. **No change.**
-
----
-
-## 13 · Implementation Phases
-
-The changes are ordered by impact and risk:
-
-### Phase 1 — Tool Block De-framing (highest impact, medium risk)
-- Replace `M.GLYPHS` in `tools.lua`
-- Remove footer line rendering for successful tools
-- Move spinner to header-line virtual text
-- Update `apply_collapsed_extmarks` for new glyph set
-- Update all `set_border` call sites
-
-### Phase 2 — Icon Unification (low risk)
-- Replace emoji `🧠` with `config.labels.thinking` in all code paths
-- Audit all string literals for raw emoji
-- Verify `config.labels.agent_response` renders as nerd font, not emoji
-
-### Phase 3 — Thinking Block Indentation (low risk)
-- Add 2-space indent to thinking body lines in `_build_thinking_block`
-- Update `_apply_thinking_hl` to account for indent offset
-
-### Phase 4 — Status Line Alignment (low risk)
-- Remove centering logic from `_update_status_extmark`
-- Change to left-aligned with 2-space indent
-- Drop "for" prefix from elapsed time
-
-### Phase 5 — Prompt Title (trivial)
-- Change `config.defaults.panels.prompt.title` from PUA glyphs to `"prompt"`
-- Change `config.defaults.panels.attachments.title` from PUA glyphs to `"attached"`
-
-### Phase 6 — Spacing & Rhythm (low risk)
-- Ensure 1 blank line after every tool block
-- Ensure 1 blank line after every thinking block
-- Verify turn-separator blank lines are consistent
-
----
-
-## 14 · What Does NOT Change
-
-Explicitly out of scope:
-
-- **Message pill labels** (user/agent) — they work, they're infrequent, they anchor turns
-- **Statusline** (bottom bar with model/tokens/thinking) — already the cleanest element
-- **Markdown rendering** — treesitter + render-markdown engine is orthogonal to chrome design
-- **Color scheme** — all colors derive from the user's colorscheme; we define no hex values
-- **Layout modes** (side/float/zen) — window management is orthogonal to content design
-- **Keybindings** — no interaction model changes
-- **Diff review panel** — separate visual context, functional as-is
-- **Dialog/extension UI** — modal overlays, separate visual context
-
----
-
-## 15 · Design Rationale Summary
+## 12 · Design Rationale
 
 | Decision | Why |
 |----------|-----|
-| Remove box borders | They are the #1 source of visual noise. 30% of tool-block lines are pure chrome. Indentation conveys the same grouping without glyphs. |
-| Silent success | "✓ completed" on every tool is the terminal equivalent of a loading spinner that says "100% complete" — it tells you what you already know. Errors are the exception that needs calling out. |
-| Unified icons | Mixing emoji + nerd font creates two visual weights and two color behaviors (emoji are always full-color). One family = one weight = one mental model. |
-| Left-aligned status | Centered text in a left-aligned buffer creates a broken axis. The eye has to re-calibrate on every status line. Left-align keeps one reading column. |
-| Functional titles | "P R O M P T" in PUA glyphs is a decorative banner in a tool that values function. A simple word in the winbar is quieter and clearer. |
-| Indented thinking | Thinking is subordinate to agent prose. Indentation signals hierarchy without color or borders — the same mechanism used for tool bodies. |
-| Breathing lines | One blank line after blocks gives the eye a rest point. Zero blank lines within blocks keeps related content grouped. This is the minimum rhythm that prevents the "wall of text" effect without wasting vertical space. |
+| User body colored + indented, not railed | A rail is a structural element that competes with content. Color on the text plus a 2-space indent marks quoted input quietly — it tints and nests the reading experience without adding visual objects to parse. |
+| Agent prose uncolored | The default foreground IS the identity. "I am what you're here to read." Adding color would make it compete with user text. |
+| Whitespace turn gaps, not lines | A drawn line is an object the eye must process. An extra blank line is processed pre-attentively as "pause." It's the difference between a wall and a doorway. |
+| Tool output italic, not colored | Italic is the lightest possible differentiation. It shifts texture without adding a new color to the palette. Regular = command; italic = echo. |
+| Thinking in Special.fg | A distinct hue (pink/orange/purple) immediately signals "non-standard content." Combined with italic, it says "internal, skippable" without any structural marker. |
+| Error rail is the only exception | Errors must break the flow. A colored structural element is the minimum that achieves "unmissable during fast scroll" — color alone on text can be missed. |
+| Fold glyph muted, not accent | `▾`/`▸` are UI controls, not content. They should recede. The tool name in bold accent does the identification work. |
+| Inline tools fade on completion | Focus follows action. A screen full of accent-colored completed reads creates "shouting" where nothing stands out. |

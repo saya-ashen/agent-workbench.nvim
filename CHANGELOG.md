@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-25
+
+- **CHANGED:** Status spinner and pending-queue display moved from virtual lines to a pinned floating overlay at the bottom of the history viewport.
+- **CHANGED:** Per-tool icons in tool headers; completed inline tools fade to a muted style.
+- **FIXED:** Thinking preview no longer corrupts non-ASCII text (CJK, emoji) when truncating to fit the display width.
+
 ## 2026-07-24
 
 - **CHANGED:** Replace box-drawing tool block borders with fold indicators (`▾`/`▸`) and indentation for a cleaner, less noisy layout.

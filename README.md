@@ -219,6 +219,8 @@ require("pi").setup({
     spinner = "robot",
     -- Show thinking blocks by default.
     show_thinking = false,
+    -- Extra blank line between conversation turns (pure whitespace, no drawn rule).
+    turn_separator = true,
     -- Default expand/collapse state for the startup block
     -- (skills, extensions, startup announcements).
     expand_startup_details = true,
@@ -233,7 +235,9 @@ require("pi").setup({
         attachments = { title = "󰫮󰬁󰬁󰫮󰫰󰫵󰫺󰫲󰫻󰬁󰬀" },
     },
 
-    -- Inline labels rendered in the chat history.
+    -- Inline labels rendered in the chat history. `tool` is the fallback icon;
+    -- common tools (bash, read, edit, write, grep, …) use a built-in per-tool
+    -- Nerd Font icon and ignore this value.
     labels = {
         user_message = "",
         agent_response = "󰚩",
