@@ -71,6 +71,7 @@ These are real bugs found while building features here; each cost time because i
 | G18 | You almost delete a real session file | a stubbed send writes no transcript; a `grep` hit for your test text is usually inside an assistant quote — never delete sessions by grep |
 | G19 | New config option "does nothing" | you edited only 1 of the 3 config spots (annotation / `pi.Options` / `defaults`) |
 | G20 | `get()` returns stale config | read `require("pi.config").options` at call time, never cache at module load |
+| G21 | Fix is green everywhere but the running nvim is still buggy | lazy doesn't hot-reload required modules; the running instance holds a pre-fix snapshot — verify only in a freshly launched instance, and the user must restart nvim |
 
 ## How to use the bundled scripts
 
