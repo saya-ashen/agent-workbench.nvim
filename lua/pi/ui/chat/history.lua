@@ -2580,4 +2580,109 @@ function History:clear()
     end)
 end
 
+-- ---------------------------------------------------------------------------
+-- Open file under cursor
+-- ---------------------------------------------------------------------------
+
+--- Resolve a path candidate to an absolute path when it exists as a file.
+---@param candidate string
+---@return string?
+local function resolve_file(candidate)
+    if candidate == "" then
+        return nil
+    end
+    local abs = vim.fn.fnamemodify(candidate, ":p")
+    local stat = vim.uv.fs_stat(abs)
+    if stat and stat.type == "file" then
+        return abs
+    end
+    return nil
+end
+
+--- Extract a file path (and optional line number) from a history line. Handles
+--- @mentions (with optional #L<start>), path:line suffixes, and bare paths
+--- (tool body lines contain exactly the path).
+---@param line string
+---@return string? path
+---@return integer? lnum
+local function extract_path(line)
+    local trimmed = vim.trim(line)
+    if trimmed == "" then
+        return nil, nil
+    end
+
+    -- @mention with #L<start>[-<end>]
+    local mention, lnum = trimmed:match("@(%S-)#L(%d+)")
+    if mention and mention ~= "" then
+        return mention, tonumber(lnum)
+    end
+
+    -- @mention without a line range
+    local m = trimmed:match("@(%S+)")
+    if m then
+        m = m:gsub("[.,;:)]+$", "")
+        return m, nil
+    end
+
+    -- bare path with a :<line> suffix
+    local p, ln = trimmed:match("^(%S+):(%d+)$")
+    if p then
+        return p, tonumber(ln)
+    end
+
+    -- whole line as a path
+    return trimmed, nil
+end
+
+local PI_PANEL_FILETYPES = {
+    [Ft.history] = true,
+    [Ft.prompt] = true,
+    [Ft.attachments] = true,
+    [Ft.dialog] = true,
+}
+
+--- Open the file referenced on the history line under the cursor in an editor
+--- window (never a π panel, so the chat stays visible), jumping to a line when
+--- one is indicated. Returns true when a file was opened.
+---@return boolean
+function History:goto_path_at_cursor()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return false
+    end
+    local win = self._win
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return false
+    end
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    local line = vim.api.nvim_buf_get_lines(self._buf, row - 1, row, false)[1] or ""
+    local candidate, lnum = extract_path(line)
+    if not candidate then
+        return false
+    end
+    local abs = resolve_file(candidate)
+    if not abs then
+        return false
+    end
+
+    -- Prefer an existing non-π window in the current tab.
+    local target
+    for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        local b = vim.api.nvim_win_get_buf(w)
+        if not PI_PANEL_FILETYPES[vim.bo[b].filetype] then
+            target = w
+            break
+        end
+    end
+    if target then
+        vim.api.nvim_set_current_win(target)
+    else
+        vim.cmd "botright vsplit"
+    end
+    vim.cmd("edit " .. vim.fn.fnameescape(abs))
+    if lnum and lnum > 0 then
+        pcall(vim.api.nvim_win_set_cursor, 0, { lnum, 0 })
+    end
+    return true
+end
+
 return History

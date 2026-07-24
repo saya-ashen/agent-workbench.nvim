@@ -249,6 +249,13 @@ function Chat:_set_keymaps()
         end
     end, { buffer = hbuf, desc = "Toggle block under cursor" })
 
+    -- Open the file referenced under the cursor (tool path lines, @mentions,
+    -- path:line) in an editor window. gf has no default use on a nofile chat
+    -- buffer, so it's a natural fit.
+    vim.keymap.set("n", "gf", function()
+        self:goto_path_at_cursor()
+    end, { buffer = hbuf, desc = "π: open file under cursor" })
+
     -- Zen toggle key — permanent on the prompt buffer.
     -- Enters zen when inactive, exits when active.
     local zen_cfg = Config.options.zen
@@ -700,6 +707,13 @@ function Chat:history_next()
     end
     self:_set_prompt_draft(entry)
     return true
+end
+
+--- Open the file referenced on the history line under the cursor (in an editor
+--- window, never a π panel). Returns true when a file was opened.
+---@return boolean
+function Chat:goto_path_at_cursor()
+    return self._history:goto_path_at_cursor()
 end
 
 function Chat:_send_message(queue_type)

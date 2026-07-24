@@ -445,6 +445,18 @@ function M.focus_chat_history()
     end
 end
 
+--- Open the file referenced on the chat-history line under the cursor in an
+--- editor window (never a π panel). Handles tool path lines, @mentions with an
+--- optional #L<line>, and path:line. Returns true when a file was opened.
+---@return boolean
+function M.goto_file_under_cursor()
+    local session = require("pi.sessions.manager").get()
+    if session then
+        return session.chat:goto_path_at_cursor()
+    end
+    return false
+end
+
 --- Focus the chat prompt window.
 function M.focus_chat_prompt()
     local session = require("pi.sessions.manager").get()

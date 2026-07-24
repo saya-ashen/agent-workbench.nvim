@@ -1017,6 +1017,18 @@ The agent-response jumps are particularly handy when the agent produced multiple
 
 Like the focus functions, all scroll functions are no-ops when no session is active. See the [Keymaps](#keymaps) example for typical bindings inside the prompt buffer.
 
+#### Open file under cursor
+
+Tool blocks print the paths they touch, and agent prose often references files. π can open the file on the history line under the cursor in an editor window (never a π panel, so the chat stays visible):
+
+```lua
+pi.goto_file_under_cursor() -- returns true when a file was opened
+```
+
+It recognizes a bare path (the tool body lines contain exactly the path), an `@path` mention with an optional `#L<line>`, and a `path:line` suffix, and jumps to the indicated line when present. Lines that don't resolve to a real file are ignored.
+
+`gf` is bound to this on the history buffer by default, so once you move into the history (e.g. `<C-g>h`) you can just `gf` on a path to jump to it.
+
 ### Diff review
 
 When an `edit` or `write` tool is about to run, pi.nvim can intercept it and open a two-way diff in a new tab so you can inspect, tweak, and accept or reject the change _before_ it lands on disk. This is the main review surface for agent-driven refactoring.
