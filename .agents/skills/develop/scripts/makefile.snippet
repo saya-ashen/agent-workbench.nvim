@@ -1,0 +1,28 @@
+# Makefile targets for the pi.nvim test harness (already present in the repo
+# root Makefile; reproduced here with the *why* so future edits don't regress).
+#
+# Gotcha G15: do NOT name the binary variable `NVIM`. Neovim injects `$NVIM`
+# (its server-socket path) into child processes, and `?=` does not override an
+# already-set env var — so `make test` would try to execute a socket path. Use
+# `NVIM_BIN`.
+#
+# `test` runs the hermetic plenary suite under tests/minimal_init.lua (no user
+# config loaded → fast, deterministic). `smoke` boots the *real* user config
+# headless and asserts the chat buffers come up end-to-end.
+
+NVIM_BIN ?= nvim
+PLENARY_PATH ?= $(HOME)/.local/share/nvim/lazy/plenary.nvim
+MIN_INIT := tests/minimal_init.lua
+
+.PHONY: test smoke
+
+test:
+	PLENARY_PATH=$(PLENARY_PATH) $(NVIM_BIN) --headless -u $(MIN_INIT) \
+		-c "lua require('plenary.test_harness').test_directory('tests', { minimal_init = '$(MIN_INIT)' })"
+
+smoke:
+	$(NVIM_BIN) --headless -u $(HOME)/.config/nvim/init.lua -l /tmp/pi_smoke.lua
+
+# Add a per-feature headless e2e as a one-off, e.g.:
+#   $(NVIM_BIN) --headless -u $(HOME)/.config/nvim/init.lua -l /tmp/<run>/e2e.lua
+# (kept out of the Makefile because e2e scripts live in /tmp and are run-specific.)

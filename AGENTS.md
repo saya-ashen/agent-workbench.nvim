@@ -12,6 +12,8 @@ Neovim plugin (Lua) — a frontend for the [pi coding agent](https://github.com/
 - Re-read a file immediately before editing it. Never rely on content from an earlier read — it may be stale.
 - Handle errors explicitly. Don't swallow them or mask them with odd defaults. Use `pcall` for Neovim API calls that may fail (invalid windows/buffers) and `Notify.error/warn/info` for user-facing messages.
 
+> **Developing or testing a feature?** Read `.agents/skills/develop/SKILL.md` first. It is the operational playbook: the three-layer test stack (unit / headless-e2e / GUI automation), the non-obvious Neovim-Lua gotchas, the standard places a change lands, and the verification discipline. `AGENTS.md` (this file) stays the authority on architecture and style.
+
 ## Architecture
 
 ```
@@ -99,7 +101,7 @@ Key source files (under `$(npm root -g)/@earendil-works/pi-coding-agent/`):
 
 ## Verification
 
-- There is no automated test suite in this repo (yet). Verify changes by exercising the affected code path in headless Neovim where practical.
+- There **is** a test harness now: hermetic plenary unit tests (`make test`, specs in `tests/`) and a headless boot check (`make smoke`). For keymap / insert-mode / visual behavior there is also an xdotool+wmctrl+maim GUI-automation stack over the nvim RPC socket. The full playbook — when to use each layer, the pitfalls, the isolation recipe, and the gotchas — is in `.agents/skills/develop/` (see its `references/testing.md` and `references/gotchas.md`). Verify changes at the cheapest layer that can observe the behavior, and escalate to a GUI screenshot for anything visual.
 - Reading files or reviewing diffs is not verification.
-- If a change can only be checked through interactive UI behavior, say so clearly instead of claiming success.
+- If a change can only be checked through interactive UI behavior, say so clearly instead of claiming success — or prove it with a GUI screenshot per the skill.
 - In the final report, state exactly what was verified and what could not be verified in this environment.
