@@ -249,8 +249,8 @@ local defaults = {
     timestamp_format = Os.is_windows() and "%b %#d %Y, %H:%M" or "%b %-d %Y, %H:%M",
     panels = {
         history = { title = "π" },
-        prompt = { title = "󰫽󰫿󰫼󰫺󰫽󰬁" },
-        attachments = { title = "󰫮󰬁󰬁󰫮󰫰󰫵󰫺󰫲󰫻󰬁󰬀" },
+        prompt = { title = "prompt" },
+        attachments = { title = "attached" },
     },
     labels = {
         user_message = "",

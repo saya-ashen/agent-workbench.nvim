@@ -2,7 +2,16 @@
 
 local M = {}
 
-M.GLYPHS = { TOP = "╭─ ", MID = "│  ", SEP = "├──── ", BOT = "╰─ " }
+M.GLYPHS = {
+    FOLD_OPEN = "▾ ",
+    FOLD_CLOSE = "▸ ",
+    INDENT = "  ",
+    -- Legacy aliases for code that references old glyph names
+    TOP = "▾ ",
+    MID = "  ",
+    SEP = "  ",
+    BOT = "  ",
+}
 
 ---@param text string?
 ---@return string
@@ -125,7 +134,7 @@ local function render_body_line(history, text, hl_group, insert_at)
     else
         start = history:_append_lines({ text })
     end
-    M.set_border(history, start, M.GLYPHS.MID)
+    M.set_border(history, start, M.GLYPHS.INDENT)
     if #text > 0 then
         vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), start, 0, {
             end_col = #text,
@@ -147,7 +156,7 @@ local function render_output(history, text, insert_at)
     else
         sep_row = history:_append_lines({ "" })
     end
-    M.set_border(history, sep_row, M.GLYPHS.SEP)
+    M.set_border(history, sep_row, M.GLYPHS.INDENT)
     local output_lines = vim.split(text, "\n", { plain = true })
     -- The history buffer uses treesitter markdown for rendering agent prose.
     -- Tool output may contain ``` at the start of a line (e.g. a command that
@@ -176,7 +185,7 @@ local function render_output(history, text, insert_at)
         start = history:_append_lines(output_lines)
     end
     for i = 0, #output_lines - 1 do
-        M.set_border(history, start + i, M.GLYPHS.MID)
+        M.set_border(history, start + i, M.GLYPHS.INDENT)
         local line = output_lines[i + 1] or ""
         if #line > 0 then
             vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), start + i, 0, {
@@ -333,8 +342,7 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
     else
         sep_row = history:_append_lines({ "" })
     end
-    M.set_border(history, sep_row, M.GLYPHS.SEP)
-
+    M.set_border(history, sep_row, M.GLYPHS.INDENT)
     local lines = {}
     for _, r in ipairs(rendered) do
         lines[#lines + 1] = r.text
@@ -347,7 +355,7 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
         start = history:_append_lines(lines)
     end
     for i = 0, #lines - 1 do
-        M.set_border(history, start + i, M.GLYPHS.MID)
+        M.set_border(history, start + i, M.GLYPHS.INDENT)
     end
 
     -- Apply full-line background highlights and line number styling
@@ -470,8 +478,7 @@ function M.apply_collapsed_extmarks(history, base_row, specs, lines)
     local hl_map = { input = "PiToolCall", summary = "PiToolCollapsed", output = "PiToolOutput" }
     for i, spec in ipairs(specs) do
         local row = base_row + i - 1
-        local glyph = spec == "separator" and M.GLYPHS.SEP or M.GLYPHS.MID
-        M.set_border(history, row, glyph)
+        M.set_border(history, row, M.GLYPHS.INDENT)
         local hl = hl_map[spec]
         if hl and #lines[i] > 0 then
             vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), row, 0, {

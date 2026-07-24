@@ -18,6 +18,7 @@
 ---@field _show_thinking boolean
 ---@field _is_thinking boolean
 ---@field _needs_separator boolean
+---@field _needs_breathing_line boolean
 ---@field _thinking_accum pi.ThinkingAccum?
 ---@field _thinking_blocks pi.ThinkingBlock[]
 ---@field _tool_blocks table<string, pi.ToolBlock>
@@ -419,6 +420,7 @@ function History.new(tab)
     self._show_thinking = Config.options.show_thinking
     self._is_thinking = false
     self._needs_separator = false
+    self._needs_breathing_line = false
     self._thinking_accum = nil
     self._thinking_blocks = {}
     self._tool_blocks = {}
@@ -616,27 +618,20 @@ function History:_update_status_extmark()
     if self._status_start_time then
         local secs = math.floor(vim.uv.hrtime() / 1e9 - self._status_start_time)
         if secs >= 60 then
-            elapsed = " for " .. math.floor(secs / 60) .. "m " .. (secs % 60) .. "s"
+            elapsed = " " .. math.floor(secs / 60) .. "m " .. (secs % 60) .. "s"
         elseif secs >= 1 then
-            elapsed = " for " .. secs .. "s"
+            elapsed = " " .. secs .. "s"
         end
     end
-    local content = frame .. "  " .. self._status_text
+    local content = "  " .. frame .. "  " .. self._status_text
     local suffix = ""
     if self._is_thinking then
         suffix = " · " .. Config.options.labels.thinking
     end
-    local full_width = vim.fn.strdisplaywidth(content .. elapsed .. suffix)
-    local pad = 0
-    if self._win and vim.api.nvim_win_is_valid(self._win) then
-        local win_width = vim.api.nvim_win_get_width(self._win)
-        pad = math.max(0, math.floor((win_width - full_width) / 2))
-    end
-    local padding = string.rep(" ", pad)
     self._status_extmark_id = vim.api.nvim_buf_set_extmark(self._buf, ns, last_line, 0, {
         virt_lines = {
             { { "" } },
-            { { padding .. content, "PiBusy" }, { elapsed, "PiBusyTime" }, { suffix, "PiThinking" } },
+            { { content, "PiBusy" }, { elapsed, "PiBusyTime" }, { suffix, "PiThinking" } },
             { { "" } },
         },
     })
@@ -706,14 +701,130 @@ function History:_insert_lines(row, lines_list)
     return row, row + #lines_list
 end
 
+--- Collapse thinking lines into a single whitespace-normalized string.
+---@param lines string[]
+---@return string
+local function thinking_flat(lines)
+    local s = table.concat(lines, " ")
+    s = s:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    return s
+end
+
+--- Length in bytes of the utf-8 char starting at byte index i.
+---@param b integer
+---@return integer
+local function utf8_len(b)
+    if b < 0x80 then
+        return 1
+    elseif b < 0xe0 then
+        return 2
+    elseif b < 0xf0 then
+        return 3
+    else
+        return 4
+    end
+end
+
+--- Keep the leading slice of s that fits in w display columns; append "…" if cut.
+---@param s string
+---@param w integer
+---@return string
+local function thinking_head(s, w)
+    local dw = vim.fn.strdisplaywidth
+    if dw(s) <= w then
+        return s
+    end
+    if w <= 1 then
+        return "…"
+    end
+    local target = w - 1
+    local acc, end_byte, i, n = 0, 0, 1, #s
+    while i <= n do
+        local len = utf8_len(s:byte(i))
+        local cw = dw(s:sub(i, i + len - 1))
+        if acc + cw > target then
+            break
+        end
+        acc = acc + cw
+        end_byte = i + len - 1
+        i = i + len
+    end
+    return s:sub(1, end_byte) .. "…"
+end
+
+--- Keep the trailing slice of s that fits in w display columns (rolling window).
+---@param s string
+---@param w integer
+---@return string
+local function thinking_tail(s, w)
+    local dw = vim.fn.strdisplaywidth
+    if w <= 0 then
+        return ""
+    end
+    if dw(s) <= w then
+        return s
+    end
+    local acc, start_byte, i = 0, #s + 1, #s
+    while i >= 1 do
+        -- walk back to the start byte of the char ending at i
+        local cs = i
+        while cs > 1 and (s:byte(cs - 1) & 0xc0) == 0x80 do
+            cs = cs - 1
+        end
+        local len = i - cs + 1
+        local cw = dw(s:sub(cs, i))
+        if acc + cw > w then
+            break
+        end
+        acc = acc + cw
+        start_byte = cs
+        i = cs - 1
+    end
+    return s:sub(start_byte)
+end
+
+--- Available display columns for the single-line thinking preview.
+---@return integer
+function History:_thinking_preview_width(header_text)
+    local w = 80
+    if self._win and vim.api.nvim_win_is_valid(self._win) then
+        w = vim.api.nvim_win_get_width(self._win)
+    end
+    local reserved = vim.fn.strdisplaywidth(header_text) + 3
+    return math.max(16, w - reserved)
+end
+
+--- Set (or clear) the inline preview virtual text on a thinking header row.
+---@param row integer 0-indexed header row
+---@param text string? preview text; nil clears
+---@return integer? virt_id
+function History:_set_thinking_preview(row, text, virt_id)
+    if not text or text == "" then
+        if virt_id then
+            pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, virt_id)
+        end
+        return nil
+    end
+    local line = vim.api.nvim_buf_get_lines(self._buf, row, row + 1, false)[1] or ""
+    local opts = {
+        virt_text = { { "  " .. text, "PiThinking" } },
+        virt_text_pos = "inline",
+    }
+    if virt_id then
+        opts.id = virt_id
+    end
+    return vim.api.nvim_buf_set_extmark(self._buf, ns, row, #line, opts)
+end
+
 ---@param header string
 ---@param content string[]
 ---@return string[]
 function History:_build_thinking_block(header, content)
     local label = Config.options.labels.thinking
+    local indent = Tools.GLYPHS.INDENT
     local result = { "", label .. " " .. header }
     for _, line in ipairs(content) do
-        result[#result + 1] = line
+        result[#result + 1] = indent .. line
     end
     result[#result + 1] = ""
     return result
@@ -831,11 +942,24 @@ function History:set_status(status)
                 self._spinner_rate,
                 self._spinner_rate,
                 vim.schedule_wrap(function()
-                    if not self._status_text then
-                        return
-                    end
                     self._spinner_index = self._spinner_index % #self._spinner_frames + 1
-                    self:_update_status_extmark()
+                    if self._status_text then
+                        self:_update_status_extmark()
+                    end
+                    -- Animate tool header spinners
+                    local frame = self._spinner_frames[self._spinner_index]
+                    for _, blk in pairs(self._tool_blocks) do
+                        if blk.spinner_extmark and not blk.finished then
+                            local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, blk.spinner_extmark, {})
+                            if pos[1] then
+                                vim.api.nvim_buf_set_extmark(self._buf, ns, pos[1], pos[2] or 0, {
+                                    id = blk.spinner_extmark,
+                                    virt_text = { { "  " .. frame, "PiToolRunning" } },
+                                    virt_text_pos = "inline",
+                                })
+                            end
+                        end
+                    end
                 end)
             )
         end
@@ -1036,6 +1160,7 @@ function History:on_agent_start(timestamp)
         self._first_delta = true
         self._agent_text_chunks = {}
         self._needs_separator = false
+        self._needs_breathing_line = false
         self._last_was_inline = false
         self:_pick_spinner()
         local label = " " .. Config.options.labels.agent_response .. " "
@@ -1076,11 +1201,13 @@ function History:on_text_delta(delta)
                 return
             end
         end
-        if self._needs_separator then
-            self._needs_separator = false
-            self:_append_lines({ "", "" })
-        end
         self._last_was_inline = false
+        -- After a tool block, prepend a newline so the blank footer line
+        -- becomes breathing room and text starts on a fresh line.
+        if self._needs_breathing_line then
+            self._needs_breathing_line = false
+            delta = "\n" .. delta
+        end
         if self._agent_text_chunks then
             self._agent_text_chunks[#self._agent_text_chunks + 1] = delta
         end
@@ -1739,13 +1866,15 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         end
         self:_begin_conversation_content()
         self._needs_separator = false
+        self._needs_breathing_line = false
         local icon = Config.options.labels.tool
         local renderer = Tools.get_renderer(tool_name)
 
-        -- Inline tools render as a single line: icon + tool_name + detail
+        -- Inline tools render as a single line: indent + icon + tool_name + detail
         if renderer.inline then
             local detail = renderer.inline_text and renderer.inline_text(tool_input) or nil
-            local line = icon .. " " .. tool_name .. (detail and ("  " .. detail) or "")
+            local indent = Tools.GLYPHS.INDENT
+            local line = indent .. icon .. " " .. tool_name .. (detail and ("  " .. detail) or "")
 
             -- Skip blank line between consecutive inline tools
             local need_gap = not self._last_was_inline
@@ -1755,19 +1884,19 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
             local start = self:_append_lines(lines)
             local row = lines[1] == "" and start + 1 or start
 
-            Tools.set_border(self, row, Tools.GLYPHS.MID)
-            local icon_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
-                end_col = #icon,
+            local icon_start = #indent
+            local icon_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, row, icon_start, {
+                end_col = icon_start + #icon,
                 hl_group = "PiToolHeader",
             })
             -- Tool name
-            vim.api.nvim_buf_set_extmark(self._buf, ns, row, #icon, {
-                end_col = #icon + 1 + #tool_name,
+            vim.api.nvim_buf_set_extmark(self._buf, ns, row, icon_start + #icon, {
+                end_col = icon_start + #icon + 1 + #tool_name,
                 hl_group = "PiToolHeader",
             })
             -- Detail (path etc.) in subdued color
             if detail then
-                local detail_start = #icon + 1 + #tool_name + 2
+                local detail_start = icon_start + #icon + 1 + #tool_name + 2
                 vim.api.nvim_buf_set_extmark(self._buf, ns, row, detail_start, {
                     end_col = #line,
                     hl_group = "PiToolCall",
@@ -1792,22 +1921,29 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         self._last_was_inline = false
 
         -- Standard multi-line tool block
-        local header = icon .. " " .. tool_name
+        local fold = Tools.GLYPHS.FOLD_OPEN
+        local header = fold .. icon .. " " .. tool_name
 
         local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
         local cur = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
+        -- Ensure exactly one blank line before block tool header
         local lines = cur == "" and { header } or { "", header }
         local start = self:_append_lines(lines)
         local header_row = lines[1] == "" and start + 1 or start
 
-        Tools.set_border(self, header_row, Tools.GLYPHS.TOP)
-        local icon_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {
-            end_col = #icon,
+        local icon_start = #fold
+        local icon_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, icon_start, {
+            end_col = icon_start + #icon,
             hl_group = "PiToolHeader",
         })
-        vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #icon, {
+        vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, icon_start + #icon, {
             end_col = #header,
             hl_group = "PiToolHeader",
+        })
+        -- Spinner virtual text on header (removed on tool end)
+        local spinner_virt = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #header, {
+            virt_text = { { "  " .. self._spinner_frames[self._spinner_index], "PiToolRunning" } },
+            virt_text_pos = "inline",
         })
 
         if renderer.on_start then
@@ -1822,6 +1958,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
             self._tool_blocks[tool_call_id] = {
                 tool_name = tool_name,
                 icon_extmark = icon_extmark,
+                spinner_extmark = spinner_virt,
                 tail_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, tail_row, 0, {}),
                 tool_input = tool_input,
                 expanded = true,
@@ -1852,6 +1989,11 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         if block then
             block.finished = true
             self:_delete_tool_live_update(block)
+            -- Remove spinner virtual text from header
+            if block.spinner_extmark then
+                pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, block.spinner_extmark)
+                block.spinner_extmark = nil
+            end
         end
 
         -- Inline tools: append status indicator to the existing line
@@ -1865,17 +2007,18 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
 
             -- Update icon color
             local icon = Config.options.labels.tool
+            local indent = Tools.GLYPHS.INDENT
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.icon_extmark, {})
             if not pos[1] then
                 return
             end
-            vim.api.nvim_buf_set_extmark(self._buf, ns, pos[1], 0, {
+            vim.api.nvim_buf_set_extmark(self._buf, ns, pos[1], #indent, {
                 id = block.icon_extmark,
-                end_col = #icon,
+                end_col = #indent + #icon,
                 hl_group = icon_hl,
             })
 
-            -- Append status as virtual text at end of line
+            -- Append status as virtual text at end of line (silent on success)
             local renderer = Tools.get_renderer(tool_name)
             local extra = renderer.inline_status and renderer.inline_status(result, is_error) or nil
             local row = pos[1]
@@ -1884,13 +2027,17 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
             if extra then
                 virt[#virt + 1] = { " " .. extra, "PiToolStatus" }
             end
-            virt[#virt + 1] = { "  " .. status_icon, status_hl }
-            vim.api.nvim_buf_set_extmark(self._buf, ns, row, #line, {
-                virt_text = virt,
-                virt_text_pos = "inline",
-            })
+            if not is_success then
+                virt[#virt + 1] = { "  " .. status_icon, status_hl }
+            end
+            if #virt > 0 then
+                vim.api.nvim_buf_set_extmark(self._buf, ns, row, #line, {
+                    virt_text = virt,
+                    virt_text_pos = "inline",
+                })
+            end
 
-            self._needs_separator = true
+            self._needs_breathing_line = true
             self:_update_status_extmark()
             if should_scroll then
                 self:_scroll_to_bottom()
@@ -1926,7 +2073,9 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         local labels = Config.options.labels
         local status = Tools.resolve_status(result, is_error)
         local is_success = status == "completed"
-        local footer = is_success and (labels.tool_success .. " completed") or (labels.tool_failure .. " " .. status)
+        -- Silent success: blank line as structural end marker + breathing room.
+        -- Error: indented error text, no border.
+        local footer = is_success and "" or (Tools.GLYPHS.INDENT .. labels.tool_failure .. " " .. status)
         local footer_hl = is_success and "PiToolStatus" or "PiToolError"
         local start
         if insert_at then
@@ -1934,7 +2083,6 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         else
             start = self:_append_lines({ footer })
         end
-        Tools.set_border(self, start, Tools.GLYPHS.BOT)
         local footer_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, start, 0, {
             end_col = #footer,
             hl_group = footer_hl,
@@ -1943,11 +2091,12 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         if block then
             local icon_hl = is_success and "PiToolHeader" or "PiToolError"
             local icon = Config.options.labels.tool
+            local fold = Tools.GLYPHS.FOLD_OPEN
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.icon_extmark, {})
             if pos[1] then
-                vim.api.nvim_buf_set_extmark(self._buf, ns, pos[1], 0, {
+                vim.api.nvim_buf_set_extmark(self._buf, ns, pos[1], #fold, {
                     id = block.icon_extmark,
-                    end_col = #icon,
+                    end_col = #fold + #icon,
                     hl_group = icon_hl,
                 })
             end
@@ -1956,7 +2105,7 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
             self:_maybe_collapse_tool(tool_call_id)
         end
 
-        self._needs_separator = true
+        self._needs_breathing_line = true
 
         if should_scroll then
             self:_scroll_to_bottom()
@@ -1986,12 +2135,12 @@ function History:_maybe_collapse_tool(tool_call_id)
     local output_vis = renderer.output_visible or math.huge
 
     local input_lines, output_lines, has_output = Tools.extract_tool_sections(self, block)
-    -- Subtract border glyph width so truncation accounts for inline virt_text
+    -- Subtract indent width so truncation accounts for body line prefix
     local win_width = self._win and vim.api.nvim_win_is_valid(self._win) and vim.api.nvim_win_get_width(self._win) or 0
-    local border_w = vim.fn.strdisplaywidth(Tools.GLYPHS.MID)
+    local indent_w = vim.fn.strdisplaywidth(Tools.GLYPHS.INDENT)
     local gutters = (self._win and vim.wo[self._win].foldcolumn or "0")
     local gutter_w = tonumber(gutters) or 0
-    local max_width = win_width > 0 and (win_width - border_w - gutter_w - border_w) or 0
+    local max_width = win_width > 0 and (win_width - indent_w - gutter_w) or 0
     if not Tools.should_collapse(input_lines, output_lines, input_vis, output_vis, max_width) then
         return
     end
@@ -2017,6 +2166,13 @@ function History:_maybe_collapse_tool(tool_call_id)
     Tools.apply_collapsed_extmarks(self, inner_start, specs, collapsed)
 
     block.expanded = false
+    -- Update fold indicator on header
+    self:_with_modifiable(function()
+        local line = vim.api.nvim_buf_get_lines(self._buf, header_row, header_row + 1, false)[1] or ""
+        if line:sub(1, #Tools.GLYPHS.FOLD_OPEN) == Tools.GLYPHS.FOLD_OPEN then
+            vim.api.nvim_buf_set_text(self._buf, header_row, 0, header_row, #Tools.GLYPHS.FOLD_OPEN, { Tools.GLYPHS.FOLD_CLOSE })
+        end
+    end)
 end
 
 ---@param target_block pi.ToolBlock
@@ -2053,6 +2209,15 @@ function History:_set_tool_block_expanded(target_block, expanded)
         end
     end)
     target_block.expanded = expanded
+    -- Toggle fold indicator on header line
+    self:_with_modifiable(function()
+        local line = vim.api.nvim_buf_get_lines(self._buf, header_row, header_row + 1, false)[1] or ""
+        local new_fold = expanded and Tools.GLYPHS.FOLD_OPEN or Tools.GLYPHS.FOLD_CLOSE
+        local old_fold = expanded and Tools.GLYPHS.FOLD_CLOSE or Tools.GLYPHS.FOLD_OPEN
+        if line:sub(1, #old_fold) == old_fold then
+            vim.api.nvim_buf_set_text(self._buf, header_row, 0, header_row, #old_fold, { new_fold })
+        end
+    end)
     return true
 end
 
@@ -2106,6 +2271,15 @@ function History:_all_blocks_expanded()
         end
     end
 
+    for _, block in ipairs(self._thinking_blocks) do
+        if block.visible then
+            saw_block = true
+            if not block.expanded then
+                return false
+            end
+        end
+    end
+
     return saw_block and true or self._blocks_expanded
 end
 
@@ -2122,6 +2296,45 @@ function History:set_blocks_expanded(expanded)
 
     for _, block in pairs(self._tool_blocks) do
         changed = self:_set_tool_block_expanded(block, expanded) or changed
+    end
+
+    for _, block in ipairs(self._thinking_blocks) do
+        if block.visible and block.expanded ~= expanded then
+            -- Use the same toggle logic as toggle_thinking_block
+            local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.anchor, {})
+            local anchor_row = pos[1]
+            if anchor_row then
+                if expanded then
+                    -- Expand
+                    if block.virt_id then
+                        pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, block.virt_id)
+                        block.virt_id = nil
+                    end
+                    local block_lines = self:_build_thinking_block(block.header, block.lines)
+                    self:_with_modifiable(function()
+                        vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, block_lines)
+                    end)
+                    self:_apply_thinking_hl(anchor_row + 1, #block_lines - 2)
+                    block.line_count = #block_lines
+                    block.expanded = true
+                    changed = true
+                else
+                    -- Collapse
+                    local label = Config.options.labels.thinking
+                    local header_text = label .. " " .. block.header
+                    self:_with_modifiable(function()
+                        vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, { "", header_text })
+                    end)
+                    self:_apply_thinking_hl(anchor_row + 1, 1)
+                    local flat = thinking_flat(block.lines)
+                    local pw = self:_thinking_preview_width(header_text)
+                    block.virt_id = self:_set_thinking_preview(anchor_row + 1, thinking_head(flat, pw), block.virt_id)
+                    block.line_count = 2
+                    block.expanded = false
+                    changed = true
+                end
+            end
+        end
     end
 
     return changed
@@ -2182,11 +2395,11 @@ end
 ---@param start_row integer
 ---@param lines string[]
 function History:_apply_tool_live_update_extmarks(start_row, lines)
-    Tools.set_border(self, start_row, Tools.GLYPHS.SEP)
+    Tools.set_border(self, start_row, Tools.GLYPHS.INDENT)
     for i = 2, #lines do
         local row = start_row + i - 1
+        Tools.set_border(self, row, Tools.GLYPHS.INDENT)
         local line = lines[i] or ""
-        Tools.set_border(self, row, Tools.GLYPHS.MID)
         if #line > 0 then
             vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
                 end_col = #line,
@@ -2324,15 +2537,18 @@ function History:on_thinking_start()
             buf_lines = 0,
         }
         if self._show_thinking then
+            -- Single-line presentation: a blank breathing line + one header line.
+            -- The streaming preview is drawn as inline virtual text on the header
+            -- (a rolling tail window), so thinking never grows vertically.
             local header_text = label .. " Thinking…"
-            local block = { "", header_text, "", "" }
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, anchor, {})
             local row = pos[1]
             self:_with_modifiable(function()
-                vim.api.nvim_buf_set_lines(self._buf, row, row, false, block)
+                vim.api.nvim_buf_set_lines(self._buf, row, row, false, { "", header_text })
             end)
             self:_apply_thinking_hl(row + 1, 1)
-            self._thinking_accum.buf_lines = 4
+            self._thinking_accum.buf_lines = 2
+            self._thinking_accum.header_text = header_text
         end
         self:_update_status_extmark()
         self:_maybe_scroll()
@@ -2358,26 +2574,19 @@ function History:on_thinking_delta(delta)
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        -- Single-line: keep the header row fixed, roll the latest thinking
+        -- through its inline preview (tail window) so the block stays one line.
         local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, self._thinking_accum.anchor, {})
-        local anchor_row = pos[1]
-        local insert_row = anchor_row + self._thinking_accum.buf_lines - 1
-        self:_with_modifiable(function()
-            local last_content_row = insert_row - 1
-            local cur = vim.api.nvim_buf_get_lines(self._buf, last_content_row, last_content_row + 1, false)[1] or ""
-            vim.api.nvim_buf_set_text(self._buf, last_content_row, #cur, last_content_row, #cur, { parts[1] })
-            if #parts > 1 then
-                local new_lines = {}
-                for i = 2, #parts do
-                    new_lines[#new_lines + 1] = parts[i]
-                end
-                vim.api.nvim_buf_set_lines(self._buf, insert_row, insert_row, false, new_lines)
-                self._thinking_accum.buf_lines = self._thinking_accum.buf_lines + #new_lines
-            end
-        end)
-        local content_start = anchor_row + 2
-        local content_count = self._thinking_accum.buf_lines - 3
-        if content_count > 0 then
-            self:_apply_thinking_hl(content_start, content_count)
+        local header_row = pos[1] and (pos[1] + 1) or nil
+        if header_row then
+            local flat = thinking_flat(self._thinking_accum.lines)
+            local pw = self:_thinking_preview_width(self._thinking_accum.header_text or "")
+            local preview = thinking_tail(flat, pw)
+            self._thinking_accum.virt_id = self:_set_thinking_preview(
+                header_row,
+                preview,
+                self._thinking_accum.virt_id
+            )
         end
         self:_update_status_extmark()
         self:_maybe_scroll()
@@ -2401,6 +2610,13 @@ function History:on_thinking_end()
         local visible = self._show_thinking
         local line_count
 
+        local virt_id = self._thinking_accum.virt_id
+        -- Delete streaming preview extmark before replacing the header line;
+        -- otherwise gravity causes it to drift to the wrong row.
+        if virt_id then
+            pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, virt_id)
+            virt_id = nil
+        end
         if visible then
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, self._thinking_accum.anchor, {})
             local header_row = pos[1] + 1
@@ -2410,10 +2626,13 @@ function History:on_thinking_end()
                 vim.api.nvim_buf_set_lines(self._buf, header_row, header_row + 1, false, { header_text })
             end)
             self:_apply_thinking_hl(header_row, 1)
-            line_count = self._thinking_accum.buf_lines
+            -- Freeze the rolling preview into a static head summary.
+            local flat = thinking_flat(self._thinking_accum.lines)
+            local pw = self:_thinking_preview_width(header_text)
+            virt_id = self:_set_thinking_preview(header_row, thinking_head(flat, pw), virt_id)
+            line_count = 2
         else
-            local block_lines = self:_build_thinking_block(header, self._thinking_accum.lines)
-            line_count = #block_lines
+            line_count = 0
         end
 
         self._thinking_blocks[#self._thinking_blocks + 1] = {
@@ -2422,6 +2641,8 @@ function History:on_thinking_end()
             anchor = self._thinking_accum.anchor,
             line_count = line_count,
             visible = visible,
+            expanded = false,
+            virt_id = virt_id,
         }
         self._thinking_accum = nil
         self:_update_status_extmark()
@@ -2436,16 +2657,87 @@ function History:toggle_thinking()
         end
         for _, block in ipairs(self._thinking_blocks) do
             if self._show_thinking and not block.visible then
-                local block_lines = self:_build_thinking_block(block.header, block.lines)
-                self:_insert_thinking_block(block_lines, block.anchor)
-                block.line_count = #block_lines
+                -- Show as single-line header + preview (not expanded)
+                local label = Config.options.labels.thinking
+                local header_text = label .. " " .. block.header
+                local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.anchor, {})
+                local row = pos[1]
+                self:_with_modifiable(function()
+                    vim.api.nvim_buf_set_lines(self._buf, row, row, false, { "", header_text })
+                end)
+                self:_apply_thinking_hl(row + 1, 1)
+                local flat = thinking_flat(block.lines)
+                local pw = self:_thinking_preview_width(header_text)
+                block.virt_id = self:_set_thinking_preview(row + 1, thinking_head(flat, pw), block.virt_id)
+                block.line_count = 2
                 block.visible = true
+                block.expanded = false
             elseif not self._show_thinking and block.visible then
                 self:_remove_thinking_block(block.line_count, block.anchor)
+                if block.virt_id then
+                    pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, block.virt_id)
+                    block.virt_id = nil
+                end
                 block.visible = false
+                block.expanded = false
             end
         end
     end)
+end
+
+--- Toggle expand/collapse for the thinking block under the cursor.
+---@return boolean toggled
+function History:toggle_thinking_block()
+    local win = self:win()
+    if not win then
+        return false
+    end
+    local cursor_row = vim.api.nvim_win_get_cursor(win)[1] - 1
+
+    for _, block in ipairs(self._thinking_blocks) do
+        if not block.visible then
+            goto continue
+        end
+        local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.anchor, {})
+        local anchor_row = pos[1]
+        if not anchor_row then
+            goto continue
+        end
+        local block_start = anchor_row
+        local block_end = anchor_row + block.line_count - 1
+        if cursor_row >= block_start and cursor_row <= block_end then
+            if block.expanded then
+                -- Collapse: replace multi-line with single-line + preview
+                local label = Config.options.labels.thinking
+                local header_text = label .. " " .. block.header
+                self:_with_modifiable(function()
+                    vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, { "", header_text })
+                end)
+                self:_apply_thinking_hl(anchor_row + 1, 1)
+                local flat = thinking_flat(block.lines)
+                local pw = self:_thinking_preview_width(header_text)
+                block.virt_id = self:_set_thinking_preview(anchor_row + 1, thinking_head(flat, pw), block.virt_id)
+                block.line_count = 2
+                block.expanded = false
+            else
+                -- Expand: replace single-line with multi-line block
+                if block.virt_id then
+                    pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, block.virt_id)
+                    block.virt_id = nil
+                end
+                local block_lines = self:_build_thinking_block(block.header, block.lines)
+                self:_with_modifiable(function()
+                    vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, block_lines)
+                end)
+                self:_apply_thinking_hl(anchor_row + 1, #block_lines - 2)
+                block.line_count = #block_lines
+                block.expanded = true
+            end
+            return true
+        end
+        ::continue::
+    end
+    return false
 end
 
 ---@return boolean

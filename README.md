@@ -1427,25 +1427,24 @@ Note the distinction from regular widgets: `setWidget` calls with keys that **do
 
 ### Tool blocks
 
-When the agent invokes a tool, pi.nvim renders the call inline in the chat history as a **tool block**. Each block shows the tool name, its input summary, and its output, framed by a lightweight border in the gutter.
+When the agent invokes a tool, pi.nvim renders the call inline in the chat history as a **tool block**. Each block shows the tool name, its input summary, and its output. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
 
 ```
-╭─ 󰻂 bash
-│  rg -n 'foo' lua/
-├────
-│  …12 lines
-│  lua/pi/init.lua:42: foo = 1
-╰─  completed
+▾ 󰻂 bash
+  rg -n 'foo' lua/
+
+  …12 lines
+  lua/pi/init.lua:42: foo = 1
 ```
 
-The labels in the header and footer come from `labels.tool`, `labels.tool_success`, `labels.tool_failure` in your config. The success/failure icon on the bottom row reflects how the tool actually resolved (see [Status resolution](#status-resolution) below).
+Successful tool calls end silently (a blank breathing line); only errors print a status footer. The labels come from `labels.tool`, `labels.tool_failure` in your config. A spinner animates on the header row while the tool is running.
 
 #### Inline vs full blocks
 
 Tools come in two rendering styles:
 
 - **Inline tools** render as a single line. `read` is the canonical example — it shows `read path/to/file (42 lines)` and stays on one line even when the file is huge, because inlining the content would just be noise. Consecutive inline tool calls are grouped without blank lines between them.
-- **Full-block tools** get the multi-line bordered block shown above. `bash`, `edit`, `write`, and any tool pi.nvim doesn't have a dedicated renderer for fall into this category.
+- **Full-block tools** get the multi-line indented block shown above. `bash`, `edit`, `write`, and any tool pi.nvim doesn't have a dedicated renderer for fall into this category.
 
 #### Auto-collapse and `<Tab>`
 
@@ -1454,7 +1453,7 @@ Every full-block tool has two collapse thresholds:
 - `input_visible` — how many lines of the input/arguments to show when collapsed. Extra lines become `+N lines`.
 - `output_visible` — how many lines of the tool output to show when collapsed. `output_visible = 0` hides the output section entirely when collapsed (used for `edit`/`write` where the diff is the input).
 
-When a tool's input or output exceeds its threshold, the block is auto-collapsed on first render. You can toggle between the collapsed and fully-expanded view with `<Tab>` while the cursor is on the block in the history buffer. The same `<Tab>` also toggles the [Startup block](#startup-block) when the cursor is on that instead — pi.nvim dispatches based on what you're hovering over.
+When a tool's input or output exceeds its threshold, the block is auto-collapsed on first render (the fold indicator changes from `▾` to `▸`). You can toggle between the collapsed and fully-expanded view with `<Tab>` while the cursor is on the block in the history buffer. The same `<Tab>` also toggles the [Startup block](#startup-block) and [thinking blocks](#thinking) when the cursor is on one of those instead — pi.nvim dispatches based on what you're hovering over.
 
 Bind `pi.toggle_history_blocks()` to expand/collapse all expandable history blocks at once; the [Keymaps](#keymaps) example uses `<C-o>`.
 
@@ -1485,7 +1484,7 @@ The prefix is stripped from the displayed text before the block is rendered, so 
 #### Customization
 
 > [!NOTE]
-> Tool renderers are currently **hard-coded** in `lua/pi/ui/chat/tools.lua`. There's no config surface for registering your own renderer, adjusting built-in thresholds, or overriding the border glyphs. If you'd like any of these to be configurable, please open an issue.
+> Tool renderers are currently **hard-coded** in `lua/pi/ui/chat/tools.lua`. There's no config surface for registering your own renderer or adjusting built-in thresholds. If you'd like any of these to be configurable, please open an issue.
 
 ### Models
 
@@ -1546,6 +1545,10 @@ Thinking blocks can be noisy, especially on models that think verbosely or on lo
 - **Toggle**: `:PiToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
 
 Hiding thinking doesn't change anything on the backend or affect how the agent works; it's purely a view setting.
+
+#### Presentation
+
+When visible, each thinking block renders as a **single header line** with an inline preview of the content (truncated to fit the window width). During streaming the preview rolls with the latest text; once finished it freezes to a head summary. Press `<Tab>` on the header to expand the full multi-line thinking text, and `<Tab>` again to collapse it back. `pi.toggle_history_blocks()` (`<C-o>` in the example keymaps) expands/collapses all blocks — tool and thinking — at once.
 
 #### Thinking levels
 
@@ -1953,7 +1956,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 
 | Group | Role |
 | --- | --- |
-| `PiToolBorder` | Tool block border glyphs (`╭─`, `│`, `├────`, `╰─`) |
+| `PiToolBorder` | Tool block indent / fold glyphs |
+| `PiToolRunning` | Spinner on a running tool's header row |
 | `PiToolHeader` | Tool block header row (tool name) |
 | `PiToolCall` | Tool input / call summary |
 | `PiToolOutput` | Tool output body |

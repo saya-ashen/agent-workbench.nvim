@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-24
+
+- **CHANGED:** Replace box-drawing tool block borders with fold indicators (`▾`/`▸`) and indentation for a cleaner, less noisy layout.
+- **CHANGED:** Successful tool calls now end silently; only errors show a status footer.
+- **ADDED:** Animated spinner on running tool header rows (`PiToolRunning` highlight).
+- **CHANGED:** Thinking blocks render as a single header line with an inline rolling preview; press `<Tab>` to expand/collapse.
+- **CHANGED:** `pi.toggle_history_blocks()` now also toggles thinking blocks.
+
 ## 2026-07-08
 
 - **FIXED:** Show the assistant header before tool-only turns so tool calls do not appear under the user message.

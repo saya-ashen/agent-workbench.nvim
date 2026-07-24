@@ -249,11 +249,13 @@ function Chat:_set_keymaps()
         end,
     })
 
-    -- Toggle collapsible blocks (system preamble, compaction summaries, tool blocks)
+    -- Toggle collapsible blocks (system preamble, compaction summaries, tool blocks, thinking blocks)
     vim.keymap.set("n", "<Tab>", function()
         if self._history:toggle_startup_block() then
             return
         elseif self._history:toggle_compaction_block() then
+            return
+        elseif self._history:toggle_thinking_block() then
             return
         elseif self._history:toggle_tool_block() then
             return
