@@ -42,6 +42,14 @@
 ---@field width? integer Prompt width in columns (default: textwidth if set, otherwise 80)
 ---@field keys pi.ZenKeys
 
+---@class pi.PromptHistoryConfig
+---@field enabled? boolean Record submitted prompts and allow recalling them (default: true)
+---@field max? integer Maximum number of entries kept (oldest dropped, default: 500)
+---@field path? string Override the history file (default: stdpath("data")/pi/prompt_history.json)
+
+---@class pi.PromptConfig
+---@field history pi.PromptHistoryConfig
+
 ---@class pi.DiffKeys
 ---@field accept pi.KeySpecs
 ---@field reject pi.KeySpecs
@@ -201,6 +209,7 @@
 ---@field diff pi.DiffConfig
 ---@field attention pi.UiAttentionConfig
 ---@field zen pi.ZenConfig
+---@field prompt pi.PromptConfig
 ---@field dialog pi.DialogConfig
 ---@field verbs pi.VerbsConfig Verb pairs for status messages, picked randomly per run
 ---@field on_widget? fun(key: string, lines: string[]?, placement: string?): pi.CustomBlock? Handle extension setWidget calls. Return a custom block to render inline in history, or nil to ignore. Not called for `:startup` widgets (keys ending with `:startup`), which are always stored as startup announcements and rendered in the system preamble.
@@ -323,6 +332,12 @@ local defaults = {
         keys = {
             toggle = nil,
             exit = nil,
+        },
+    },
+    prompt = {
+        history = {
+            enabled = true,
+            max = 500,
         },
     },
     verbs = {

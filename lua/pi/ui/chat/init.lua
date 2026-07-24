@@ -37,6 +37,7 @@ local Prompt = require("pi.ui.chat.prompt")
 local Attachments = require("pi.ui.chat.attachments")
 local Mentions = require("pi.ui.chat.mentions")
 local Zen = require("pi.ui.chat.zen")
+local PromptHistory = require("pi.prompt_history")
 
 ---@class pi.CompactionQueuedMessage
 ---@field text string
@@ -71,6 +72,8 @@ function Chat.new(tab, mode, agent)
     self._done_verb = nil
     self._last_turn_stop_reason = nil
     self._zen = Zen.new(self._prompt)
+    self._prompt_history = nil
+    self._applying_history = false
     return self
 end
 
@@ -181,6 +184,59 @@ function Chat:_set_keymaps()
     vim.keymap.set("i", "<S-CR>", function()
         vim.api.nvim_put({ "", "" }, "c", false, true)
     end, { buffer = pbuf, desc = "New line" })
+
+    -- Prompt history recall (readline-style). <C-p>/<C-n> are the canonical
+    -- readline keys and never conflict with multi-line cursor movement.
+    -- <Up>/<Down> also recall, but only when they wouldn't otherwise move the
+    -- cursor (top/bottom line) and the completion menu is closed.
+    vim.keymap.set({ "i", "n" }, "<C-p>", function()
+        if vim.fn.pumvisible() == 0 then
+            self:history_prev()
+        end
+    end, { buffer = pbuf, desc = "π history: previous" })
+
+    vim.keymap.set({ "i", "n" }, "<C-n>", function()
+        if vim.fn.pumvisible() == 0 then
+            self:history_next()
+        end
+    end, { buffer = pbuf, desc = "π history: next" })
+
+    vim.keymap.set("i", "<Up>", function()
+        if vim.fn.pumvisible() == 1 or vim.api.nvim_win_get_cursor(0)[1] > 1 then
+            return "<Up>"
+        end
+        return self:history_prev() and "" or "<Up>"
+    end, { buffer = pbuf, expr = true, desc = "π history: previous (top line)" })
+
+    vim.keymap.set("i", "<Down>", function()
+        if vim.fn.pumvisible() == 1 then
+            return "<Down>"
+        end
+        local store = self:_history_store()
+        local navigating = store and store:navigating() or false
+        local last_line = vim.api.nvim_buf_line_count(pbuf)
+        if navigating or vim.api.nvim_win_get_cursor(0)[1] >= last_line then
+            if self:history_next() then
+                return ""
+            end
+        end
+        return "<Down>"
+    end, { buffer = pbuf, expr = true, desc = "π history: next (bottom line)" })
+
+    -- Leave history-navigation mode when the user edits the prompt by hand, so
+    -- a later <Down> doesn't clobber their typing with a stale entry.
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+        buffer = pbuf,
+        callback = function()
+            if self._applying_history then
+                return
+            end
+            local store = self:_history_store()
+            if store and store:navigating() then
+                store:reset_nav()
+            end
+        end,
+    })
 
     -- Toggle collapsible blocks (system preamble, compaction summaries, tool blocks)
     vim.keymap.set("n", "<Tab>", function()
@@ -559,11 +615,104 @@ end
 --- When queue_type is set, the message is added to the pending queue (virtual text)
 --- instead of the chat history. It moves to the history when `message_start` arrives.
 ---@param queue_type "steer"|"follow_up"|nil
+--- Get the prompt-history store for this chat, honoring config. Returns nil
+--- when history is disabled so callers can no-op.
+---@return pi.PromptHistoryStore?
+function Chat:_history_store()
+    local cfg = Config.options.prompt and Config.options.prompt.history
+    if not cfg or cfg.enabled == false then
+        return nil
+    end
+    if not self._prompt_history then
+        self._prompt_history = PromptHistory.get({ max = cfg.max, path = cfg.path })
+    end
+    return self._prompt_history
+end
+
+--- Current prompt buffer text (untrimmed; used as the draft to stash).
+---@return string
+function Chat:_prompt_draft()
+    local buf = self._prompt:buf()
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return ""
+    end
+    return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+end
+
+--- Replace the prompt buffer text (e.g. with a recalled history entry) and move
+--- the cursor to the end. Sets `_applying_history` so the manual-edit reset
+--- autocmd ignores this programmatic change.
+---@param text string
+function Chat:_set_prompt_draft(text)
+    local buf = self._prompt:buf()
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+    -- Defer the buffer edit: <expr> mappings (e.g. <Up>/<Down>) must not
+    -- modify the buffer while their expression is being evaluated, or Neovim
+    -- silently drops the change. Scheduling is harmless for the plain
+    -- <C-p>/<C-n> mappings too.
+    self._applying_history = true
+    vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then
+            self._applying_history = false
+            return
+        end
+        local lines = vim.split(text, "\n", { plain = true })
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        local win = self._prompt:win()
+        if win then
+            local row = math.max(#lines, 1)
+            local col = #(lines[row] or "")
+            pcall(vim.api.nvim_win_set_cursor, win, { row, col })
+        end
+        vim.schedule(function()
+            self._applying_history = false
+        end)
+    end)
+end
+
+--- Recall the previous (older) prompt into the prompt buffer.
+---@return boolean handled
+function Chat:history_prev()
+    local store = self:_history_store()
+    if not store then
+        return false
+    end
+    local entry = store:prev(self:_prompt_draft())
+    if entry == nil then
+        return false
+    end
+    self:_set_prompt_draft(entry)
+    return true
+end
+
+--- Recall the next (newer) prompt, restoring the draft at the present.
+---@return boolean handled
+function Chat:history_next()
+    local store = self:_history_store()
+    if not store then
+        return false
+    end
+    local entry = store:next()
+    if entry == nil then
+        return false
+    end
+    self:_set_prompt_draft(entry)
+    return true
+end
+
 function Chat:_send_message(queue_type)
     local text = self._prompt:text()
 
     if text == "" and self._attachments:count() == 0 then
         return
+    end
+
+    -- Record the raw prompt in readline-style history (before mention expansion).
+    local hist_store = self:_history_store()
+    if hist_store and text ~= "" then
+        hist_store:add(text)
     end
 
     -- Exit zen mode before sending so the user returns to normal chat.
