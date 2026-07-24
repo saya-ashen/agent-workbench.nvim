@@ -50,6 +50,9 @@
 ---@class pi.PromptConfig
 ---@field history pi.PromptHistoryConfig
 
+---@class pi.RenderConfig
+---@field engine? string Markdown renderer for the chat history: "builtin" (default, treesitter + custom extmarks) or "render-markdown" (requires render-markdown.nvim)
+
 ---@class pi.DiffKeys
 ---@field accept pi.KeySpecs
 ---@field reject pi.KeySpecs
@@ -210,6 +213,7 @@
 ---@field attention pi.UiAttentionConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
+---@field render pi.RenderConfig
 ---@field dialog pi.DialogConfig
 ---@field verbs pi.VerbsConfig Verb pairs for status messages, picked randomly per run
 ---@field on_widget? fun(key: string, lines: string[]?, placement: string?): pi.CustomBlock? Handle extension setWidget calls. Return a custom block to render inline in history, or nil to ignore. Not called for `:startup` widgets (keys ending with `:startup`), which are always stored as startup announcements and rendered in the system preamble.
@@ -339,6 +343,9 @@ local defaults = {
             enabled = true,
             max = 500,
         },
+    },
+    render = {
+        engine = "builtin",
     },
     verbs = {
         use_defaults = true,

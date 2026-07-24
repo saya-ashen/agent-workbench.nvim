@@ -109,6 +109,7 @@ History.__index = History
 local Ft = require("pi.filetypes")
 local Config = require("pi.config")
 local Tools = require("pi.ui.chat.tools")
+local Render = require("pi.ui.render")
 
 local ns = vim.api.nvim_create_namespace("pi-chat")
 
@@ -453,6 +454,9 @@ function History.new(tab)
     vim.bo[self._buf].bufhidden = "hide"
     vim.bo[self._buf].modifiable = false
     vim.api.nvim_buf_set_name(self._buf, name)
+
+    -- Optional richer markdown rendering (no-op for the builtin engine).
+    Render.attach_history(self._buf)
 
     return self
 end

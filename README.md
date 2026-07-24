@@ -379,6 +379,13 @@ require("pi").setup({
         },
     },
 
+    -- Markdown rendering of the chat history.
+    render = {
+        -- "builtin" (treesitter + custom drawing) or "render-markdown"
+        -- (delegates to render-markdown.nvim, an optional dependency).
+        engine = "builtin",
+    },
+
     -- Verb pairs for status messages, picked randomly per run.
     verbs = {
         -- When true, user pairs are appended to the built-in list;
@@ -1528,6 +1535,24 @@ Two ways to change it mid-session:
 Both operations require an active session with a reasoning-capable model; on a non-reasoning model they warn _"Current model does not support thinking"_ and leave state unchanged.
 
 Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`) and pick on a shifted variant (`<M-T>`) — the [Keymaps](#keymaps) example already does this.
+
+### Markdown rendering
+
+By default the chat history uses pi's **builtin** renderer: treesitter markdown highlights plus custom drawing for tables, message labels and tool blocks. For a richer presentation — rendered headings, list bullets, code-block chrome, links — pi can optionally delegate to [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim):
+
+```lua
+require("pi").setup({
+    render = {
+        engine = "render-markdown", -- default: "builtin"
+    },
+})
+```
+
+Notes:
+
+- render-markdown.nvim is an **optional** dependency; add it to your plugin spec yourself. If `engine = "render-markdown"` is set but the plugin is missing, pi warns once and falls back to the builtin renderer.
+- pi only appends its `pi-chat-history` filetype to render-markdown's active `file_types`; your existing render-markdown configuration is left untouched.
+- render-markdown drives the rendering through its standard event hooks, so it stays in sync as the agent streams. The `markdown`/`markdown_inline` treesitter parsers it needs ship with Neovim ≥ 0.10.
 
 ### Sessions
 
