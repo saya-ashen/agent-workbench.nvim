@@ -11,7 +11,9 @@
 ---@field _prompt pi.ChatPrompt
 ---@field _keymaps_set boolean
 ---@field _streaming boolean
----@field _abort_esc_at number? Timestamp (ms) of the first <Esc> in a double-<Esc> abort gesture
+---@field _abort_esc_at number? Timestamp (ms) of the first <Esc> in a double-<Esc> abort gesture (nil = not armed)
+---@field _abort_esc_timer uv.uv_timer_t? Disarms the double-<Esc> gesture after `abort.timeout`
+---@field _aborted_notice_timer uv.uv_timer_t? Clears the transient "Aborted" overlay notice
 ---@field _compacting boolean
 ---@field _assistant_block_open boolean
 ---@field _assistant_message_header_rendered boolean
@@ -62,6 +64,8 @@ function Chat.new(tab, mode, agent)
     self._keymaps_set = false
     self._streaming = false
     self._abort_esc_at = nil
+    self._abort_esc_timer = nil
+    self._aborted_notice_timer = nil
     self._compacting = false
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
@@ -528,37 +532,94 @@ function Chat:is_streaming()
     return self._streaming
 end
 
+--- Render or clear the abort hint in the status overlay to match the current
+--- armed state. Deferred with vim.schedule because the caller may run inside
+--- the insert-mode <expr> mapping, where buffer/window mutations are dropped
+--- (gotcha G1). State-driven (the last scheduled sync wins), so rapid
+--- arm/disarm sequences never leave a stale hint behind.
+function Chat:_sync_abort_hint()
+    vim.schedule(function()
+        if self._abort_esc_at and self._streaming then
+            local cfg = Config.options.abort or {}
+            if cfg.enabled ~= false then
+                self._history:set_abort_hint(cfg.message or "Press <Esc> again to abort")
+                return
+            end
+        end
+        self._history:clear_abort_hint()
+    end)
+end
+
+--- Disarm the double-<Esc> gesture: forget the armed state, stop the disarm
+--- timer, and clear the overlay hint. Safe to call from an <expr> mapping (no
+--- synchronous buffer/window mutations).
+function Chat:_disarm_abort_esc()
+    self._abort_esc_at = nil
+    if self._abort_esc_timer then
+        self._abort_esc_timer:stop()
+        self._abort_esc_timer:close()
+        self._abort_esc_timer = nil
+    end
+    self:_sync_abort_hint()
+end
+
 --- Handle one <Esc> press of the double-<Esc> abort gesture.
 ---
---- While the agent is streaming, the first press records a timestamp and shows
---- a gentle echo hint; a second press within `abort.timeout` ms aborts the
---- agent (same as :PiAbort / pi.abort()). Outside of streaming, or when the
---- feature is disabled, this is a no-op so <Esc> keeps its normal behavior.
---- Side effects are deferred with vim.schedule so the insert-mode <expr>
---- mapping stays free of buffer/UI mutations (see gotcha G1).
+--- While the agent is streaming, the first press arms the gesture and shows a
+--- hint row in the bottom status overlay; a second press within
+--- `abort.timeout` ms aborts the agent (same as :PiAbort / pi.abort()). A timer
+--- disarms automatically once the window elapses. Outside of streaming, or when
+--- the feature is disabled, this is a no-op so <Esc> keeps its normal behavior.
 function Chat:_handle_abort_esc()
     if not self._streaming then
-        self._abort_esc_at = nil
+        self:_disarm_abort_esc()
         return
     end
     local cfg = Config.options.abort or {}
     if cfg.enabled == false then
         return
     end
-    local now = vim.uv.now()
-    local timeout = cfg.timeout or 1500
-    if self._abort_esc_at and (now - self._abort_esc_at) <= timeout then
-        self._abort_esc_at = nil
+    -- Second press while armed -> abort.
+    if self._abort_esc_at then
+        self:_disarm_abort_esc()
         vim.schedule(function()
             require("pi").abort()
         end)
         return
     end
-    self._abort_esc_at = now
-    local message = cfg.message or "Press <Esc> again to abort"
-    vim.schedule(function()
-        vim.api.nvim_echo({ { "π │ " .. message, "PiWelcomeHint" } }, false, {})
-    end)
+    -- First press -> arm, show the hint, and schedule an automatic disarm.
+    self._abort_esc_at = vim.uv.now()
+    if self._abort_esc_timer then
+        self._abort_esc_timer:stop()
+        self._abort_esc_timer:close()
+    end
+    local timeout = cfg.timeout or 1500
+    self._abort_esc_timer = assert(vim.uv.new_timer())
+    self._abort_esc_timer:start(timeout, 0, vim.schedule_wrap(function()
+        self:_disarm_abort_esc()
+    end))
+    self:_sync_abort_hint()
+end
+
+--- Clear the transient "Aborted" overlay notice and stop its timer.
+function Chat:_clear_aborted_notice()
+    if self._aborted_notice_timer then
+        self._aborted_notice_timer:stop()
+        self._aborted_notice_timer:close()
+        self._aborted_notice_timer = nil
+    end
+    self._history:clear_aborted_notice()
+end
+
+--- Show a transient "Aborted" confirmation in the status overlay for ~2s, so
+--- the user gets clear feedback that the turn was aborted.
+function Chat:_show_aborted_notice()
+    self:_clear_aborted_notice()
+    self._history:set_aborted_notice("Aborted")
+    self._aborted_notice_timer = assert(vim.uv.new_timer())
+    self._aborted_notice_timer:start(2000, 0, vim.schedule_wrap(function()
+        self:_clear_aborted_notice()
+    end))
 end
 
 ---@return boolean
@@ -854,6 +915,7 @@ end
 function Chat:on_agent_start(timestamp)
     self._streaming = true
     self._last_turn_stop_reason = nil
+    self:_clear_aborted_notice()
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
@@ -924,6 +986,7 @@ end
 
 function Chat:on_agent_end()
     self._streaming = false
+    self:_disarm_abort_esc()
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
@@ -939,12 +1002,13 @@ function Chat:on_agent_end()
     end
     self._history:clear_pending_queue()
 
+    local stop_reason = self._last_turn_stop_reason
     local completion_text = self._done_verb
     local force_completion = false
-    if self._last_turn_stop_reason == "aborted" then
+    if stop_reason == "aborted" then
         completion_text = "Aborted"
         force_completion = true
-    elseif self._last_turn_stop_reason == "error" then
+    elseif stop_reason == "error" then
         completion_text = "Failed"
         force_completion = true
     end
@@ -953,8 +1017,13 @@ function Chat:on_agent_end()
     self._done_verb = nil
     self._last_turn_stop_reason = nil
 
-    self._history:on_agent_end(completion_text, { force_completion = force_completion })
+    self._history:on_agent_end(completion_text, { force_completion = force_completion, stop_reason = stop_reason })
     self:set_status(nil)
+
+    -- Clear, eye-catching confirmation that the turn was aborted.
+    if stop_reason == "aborted" then
+        self:_show_aborted_notice()
+    end
 
     if not self:has_prompt_focus() then
         local attention_config = Config.options.attention
@@ -1180,6 +1249,8 @@ end
 
 function Chat:clear()
     self._streaming = false
+    self:_disarm_abort_esc()
+    self:_clear_aborted_notice()
     self._compacting = false
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false

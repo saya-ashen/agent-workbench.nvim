@@ -8,6 +8,8 @@
 ---@field _status_extmark_id integer?
 ---@field _status_text string?
 ---@field _status_start_time number?
+---@field _abort_hint string? Transient "press <Esc> again to abort" row in the status overlay
+---@field _aborted_notice string? Transient "Aborted" confirmation row in the status overlay
 ---@field _spinner_frames string[]
 ---@field _spinner_rate integer
 ---@field _spinner_index integer
@@ -415,6 +417,8 @@ function History.new(tab)
     self._status_extmark_id = nil
     self._status_text = nil
     self._status_start_time = nil
+    self._abort_hint = nil
+    self._aborted_notice = nil
     self._spinner_index = 1
     self._spinner_timer = nil
     self:_pick_spinner()
@@ -635,6 +639,24 @@ function History:_update_status_extmark()
         }
     end
 
+    -- Abort hint / aborted-confirmation rows (centered, single highlight).
+    -- Centering uses display width (CJK-safe); the highlight span uses byte
+    -- offsets into the padded line, matching the spinner row above.
+    local function centered_row(body, hl)
+        local win_width = win and vim.api.nvim_win_get_width(win) or 80
+        local pad = math.max(0, math.floor((win_width - vim.fn.strdisplaywidth(body)) / 2))
+        local padstr = string.rep(" ", pad)
+        local text = padstr .. body
+        local c0 = #padstr
+        rows[#rows + 1] = { text = text, hls = { { c0, c0 + #body, hl } } }
+    end
+    if self._abort_hint then
+        centered_row(self._abort_hint, "PiAbortHint")
+    end
+    if self._aborted_notice then
+        centered_row(self._aborted_notice, "PiAborted")
+    end
+
     -- Nothing to show, or no window to pin to: tear down the overlay.
     if #rows == 0 or not win then
         self:_close_status_float()
@@ -703,6 +725,38 @@ function History:_close_status_float()
         pcall(vim.api.nvim_win_close, self._status_win, true)
     end
     self._status_win = nil
+end
+
+--- Show the "press <Esc> again to abort" hint row in the status overlay.
+---@param text string
+function History:set_abort_hint(text)
+    self._abort_hint = text
+    self:_update_status_extmark()
+end
+
+--- Hide the abort hint row.
+function History:clear_abort_hint()
+    if self._abort_hint == nil then
+        return
+    end
+    self._abort_hint = nil
+    self:_update_status_extmark()
+end
+
+--- Show a transient "Aborted" confirmation row in the status overlay.
+---@param text string
+function History:set_aborted_notice(text)
+    self._aborted_notice = text
+    self:_update_status_extmark()
+end
+
+--- Hide the aborted-confirmation row.
+function History:clear_aborted_notice()
+    if self._aborted_notice == nil then
+        return
+    end
+    self._aborted_notice = nil
+    self:_update_status_extmark()
 end
 
 ---@param text string
@@ -1264,13 +1318,22 @@ function History:on_agent_end(done_verb, opts)
             duration = "<1s"
         end
         local suffix = force_completion and ("  · " .. verb:lower()) or ("  · " .. duration)
+        -- Aborted/errored turns get a prominent highlight instead of the muted
+        -- completion color, so the final state is easy to spot in the history.
+        local stop_reason = opts and opts.stop_reason
+        local completion_hl = "PiBusyTime"
+        if stop_reason == "aborted" then
+            completion_hl = "PiAborted"
+        elseif stop_reason == "error" then
+            completion_hl = "PiError"
+        end
         -- Attach completion as virtual text on the last non-empty prose line
         local last_line_idx = vim.api.nvim_buf_line_count(self._buf) - 1
         local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line_idx, last_line_idx + 1, false)[1] or ""
         local win_width = self._win and vim.api.nvim_win_is_valid(self._win) and vim.api.nvim_win_get_width(self._win) or 80
         if last_text ~= "" and (#last_text + #suffix) < win_width then
             vim.api.nvim_buf_set_extmark(self._buf, ns, last_line_idx, #last_text, {
-                virt_text = { { suffix, "PiBusyTime" } },
+                virt_text = { { suffix, completion_hl } },
                 virt_text_pos = "inline",
             })
         else
@@ -1279,7 +1342,7 @@ function History:on_agent_end(done_verb, opts)
             local start = self:_append_lines({ "", text })
             vim.api.nvim_buf_set_extmark(self._buf, ns, start + 1, 0, {
                 end_col = #text,
-                hl_group = "PiBusyTime",
+                hl_group = completion_hl,
             })
         end
     end)
@@ -2903,6 +2966,8 @@ function History:clear()
     end
     self._status_buf = nil
     self._status_text = nil
+    self._abort_hint = nil
+    self._aborted_notice = nil
     self._status_extmark_id = nil
     self._pending_queue = {}
     self._pending_queue_extmark_id = nil

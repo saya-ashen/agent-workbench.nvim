@@ -607,7 +607,9 @@ Both queued messages are rendered in the history with distinct labels (`labels.s
 
 ### Aborting with double `<Esc>`
 
-While the agent is **streaming**, pressing `<Esc>` twice in quick succession aborts the current turn — the same as `:PiAbort` / `pi.abort()`. The first `<Esc>` only shows a gentle hint in the command line (`π │ Press <Esc> again to abort`); the second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
+While the agent is **streaming**, pressing `<Esc>` twice in quick succession aborts the current turn — the same as `:PiAbort` / `pi.abort()`. The first `<Esc>` arms the gesture and shows a hint row in the **status overlay** pinned to the bottom of the chat history (the same overlay that shows the busy spinner) — so it stays visible instead of flashing by like a command-line message. The second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. If you don't press a second `<Esc>` in time, the gesture disarms itself and the hint disappears. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
+
+When a turn is aborted (by double-`<Esc>`, `:PiAbort`, or `pi.abort()`), the overlay briefly shows a centered **Aborted** confirmation (`PiAborted` highlight) for about two seconds, and the completion marker left in the history (`· aborted`) uses that same prominent highlight rather than the muted busy color — so it's obvious the turn was cancelled.
 
 When the agent is **idle**, `<Esc>` keeps its normal behavior (leaves insert mode) and the gesture is inert — no hint, no abort.
 
@@ -618,7 +620,7 @@ require("pi").setup({
     abort = {
         enabled = true, -- set false to disable double-<Esc> abort entirely
         timeout = 1500, -- ms window for the second <Esc> to count
-        message = "Press <Esc> again to abort", -- hint shown on the first <Esc>
+        message = "Press <Esc> again to abort", -- hint row shown in the overlay on the first <Esc>
     },
 })
 ```
@@ -1980,6 +1982,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiWelcomeHint` | Hint text under the welcome |
 | `PiBusy` | "Agent is working" status text |
 | `PiBusyTime` | Elapsed time counter next to the busy status |
+| `PiAbortHint` | "Press <Esc> again to abort" hint row in the status overlay |
+| `PiAborted` | Transient "Aborted" confirmation overlay + in-history abort marker |
 | `PiWarning` | Inline warning lines |
 | `PiError` | Inline error lines |
 | `PiDebug` | Inline debug lines |
