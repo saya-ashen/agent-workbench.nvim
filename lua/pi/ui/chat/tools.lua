@@ -1,5 +1,7 @@
 --- Tool call rendering for chat history.
 
+local Render = require("pi.ui.render")
+
 local M = {}
 
 M.GLYPHS = {
@@ -20,12 +22,12 @@ local nf = function(cp) return vim.fn.nr2char(cp, 1) end
 local TOOL_ICONS = {
     bash       = nf(0xE795), -- nf-dev-terminal
     read       = nf(0xF0219), -- nf-md-file-document
-    edit       = nf(0xF3EB), -- nf-md-pencil
-    write      = nf(0xF193), -- nf-md-content-save
-    grep       = nf(0xF349), -- nf-md-magnify
-    glob       = nf(0xF24B), -- nf-md-folder
-    web_fetch  = nf(0xF593), -- nf-md-web
-    web_search = nf(0xF349), -- nf-md-magnify
+    edit       = nf(0xF03EB), -- nf-md-pencil
+    write      = nf(0xF0193), -- nf-md-content-save
+    grep       = nf(0xF0349), -- nf-md-magnify
+    glob       = nf(0xF024B), -- nf-md-folder
+    web_fetch  = nf(0xF0593), -- nf-md-web
+    web_search = nf(0xF0349), -- nf-md-magnify
 }
 
 --- Get the nerd font icon for a tool name.
@@ -170,8 +172,9 @@ end
 ---@param history pi.ChatHistory
 ---@param text string
 ---@param insert_at? integer  when set, insert at this row instead of appending
+---@param lang? string  language hint for the code fence (e.g. "bash")
 ---@return integer? next_insert_at  advanced insertion cursor (nil when appending)
-local function render_output(history, text, insert_at)
+local function render_output(history, text, insert_at, lang)
     text = M.sanitize_text(text)
     local sep_row
     if insert_at then
@@ -181,25 +184,40 @@ local function render_output(history, text, insert_at)
     end
     M.set_border(history, sep_row, M.GLYPHS.INDENT)
     local output_lines = vim.split(text, "\n", { plain = true })
-    -- The history buffer uses treesitter markdown for rendering agent prose.
-    -- Tool output may contain ``` at the start of a line (e.g. a command that
-    -- prints code fences). Treesitter treats these as code fence delimiters —
-    -- an unclosed fence causes all content below to be styled as code.
-    --
-    -- We use conceallevel=0 on the history window so treesitter can't conceal
-    -- characters (brackets, bold markers, etc.) inside tool output. But it still
-    -- PARSES ``` as fence delimiters. To prevent leaking, we count fence lines
-    -- and auto-close if odd — same approach used for user messages in history.lua.
+
     local auto_closed = false
-    local fences = 0
-    for _, line in ipairs(output_lines) do
-        if line:match("^```") then
-            fences = fences + 1
+
+    if Render.engine() == "render-markdown" then
+        -- Wrap output in a fenced code block so render-markdown.nvim treats
+        -- it as literal code (prevents "# comment" → heading, etc.).
+        -- Fence nesting: pick a fence one backtick longer than the longest
+        -- backtick run at the start of any output line (minimum 3).
+        local max_run = 0
+        for _, line in ipairs(output_lines) do
+            local run = line:match("^(`+)")
+            if run and #run > max_run then
+                max_run = #run
+            end
         end
-    end
-    if fences % 2 == 1 then
-        output_lines[#output_lines + 1] = "```"
-        auto_closed = true
+        local fence = string.rep("`", math.max(max_run + 1, 3))
+        table.insert(output_lines, 1, fence .. (lang or ""))
+        output_lines[#output_lines + 1] = fence
+    else
+        -- Builtin engine: treesitter PARSES ``` as fence delimiters regardless
+        -- of conceallevel.  To prevent an unclosed fence from leaking
+        -- code-block styling into the content below, count fence lines and
+        -- auto-close if odd — same approach used for user messages in
+        -- history.lua.
+        local fences = 0
+        for _, line in ipairs(output_lines) do
+            if line:match("^```") then
+                fences = fences + 1
+            end
+        end
+        if fences % 2 == 1 then
+            output_lines[#output_lines + 1] = "```"
+            auto_closed = true
+        end
     end
     local start
     if insert_at then
@@ -476,15 +494,39 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
         lines[#lines + 1] = ""
         specs[#specs + 1] = "separator"
 
+        -- Collect visible output lines
+        local visible_output = {}
         if #output_lines <= output_visible then
             for _, l in ipairs(output_lines) do
-                add(l, "output")
+                visible_output[#visible_output + 1] = l
             end
         elseif #output_lines > 0 then
             lines[#lines + 1] = "…" .. (#output_lines - output_visible) .. " lines"
             specs[#specs + 1] = "summary"
             for i = #output_lines - output_visible + 1, #output_lines do
-                add(output_lines[i], "output")
+                visible_output[#visible_output + 1] = output_lines[i]
+            end
+        end
+
+        -- When render-markdown is active, wrap visible output in a code fence
+        -- to prevent markdown parsing (e.g. setext headings from === lines).
+        if Render.engine() == "render-markdown" and #visible_output > 0 then
+            local max_run = 0
+            for _, line in ipairs(visible_output) do
+                local run = line:match("^(`+)")
+                if run and #run > max_run then
+                    max_run = #run
+                end
+            end
+            local fence = string.rep("`", math.max(max_run + 1, 3))
+            add(fence, "output")
+            for _, l in ipairs(visible_output) do
+                add(l, "output")
+            end
+            add(fence, "output")
+        else
+            for _, l in ipairs(visible_output) do
+                add(l, "output")
             end
         end
     end
@@ -538,6 +580,23 @@ function M.extract_tool_sections(history, block)
         local content_start = output_row + 1 -- skip separator
         if content_start < footer_row then
             output_lines = vim.api.nvim_buf_get_lines(buf, content_start, footer_row, false)
+        end
+    end
+
+    -- When the render-markdown engine is active, render_output() wraps tool
+    -- output in a fenced code block (```lang / ```).  These fence lines are
+    -- display-only artifacts — they must not be counted as real output when
+    -- building the collapsed view, otherwise the closing fence leaks into the
+    -- collapsed summary as an orphan ``` that render-markdown misparses as a
+    -- new code-block start, bleeding its background colour into surrounding
+    -- lines (inline tools, headers, etc.).
+    if Render.engine() == "render-markdown" and #output_lines >= 2 then
+        local first = output_lines[1]
+        local last = output_lines[#output_lines]
+        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]" ) then
+            -- Strip opening fence (```lang) and closing fence (```)
+            table.remove(output_lines, 1) -- opening fence
+            table.remove(output_lines)    -- closing fence (last element)
         end
     end
 

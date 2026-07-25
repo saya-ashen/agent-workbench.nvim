@@ -3,6 +3,9 @@
 ## 2026-07-26
 
 - **ADDED:** Direct bash mode — prefix the prompt with `!` to run a shell command (e.g. `!ls -la`). Output streams live into a collapsible block in the history, and the result is added to the LLM context on the next prompt. `!!command` excludes output from context. The prompt panel title switches to `bash` (configurable via `panels.prompt.bash_title`) with a distinct foreground color while in bash mode. A single `<Esc>` cancels a running `!` command (`:PiAbortBash` / `pi.abort_bash()`). Bash execution messages replay correctly on session load/switch.
+- **CHANGED:** Completed inline tools (e.g. `read`) now keep their colored header highlight instead of fading to muted gray, matching the behavior of block tools (`bash`, `edit`, `write`).
+- **FIXED:** Tool output no longer gets misparsed as markdown headings when using the `render-markdown` engine. Output is now wrapped in code fences in both expanded and collapsed views to prevent setext heading syntax (e.g. `===` lines) from triggering.
+- **FIXED:** Tool block expand/collapse round-trips no longer corrupt the footer extmark anchor, preventing toggle failures after multiple collapse/expand cycles.
 
 ## 2026-07-25
 

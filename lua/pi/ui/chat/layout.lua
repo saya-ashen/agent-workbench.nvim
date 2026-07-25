@@ -16,6 +16,7 @@ Layout.__index = Layout
 local Config = require("pi.config")
 local Prompt = require("pi.ui.chat.prompt")
 local Highlights = require("pi.ui.highlights")
+local Render = require("pi.ui.render")
 
 --- Low z-index so other floats naturally sit on top.
 local FLOAT_ZINDEX = 10
@@ -422,9 +423,12 @@ function Layout:_open_in_side_layout()
     vim.api.nvim_win_set_buf(self._history_win, self._history:buf())
     set_win_opts(self._history_win, function(win)
         vim.wo[win].winfixwidth = true
-        -- conceallevel=0: treesitter markdown can't conceal brackets/bold
-        -- in tool output, so we don't need ``` fence wrappers.
-        vim.wo[win].conceallevel = 0
+        -- Builtin engine: conceallevel=0 because treesitter markdown can't
+        -- conceal brackets/bold in tool output.  render-markdown engine needs
+        -- conceallevel=2 (set by set_win_opts) to hide syntax markers.
+        if Render.engine() == "builtin" then
+            vim.wo[win].conceallevel = 0
+        end
     end)
     if panels.history.winbar then
         set_winbar(self._history_win, Config.options.panels.history.title, "PiChatHistoryWinbar")
@@ -476,7 +480,9 @@ function Layout:_open_in_float_layout()
     set_win_opts(self._history_win)
     vim.wo[self._history_win].winbar = ""
     vim.wo[self._history_win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
-    vim.wo[self._history_win].conceallevel = 0
+    if Render.engine() == "builtin" then
+        vim.wo[self._history_win].conceallevel = 0
+    end
     self._history:set_win(self._history_win)
 
     self._prompt_win = vim.api.nvim_open_win(

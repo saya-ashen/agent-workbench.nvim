@@ -197,6 +197,31 @@ local function restore_extmarks(buf, ns_id, base_row, saved)
     end
 end
 
+--- Re-anchor a tool block's footer extmark as a *single-line* mark.
+---
+--- nvim_buf_set_lines() shifts the footer row when the inner region is
+--- replaced, and Neovim's boundary gravity can mutate the zero-width footer
+--- extmark into a multi-line one (end_row = 1, spanning past the buffer end).
+--- A later clear_namespace(inner_start, footer_row) then deletes that
+--- multi-line mark, which breaks the next expand/collapse toggle (the footer
+--- row can no longer be resolved).  Forcing the mark back to a single line
+--- after every such set_lines keeps the anchor stable across round-trips.
+---@param history pi.ChatHistory
+---@param block pi.ToolBlock
+---@param footer_row integer 0-indexed row the footer now lives on
+local function reanchor_end_extmark(history, block, footer_row)
+    if not block or not block.end_extmark then
+        return
+    end
+    local buf = history:buf()
+    local line = vim.api.nvim_buf_get_lines(buf, footer_row, footer_row + 1, false)[1] or ""
+    vim.api.nvim_buf_set_extmark(buf, ns, footer_row, 0, {
+        id = block.end_extmark,
+        end_col = #line,
+        hl_group = block.end_hl_group,
+    })
+end
+
 ---@class pi.SpinnerDef
 ---@field refresh_rate integer ms between frames
 ---@field frames string[]
@@ -2114,8 +2139,8 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
             local labels = Config.options.labels
             local status = Tools.resolve_status(result, is_error)
             local is_success = status == "completed"
-            -- Fade completed inline tools to muted; errors stay loud
-            local icon_hl = is_success and "PiToolInlineDone" or "PiToolError"
+            -- Keep completed inline tools highlighted; errors stay loud
+            local icon_hl = is_success and "PiToolHeader" or "PiToolError"
             local status_icon = is_success and labels.tool_success or labels.tool_failure
             local status_hl = is_success and "PiToolStatus" or "PiToolError"
 
@@ -2227,6 +2252,7 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
                 })
             end
             block.end_extmark = footer_extmark
+            block.end_hl_group = footer_hl
             block.expanded = true
             self:_maybe_collapse_tool(tool_call_id)
         end
@@ -2290,6 +2316,7 @@ function History:_maybe_collapse_tool(tool_call_id)
         vim.api.nvim_buf_set_lines(self._buf, inner_start, footer_row, false, collapsed)
     end)
     Tools.apply_collapsed_extmarks(self, inner_start, specs, collapsed)
+    reanchor_end_extmark(self, block, inner_start + #collapsed)
 
     block.expanded = false
     -- Update fold indicator on header
@@ -2334,6 +2361,8 @@ function History:_set_tool_block_expanded(target_block, expanded)
             )
         end
     end)
+    local written = expanded and target_block.expanded_inner_lines or target_block.collapsed_inner_lines
+    reanchor_end_extmark(self, target_block, inner_start + #written)
     target_block.expanded = expanded
     -- Toggle fold indicator on header line
     self:_with_modifiable(function()
