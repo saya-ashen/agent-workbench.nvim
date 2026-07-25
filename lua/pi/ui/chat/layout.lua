@@ -379,7 +379,8 @@ function Layout:_open_in_side_layout()
     local side_cfg = Config.resolve_side_layout()
     local panels = side_cfg.panels
     local w = resolve_side_width()
-    vim.cmd("botright " .. w .. "vsplit")
+    local vsplit_cmd = side_cfg.position == "left" and "topleft" or "botright"
+    vim.cmd(vsplit_cmd .. " " .. w .. "vsplit")
 
     self._history_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(self._history_win, self._history:buf())

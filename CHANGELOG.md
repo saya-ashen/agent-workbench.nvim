@@ -2,6 +2,7 @@
 
 ## 2026-07-25
 
+- **ADDED:** `layout.side.position` now supports `"left"` to open the side panel on the left edge of the editor.
 - **ADDED:** Double-`<Esc>` aborts the running agent (same as `:PiAbort`). The first `<Esc>` arms the gesture and shows a persistent hint row in the bottom status overlay; a second `<Esc>` within `abort.timeout` ms aborts. Configurable via the new `abort` option (`enabled`, `timeout`, `message`).
 - **ADDED:** Aborting a turn now shows a brief centered **Aborted** confirmation in the status overlay, and the in-history completion marker (`· aborted` / `· failed`) uses a prominent highlight (`PiAborted` / `PiError`) instead of the muted busy color.
 - **CHANGED:** Status spinner and pending-queue display moved from virtual lines to a pinned floating overlay at the bottom of the history viewport.

@@ -16,7 +16,7 @@
 ---@field attachments pi.SidePanelOpts
 
 ---@class pi.SideLayout
----@field position "right"|"bottom"
+---@field position "left"|"right"|"bottom"
 ---@field width integer
 ---@field height? integer
 ---@field panels pi.SidePanels

@@ -259,9 +259,9 @@ require("pi").setup({
         -- Default layout when opening the chat: "side" or "float".
         default = "side",
         side = {
-            -- Side panel position: "right" or "bottom".
+            -- Side panel position: "left", "right", or "bottom".
             position = "right",
-            -- Width in columns when position is "right".
+            -- Width in columns when position is "left" or "right".
             width = 80,
             panels = {
                 -- Show winbars on each panel in side layout.
@@ -563,9 +563,9 @@ The chat is rendered in one of two layouts.
 
 **Floating window** opens π as a centered floating window over the editor. Good for the parts of the workflow where the conversation _is_ the work — planning, brainstorming, debugging out loud, writing specs — and you don't need the code visible at the same time. Having the chat comfortably wide and centered is much easier on your neck than spending forty minutes craned toward a side panel on the right.
 
-**Side panel** opens π as a vertical split anchored to the right edge of the editor (or to the bottom). Good for the parts of the workflow where the code _is_ the subject of the conversation — exploring an unfamiliar codebase, doing a review, asking targeted questions about specific files or regions, pulling things into the chat with `@mentions`. You want both the code and the agent on screen at the same time.
+**Side panel** opens π as a vertical split anchored to the left or right edge of the editor (or to the bottom). Good for the parts of the workflow where the code _is_ the subject of the conversation — exploring an unfamiliar codebase, doing a review, asking targeted questions about specific files or regions, pulling things into the chat with `@mentions`. You want both the code and the agent on screen at the same time.
 
-Pick a default with `layout.default = "side" | "float"`, or override per-invocation with `:Pi layout=side` / `:Pi layout=float`. Side dimensions live under `layout.side` (`position` is `"right"` or `"bottom"`, plus `width` / `height`); float dimensions live under `layout.float` (`width`, `height`, `border`). Both `side` and `float` also accept a function returning the table, which lets you compute size based on screen dimensions or other state at open time.
+Pick a default with `layout.default = "side" | "float"`, or override per-invocation with `:Pi layout=side` / `:Pi layout=float`. Side dimensions live under `layout.side` (`position` is `"left"`, `"right"`, or `"bottom"`, plus `width` / `height`); float dimensions live under `layout.float` (`width`, `height`, `border`). Both `side` and `float` also accept a function returning the table, which lets you compute size based on screen dimensions or other state at open time.
 
 Each chat contains three panels:
 
