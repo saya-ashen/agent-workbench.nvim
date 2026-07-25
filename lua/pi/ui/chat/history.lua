@@ -672,7 +672,10 @@ function History:_update_status_extmark()
     end
     local buf = self._status_buf
 
-    local lines = {}
+    -- Leading blank line: one-line margin separating the overlay from the
+    -- history content above it (the overlay is bottom-pinned, so the extra
+    -- line grows it upward while the status rows stay at the bottom).
+    local lines = { "" }
     for _, r in ipairs(rows) do
         lines[#lines + 1] = r.text
     end
@@ -683,7 +686,8 @@ function History:_update_status_extmark()
     for i, r in ipairs(rows) do
         for _, h in ipairs(r.hls) do
             if h[3] and h[3] ~= "" and h[2] > h[1] then
-                vim.api.nvim_buf_set_extmark(buf, status_ns, i - 1, h[1], { end_col = h[2], hl_group = h[3] })
+                -- +1 line offset for the leading padding line.
+                vim.api.nvim_buf_set_extmark(buf, status_ns, i, h[1], { end_col = h[2], hl_group = h[3] })
             end
         end
     end
