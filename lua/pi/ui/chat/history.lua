@@ -2651,7 +2651,18 @@ function History:on_thinking_start()
         self._is_thinking = true
         local label = Config.options.labels.thinking
         local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
-        local anchor = vim.api.nvim_buf_set_extmark(self._buf, ns, last_line, 0, {
+        local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
+        -- The thinking block is placed as [blank breathing line, header]. Anchor
+        -- it after all existing content so it renders in stream order. Normally
+        -- the buffer ends with a blank breathing line, so anchor there and insert
+        -- before it (that blank then stays after the header). Inline tools (and
+        -- any content that doesn't end in a blank) leave the last line as real
+        -- content; anchoring there would insert the block *before* that content
+        -- and push it down, reordering the turn (thinking rendered before the
+        -- tool). Anchor just past the last line in that case so the block lands
+        -- at the end, where it belongs.
+        local anchor_row = last_text == "" and last_line or (last_line + 1)
+        local anchor = vim.api.nvim_buf_set_extmark(self._buf, ns, anchor_row, 0, {
             right_gravity = false,
         })
         self._thinking_accum = {

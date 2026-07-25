@@ -7,6 +7,7 @@
 - **CHANGED:** Status spinner and pending-queue display moved from virtual lines to a pinned floating overlay at the bottom of the history viewport.
 - **CHANGED:** Per-tool icons in tool headers; completed inline tools fade to a muted style.
 - **FIXED:** Thinking preview no longer corrupts non-ASCII text (CJK, emoji) when truncating to fit the display width.
+- **FIXED:** A thinking block following an inline tool (e.g. `read`) no longer renders *before* it. Thinking blocks now always anchor after the preceding content, so a `thinking → tool → thinking` turn renders in the correct order instead of `thinking → thinking → tool`.
 
 ## 2026-07-24
 
