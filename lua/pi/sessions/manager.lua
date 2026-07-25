@@ -320,6 +320,8 @@ local function handle_event(session, msg)
         end
     elseif t == "tool_execution_update" then
         chat:on_tool_update(msg.toolName or "tool", msg.toolCallId, msg)
+    elseif t == "bash_execution_update" then
+        chat:on_bash_update(msg.id, msg.delta or "")
     elseif ignored_events[t] then
         return true
     else
@@ -401,8 +403,8 @@ function M.get_or_create(opts)
 
     ---@type pi.ChatAgent
     local agent = {
-        send = function(msg)
-            return rpc:send(msg)
+        send = function(msg, callback)
+            return rpc:send(msg, callback)
         end,
     }
 
@@ -624,6 +626,12 @@ local function replay_messages(session, messages)
                 pending_agent_end = false
             end
             session.chat:append_compaction_summary(msg.summary or "", tonumber(msg.tokensBefore) or 0)
+        elseif role == "bashExecution" then
+            if pending_agent_end then
+                session.chat:on_agent_end()
+                pending_agent_end = false
+            end
+            session.chat:on_bash_replay(msg)
         end
     end
     -- Flush any remaining pending agent_end

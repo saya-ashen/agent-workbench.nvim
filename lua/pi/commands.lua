@@ -60,6 +60,10 @@ function M.setup()
         Pi.abort()
     end, { desc = "Abort current π operation" })
 
+    vim.api.nvim_create_user_command("PiAbortBash", function()
+        Pi.abort_bash()
+    end, { desc = "Abort the running direct bash (!) command" })
+
     vim.api.nvim_create_user_command("PiStop", function()
         Pi.stop()
     end, { desc = "Stop π process and close chat" })

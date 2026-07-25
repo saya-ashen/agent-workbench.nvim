@@ -432,6 +432,8 @@ function History.new(tab)
     self._thinking_accum = nil
     self._thinking_blocks = {}
     self._tool_blocks = {}
+    self._bash_blocks = {}
+    self._bash_replay_counter = 0
     self._compaction_blocks = {}
     self._blocks_expanded = false
     self._placeholder_extmark = nil
@@ -2643,6 +2645,366 @@ function History:mark_pending_tools_errored(error_message)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Direct bash execution blocks (! commands, RPC `bash`)
+-- ---------------------------------------------------------------------------
+
+--- Display cap for streamed bash output, mirroring the TUI's DEFAULT_MAX_LINES.
+--- Once hit, rendering stops (with a note) until the final response replaces
+--- the region with the backend-truncated tail.
+local BASH_DISPLAY_MAX = 2000
+
+---@class pi.BashBlock
+---@field id string
+---@field command string
+---@field exclude_from_context boolean
+---@field header_extmark integer header row anchor
+---@field inner_offset integer lines from header to first output row (header + command body)
+---@field spinner_extmark integer?
+---@field end_extmark integer footer row anchor (trails the last output row)
+---@field partial string unflushed incomplete output line
+---@field partial_rendered boolean partial is currently rendered as a line
+---@field rendered_lines integer completed output lines rendered so far
+---@field display_capped boolean display cap hit; rendering paused
+---@field finished boolean
+
+--- Insert output lines into a bash block just before its footer marker.
+---@param block pi.BashBlock
+---@param lines string[]
+---@param hl_group? string
+function History:_bash_insert_output(block, lines, hl_group)
+    local footer_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.end_extmark, {})
+    if not footer_pos[1] then
+        return
+    end
+    local row = footer_pos[1]
+    self:_with_modifiable(function()
+        vim.api.nvim_buf_set_lines(self._buf, row, row, false, lines)
+    end)
+    hl_group = hl_group or "PiBashOutput"
+    for i, line in ipairs(lines) do
+        local r = row + i - 1
+        Tools.set_border(self, r, Tools.GLYPHS.INDENT)
+        if #line > 0 then
+            vim.api.nvim_buf_set_extmark(self._buf, ns, r, 0, {
+                end_col = #line,
+                hl_group = hl_group,
+                priority = 200,
+            })
+        end
+    end
+end
+
+--- Delete the rendered partial line (if any) from a bash block.
+---@param block pi.BashBlock
+function History:_bash_clear_partial(block)
+    if not block.partial_rendered then
+        return
+    end
+    block.partial_rendered = false
+    local footer_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.end_extmark, {})
+    if not footer_pos[1] or footer_pos[1] == 0 then
+        return
+    end
+    local row = footer_pos[1] - 1
+    vim.api.nvim_buf_clear_namespace(self._buf, ns, row, row + 1)
+    self:_with_modifiable(function()
+        vim.api.nvim_buf_set_lines(self._buf, row, row + 1, false, {})
+    end)
+end
+
+--- Render the header of a direct bash execution block and register the block.
+---@param id string
+---@param command string
+---@param exclude_from_context? boolean
+function History:on_bash_start(id, command, exclude_from_context)
+    vim.schedule(function()
+        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            return
+        end
+        self:_begin_conversation_content()
+        self._needs_separator = false
+        self._needs_breathing_line = false
+        self._last_was_inline = false
+
+        local fold = Tools.GLYPHS.FOLD_OPEN
+        local cmd_lines = vim.split(Tools.sanitize_text(command), "\n", { plain = true })
+        local header = fold .. "$ " .. cmd_lines[1]
+
+        local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
+        local cur = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
+        -- Ensure exactly one blank line before the block header
+        local lines = cur == "" and { header } or { "", header }
+        local start = self:_append_lines(lines)
+        local header_row = lines[1] == "" and start + 1 or start
+
+        vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {
+            end_col = #fold,
+            hl_group = "PiToolBorder",
+        })
+        -- Excluded-from-context commands (!!) render dim, like the TUI's dim border.
+        local header_hl = exclude_from_context and "PiToolCall" or "PiBashHeader"
+        vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #fold, {
+            end_col = #header,
+            hl_group = header_hl,
+        })
+        local spinner_virt = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #header, {
+            virt_text = { { "  " .. self._spinner_frames[self._spinner_index], "PiToolRunning" } },
+            virt_text_pos = "inline",
+        })
+
+        -- Multi-line commands: remaining lines render as indented input body.
+        for i = 2, #cmd_lines do
+            local row = self:_append_lines({ cmd_lines[i] })
+            Tools.set_border(self, row, Tools.GLYPHS.INDENT)
+            if #cmd_lines[i] > 0 then
+                vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
+                    end_col = #cmd_lines[i],
+                    hl_group = "PiToolCall",
+                })
+            end
+        end
+
+        -- Footer placeholder line: output grows above it. The end_extmark
+        -- trails the last output row (inserts happen at its row, pushing it
+        -- down). The output start is derived from the header anchor plus the
+        -- fixed command-body offset, since plain row anchors move with the
+        -- footer on line insertion regardless of gravity.
+        local footer_row = self:_append_lines({ "" })
+        ---@type pi.BashBlock
+        self._bash_blocks[id] = {
+            id = id,
+            command = command,
+            exclude_from_context = exclude_from_context == true,
+            header_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {}),
+            inner_offset = #cmd_lines,
+            spinner_extmark = spinner_virt,
+            end_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, footer_row, 0, { right_gravity = true }),
+            partial = "",
+            partial_rendered = false,
+            rendered_lines = 0,
+            display_capped = false,
+            finished = false,
+        }
+
+        self:_update_status_extmark()
+        self:_maybe_scroll()
+    end)
+end
+
+--- Append a streamed output chunk to a bash block. Chunks are split into
+--- lines; an incomplete trailing line is kept as `partial` and rendered as a
+--- live line until the next chunk completes it (TUI behavior).
+---@param id string
+---@param delta string
+function History:on_bash_output(id, delta)
+    vim.schedule(function()
+        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            return
+        end
+        local block = self._bash_blocks[id]
+        if not block or block.finished or delta == "" then
+            return
+        end
+
+        local clean = Tools.sanitize_text(delta):gsub("\r\n", "\n"):gsub("\r", "\n")
+        local chunk_lines = vim.split(clean, "\n", { plain = true })
+
+        -- Join the first piece onto the pending partial; the last piece is the
+        -- new partial. Everything in between is a completed line.
+        block.partial = block.partial .. chunk_lines[1]
+        local completed = {} ---@type string[]
+        if #chunk_lines > 1 then
+            completed[1] = block.partial
+            for i = 2, #chunk_lines - 1 do
+                completed[#completed + 1] = chunk_lines[i]
+            end
+            block.partial = chunk_lines[#chunk_lines]
+        end
+
+        local should_scroll = self:_should_auto_scroll()
+
+        self:_bash_clear_partial(block)
+
+        if #completed > 0 and not block.display_capped then
+            local room = BASH_DISPLAY_MAX - block.rendered_lines
+            if #completed > room then
+                if room > 0 then
+                    local head = {}
+                    for i = 1, room do
+                        head[i] = completed[i]
+                    end
+                    self:_bash_insert_output(block, head)
+                    block.rendered_lines = block.rendered_lines + room
+                end
+                block.display_capped = true
+                self:_bash_insert_output(
+                    block,
+                    { "… output truncated in chat (showing first " .. BASH_DISPLAY_MAX .. " lines)" },
+                    "PiWarning"
+                )
+            else
+                self:_bash_insert_output(block, completed)
+                block.rendered_lines = block.rendered_lines + #completed
+            end
+        end
+
+        if block.partial ~= "" and not block.display_capped then
+            self:_bash_insert_output(block, { block.partial })
+            block.partial_rendered = true
+        end
+
+        self:_update_status_extmark()
+        if should_scroll then
+            self:_scroll_to_bottom()
+        end
+    end)
+end
+
+--- Replace a bash block's output region with the final (backend-truncated)
+--- output and render status lines. Called from on_bash_end when the response
+--- carries authoritative output (truncated runs, display cap hit).
+---@param block pi.BashBlock
+---@param output string
+---@param status_lines { text: string, hl: string }[]
+function History:_bash_finalize_output(block, output, status_lines)
+    local header_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.header_extmark, {})
+    local end_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.end_extmark, {})
+    if not header_pos[1] or not end_pos[1] then
+        return
+    end
+    local start_row, footer_row = header_pos[1] + block.inner_offset, end_pos[1]
+    if start_row > footer_row then
+        return
+    end
+
+    local out_lines = vim.split(Tools.sanitize_text(output), "\n", { plain = true })
+    -- Drop a single trailing empty line (commands usually end with \n).
+    if #out_lines > 1 and out_lines[#out_lines] == "" then
+        out_lines[#out_lines] = nil
+    end
+
+    local final = {} ---@type string[]
+    for _, line in ipairs(out_lines) do
+        final[#final + 1] = line
+    end
+    for _, status in ipairs(status_lines) do
+        final[#final + 1] = status.text
+    end
+
+    vim.api.nvim_buf_clear_namespace(self._buf, ns, start_row, footer_row)
+    self:_with_modifiable(function()
+        vim.api.nvim_buf_set_lines(self._buf, start_row, footer_row, false, final)
+    end)
+    local status_start = #final - #status_lines + 1
+    for i, line in ipairs(final) do
+        local row = start_row + i - 1
+        Tools.set_border(self, row, Tools.GLYPHS.INDENT)
+        if #line > 0 then
+            local hl = i >= status_start and status_lines[i - status_start + 1].hl or "PiBashOutput"
+            vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
+                end_col = #line,
+                hl_group = hl,
+                priority = 200,
+            })
+        end
+    end
+    block.partial_rendered = false
+end
+
+--- Complete a bash block: stop the spinner, apply authoritative output when
+--- the run was truncated (or the display cap was hit), and render status.
+--- `result` is the RPC BashResult (output/exitCode/cancelled/truncated/
+--- fullOutputPath) or `{ error = "..." }` when the RPC call itself failed.
+---@param id string
+---@param result table
+function History:on_bash_end(id, result)
+    vim.schedule(function()
+        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            return
+        end
+        local block = self._bash_blocks[id]
+        if not block or block.finished then
+            return
+        end
+        block.finished = true
+
+        local should_scroll = self:_should_auto_scroll()
+
+        if block.spinner_extmark then
+            pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, block.spinner_extmark)
+            block.spinner_extmark = nil
+        end
+
+        local exit_code = result.exitCode
+        local cancelled = result.cancelled == true
+        local truncated = result.truncated == true
+        local rpc_error = type(result.error) == "string" and result.error or nil
+
+        -- Status lines rendered inside the output region (TUI shows them
+        -- below the output, inside the block).
+        local status_lines = {} ---@type { text: string, hl: string }[]
+        if rpc_error then
+            status_lines[#status_lines + 1] = { text = rpc_error, hl = "PiToolError" }
+        end
+        if truncated then
+            local warn = "Output truncated."
+            if type(result.fullOutputPath) == "string" and result.fullOutputPath ~= "" then
+                warn = warn .. " Full output: " .. result.fullOutputPath
+            end
+            status_lines[#status_lines + 1] = { text = warn, hl = "PiWarning" }
+        end
+        if cancelled then
+            status_lines[#status_lines + 1] = { text = "(cancelled)", hl = "PiWarning" }
+        elseif type(exit_code) == "number" and exit_code ~= 0 then
+            status_lines[#status_lines + 1] = { text = "(exit " .. exit_code .. ")", hl = "PiToolError" }
+        end
+
+        local output = type(result.output) == "string" and result.output or nil
+        if output and (truncated or block.display_capped or rpc_error) then
+            -- Authoritative backend output replaces the streamed region (this
+            -- also drops the in-flight cap note and any stale partial).
+            self:_bash_finalize_output(block, output, status_lines)
+            status_lines = {}
+        else
+            -- Keep streamed lines; drop a dangling partial only when the
+            -- response disagrees with it (rpc error path).
+            if rpc_error then
+                self:_bash_clear_partial(block)
+            end
+            for _, status in ipairs(status_lines) do
+                self:_bash_insert_output(block, { status.text }, status.hl)
+            end
+        end
+
+        self._needs_breathing_line = true
+        self:_update_status_extmark()
+        if should_scroll then
+            self:_scroll_to_bottom()
+        end
+    end)
+end
+
+--- Render a completed bash execution from session replay (bashExecution msg).
+---@param msg table
+function History:on_bash_replay(msg)
+    self._bash_replay_counter = self._bash_replay_counter + 1
+    local id = "replay:bash:" .. self._bash_replay_counter
+    local command = type(msg.command) == "string" and msg.command or ""
+    self:on_bash_start(id, command, msg.excludeFromContext == true)
+    local output = type(msg.output) == "string" and msg.output or ""
+    if output ~= "" then
+        self:on_bash_output(id, output)
+    end
+    self:on_bash_end(id, {
+        output = output,
+        exitCode = msg.exitCode,
+        cancelled = msg.cancelled == true,
+        truncated = msg.truncated == true,
+        fullOutputPath = msg.fullOutputPath,
+    })
+end
+
 function History:on_thinking_start()
     vim.schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
@@ -2989,6 +3351,8 @@ function History:clear()
     self._thinking_accum = nil
     self._thinking_blocks = {}
     self._tool_blocks = {}
+    self._bash_blocks = {}
+    self._bash_replay_counter = 0
     self._compaction_blocks = {}
     self._blocks_expanded = false
     self._has_conversation_content = false

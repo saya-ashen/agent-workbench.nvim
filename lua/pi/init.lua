@@ -146,6 +146,14 @@ function M.abort()
     end
 end
 
+--- Abort a running direct bash command (! prefix).
+function M.abort_bash()
+    local session = require("pi.sessions.manager").get()
+    if session and session.rpc:is_running() then
+        session.rpc:send({ type = "abort_bash" })
+    end
+end
+
 --- Stop the process and close the chat.
 function M.stop()
     require("pi.sessions.manager").stop()

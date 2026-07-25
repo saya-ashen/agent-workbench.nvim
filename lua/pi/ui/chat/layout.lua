@@ -8,6 +8,8 @@
 ---@field _history pi.ChatHistory
 ---@field _prompt pi.ChatPrompt
 ---@field _attachments pi.ChatAttachments
+---@field _has_attention boolean
+---@field _bash_mode boolean
 local Layout = {}
 Layout.__index = Layout
 
@@ -60,25 +62,57 @@ end
 --- Update prompt title styling to reflect pending attention.
 ---@param has_attention boolean
 function Layout:refresh_prompt_attention(has_attention)
+    self._has_attention = has_attention
+    self:_refresh_prompt_chrome()
+end
+
+--- Update prompt title styling to reflect bash mode (prompt starts with "!").
+---@param is_bash boolean
+function Layout:set_bash_mode(is_bash)
+    if self._bash_mode == is_bash then
+        return
+    end
+    self._bash_mode = is_bash
+    self:_refresh_prompt_chrome()
+end
+
+---@return boolean
+function Layout:bash_mode()
+    return self._bash_mode
+end
+
+--- Re-apply the prompt window title text and colors from the current
+--- bash-mode / attention state. Bash mode wins over attention styling.
+function Layout:_refresh_prompt_chrome()
     local pwin = self:prompt_win()
     if not pwin then
         return
     end
 
+    local prompt_cfg = Config.options.panels.prompt
+    local title = (self._bash_mode and (prompt_cfg.bash_title or "bash")) or prompt_cfg.title
+
     if self._mode == "float" then
-        vim.wo[pwin].winhighlight = has_attention and Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
-            or Highlights.CHAT_PROMPT_WINHIGHLIGHT
+        local winhighlight = Highlights.CHAT_PROMPT_WINHIGHLIGHT
+        if self._bash_mode then
+            winhighlight = Highlights.CHAT_PROMPT_BASH_WINHIGHLIGHT
+        elseif self._has_attention then
+            winhighlight = Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
+        end
+        vim.wo[pwin].winhighlight = winhighlight
+        pcall(vim.api.nvim_win_set_config, pwin, { title = " " .. title .. " ", title_pos = "center" })
         return
     end
 
     local side_cfg = Config.resolve_side_layout()
     if side_cfg.panels.prompt.winbar then
-        set_winbar(
-            pwin,
-            Config.options.panels.prompt.title,
-            "PiChatPromptWinbar",
-            has_attention and "PiChatPromptWinbarAttentionTitle" or "PiChatPromptWinbarTitle"
-        )
+        local title_hl = "PiChatPromptWinbarTitle"
+        if self._bash_mode then
+            title_hl = "PiChatPromptWinbarBashTitle"
+        elseif self._has_attention then
+            title_hl = "PiChatPromptWinbarAttentionTitle"
+        end
+        set_winbar(pwin, title, "PiChatPromptWinbar", title_hl)
     end
 end
 
@@ -96,6 +130,8 @@ function Layout.new(mode, history, prompt, attachments)
     self._history = history
     self._prompt = prompt
     self._attachments = attachments
+    self._has_attention = false
+    self._bash_mode = false
 
     attachments:set_on_change(function()
         self:_refresh_attachments()

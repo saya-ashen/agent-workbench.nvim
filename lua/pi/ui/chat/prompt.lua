@@ -8,6 +8,8 @@
 ---@field _attachments pi.ChatAttachments
 ---@field _tab pi.TabId
 ---@field _zen boolean
+---@field _bash_mode boolean
+---@field _on_bash_mode_change fun(is_bash: boolean)?
 ---@field _resume_insert? "eol"|"bol"|"mid"
 local Prompt = {}
 Prompt.__index = Prompt
@@ -60,6 +62,8 @@ function Prompt.new(tab, attachments)
     self._attachments = attachments
     self._tab = tab
     self._zen = false
+    self._bash_mode = false
+    self._on_bash_mode_change = nil
 
     local panel = Config.options.panels.prompt
     local name = panel.name and panel.name(tab) or ("π-prompt | " .. tab)
@@ -128,6 +132,7 @@ function Prompt.new(tab, attachments)
         callback = function()
             self:resize()
             self:_render_statusline()
+            self:_refresh_bash_mode()
         end,
     })
 
@@ -197,6 +202,41 @@ end
 ---@return pi.StatusLine
 function Prompt:statusline()
     return self._statusline
+end
+
+---@param cb fun(is_bash: boolean)
+function Prompt:set_on_bash_mode_change(cb)
+    self._on_bash_mode_change = cb
+end
+
+---@return boolean
+function Prompt:is_bash_mode()
+    return self._bash_mode
+end
+
+--- Bash mode is active when the prompt text starts with "!" (leading
+--- whitespace ignored), mirroring the pi TUI's editor behavior.
+---@return boolean
+function Prompt:_compute_bash_mode()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return false
+    end
+    local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")
+    return text:match("^%s*!") ~= nil
+end
+
+--- Recompute bash mode from the buffer text and notify on change. Called on
+--- text changes; also invoked explicitly after programmatic edits since
+--- TextChangedI is deferred and may not have fired yet (gotcha G4).
+function Prompt:_refresh_bash_mode()
+    local is_bash = self:_compute_bash_mode()
+    if is_bash == self._bash_mode then
+        return
+    end
+    self._bash_mode = is_bash
+    if self._on_bash_mode_change then
+        self._on_bash_mode_change(is_bash)
+    end
 end
 
 --- Re-render the prompt statusline and reset wrapped scrolling when the
@@ -297,6 +337,7 @@ function Prompt:clear_text()
         vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })
         self:resize()
         self:_render_statusline()
+        self:_refresh_bash_mode()
     end
 end
 

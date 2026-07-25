@@ -1,7 +1,7 @@
 --- Chat UI orchestration — layout, window management, and wiring.
 
 ---@class pi.ChatAgent
----@field send fun(msg: pi.RpcCommand): boolean?
+---@field send fun(msg: pi.RpcCommand, callback?: fun(res: pi.RpcEvent)): boolean?
 
 ---@class pi.Chat
 ---@field _tab pi.TabId
@@ -27,6 +27,9 @@
 ---@field _last_turn_stop_reason "aborted"|"error"|nil
 ---@field _attachments pi.ChatAttachments
 ---@field _zen pi.Zen
+---@field _bash_running boolean
+---@field _bash_req_id string?
+---@field _bash_req_counter integer
 local Chat = {}
 Chat.__index = Chat
 
@@ -80,6 +83,12 @@ function Chat.new(tab, mode, agent)
     self._zen = Zen.new(self._prompt)
     self._prompt_history = nil
     self._last_applied_prompt = nil
+    self._bash_running = false
+    self._bash_req_id = nil
+    self._bash_req_counter = 0
+    self._prompt:set_on_bash_mode_change(function(is_bash)
+        self._layout:set_bash_mode(is_bash)
+    end)
     return self
 end
 
@@ -572,6 +581,11 @@ end
 --- the feature is disabled, this is a no-op so <Esc> keeps its normal behavior.
 function Chat:_handle_abort_esc()
     if not self._streaming then
+        -- A single <Esc> cancels a running direct bash command (TUI behavior).
+        if self._bash_running then
+            require("pi").abort_bash()
+            return
+        end
         self:_disarm_abort_esc()
         return
     end
@@ -843,6 +857,18 @@ end
 function Chat:_send_message(queue_type)
     local text = self._prompt:text()
 
+    -- Direct bash execution (! prefix) runs immediately, independent of
+    -- streaming/queue state — mirroring the pi TUI. "!!" excludes the
+    -- command's output from the LLM context.
+    if text:match("^!") then
+        local exclude = text:match("^!!") ~= nil
+        local command = vim.trim(text:sub(exclude and 3 or 2))
+        if command ~= "" then
+            self:_send_bash(text, command, exclude)
+            return
+        end
+    end
+
     if text == "" and self._attachments:count() == 0 then
         return
     end
@@ -887,6 +913,91 @@ function Chat:_send_message(queue_type)
     end
 
     self._agent.send(cmd)
+end
+
+--- Execute a direct bash command (! prefix) via the RPC `bash` command.
+--- Output streams into a dedicated history block via bash_execution_update
+--- events; the response completes the block.
+---@param raw_text string original prompt text (recorded in prompt history)
+---@param command string command with the !/!! prefix stripped
+---@param exclude boolean exclude the output from the LLM context (!! prefix)
+function Chat:_send_bash(raw_text, command, exclude)
+    if self._bash_running then
+        Notify.warn("A bash command is already running. Press <Esc> to cancel it first.")
+        return
+    end
+
+    local hist_store = self:_history_store()
+    if hist_store then
+        hist_store:add(raw_text)
+    end
+
+    if self._zen:is_active() then
+        self._zen:exit()
+    end
+
+    if self._attachments:count() > 0 then
+        Notify.warn("Attachments are not supported with bash commands; discarding them")
+        self._attachments:clear()
+    end
+
+    self._prompt:clear_text()
+
+    self._bash_req_counter = self._bash_req_counter + 1
+    local req_id = self._tab .. ":bash:" .. self._bash_req_counter
+    self._bash_running = true
+    self._bash_req_id = req_id
+
+    self._history:on_bash_start(req_id, command, exclude)
+    self:set_status({ type = "agent", text = "Running…" })
+
+    ---@type pi.RpcCommand
+    local cmd = { type = "bash", id = req_id, command = command }
+    if exclude then
+        cmd.excludeFromContext = true
+    end
+    local sent = self._agent.send(cmd, function(res)
+        vim.schedule(function()
+            self:_on_bash_response(req_id, res)
+        end)
+    end)
+    if not sent then
+        self:_on_bash_response(req_id, { success = false, error = "Process not running" })
+    end
+end
+
+--- Complete the bash block for req_id from the RPC response.
+---@param req_id string
+---@param res pi.RpcEvent
+function Chat:_on_bash_response(req_id, res)
+    if self._bash_req_id == req_id then
+        self._bash_running = false
+        self._bash_req_id = nil
+    end
+    if res.success == false then
+        self._history:on_bash_end(req_id, { error = res.error or "Bash command failed" })
+    else
+        self._history:on_bash_end(req_id, res.data or {})
+    end
+    if not self._streaming and not self._compacting then
+        self:set_status(nil)
+    end
+end
+
+--- Stream a bash_execution_update chunk into the bash block.
+---@param id string?
+---@param delta string
+function Chat:on_bash_update(id, delta)
+    if type(id) ~= "string" then
+        return
+    end
+    self._history:on_bash_output(id, delta)
+end
+
+--- Render a bashExecution message from session replay.
+---@param msg table
+function Chat:on_bash_replay(msg)
+    self._history:on_bash_replay(msg)
 end
 
 ---@return string?
@@ -1251,6 +1362,8 @@ function Chat:clear()
     self._streaming = false
     self:_disarm_abort_esc()
     self:_clear_aborted_notice()
+    self._bash_running = false
+    self._bash_req_id = nil
     self._compacting = false
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false

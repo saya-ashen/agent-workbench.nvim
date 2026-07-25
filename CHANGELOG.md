@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-26
+
+- **ADDED:** Direct bash mode — prefix the prompt with `!` to run a shell command (e.g. `!ls -la`). Output streams live into a collapsible block in the history, and the result is added to the LLM context on the next prompt. `!!command` excludes output from context. The prompt panel title switches to `bash` (configurable via `panels.prompt.bash_title`) with a distinct foreground color while in bash mode. A single `<Esc>` cancels a running `!` command (`:PiAbortBash` / `pi.abort_bash()`). Bash execution messages replay correctly on session load/switch.
+
 ## 2026-07-25
 
 - **ADDED:** `layout.side.position` now supports `"left"` to open the side panel on the left edge of the editor.

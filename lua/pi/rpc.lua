@@ -18,6 +18,7 @@
 ---| "auto_retry_end"
 ---| "extension_ui_request"
 ---| "extension_error"
+---| "bash_execution_update"
 ---| "response"
 ---| "_process_exit"
 ---| "_stderr"
@@ -43,6 +44,8 @@
 ---| "steer"
 ---| "follow_up"
 ---| "abort"
+---| "bash"
+---| "abort_bash"
 ---| "new_session"
 ---| "switch_session"
 ---| "get_messages"
@@ -294,7 +297,10 @@ function Rpc:_dispatch(msg)
         self._handler(msg)
     end
 
-    if msg.id and self._pending[msg.id] then
+    -- Only responses consume pending callbacks: streamed events may carry the
+    -- same id (e.g. bash_execution_update echoes its bash command's id) and
+    -- must not eat the one-shot response callback.
+    if msg.type == "response" and msg.id and self._pending[msg.id] then
         local cb = self._pending[msg.id]
         self._pending[msg.id] = nil
         cb(msg)

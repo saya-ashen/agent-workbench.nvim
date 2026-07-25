@@ -1,5 +1,6 @@
 ---@class pi.PanelOpts
 ---@field title string
+---@field bash_title? string Title shown when the prompt is in bash mode (prompt panel only, default: "bash")
 ---@field name? fun(tab: pi.TabId): string
 
 ---@class pi.Panels
@@ -257,7 +258,7 @@ local defaults = {
     timestamp_format = Os.is_windows() and "%b %#d %Y, %H:%M" or "%b %-d %Y, %H:%M",
     panels = {
         history = { title = "π" },
-        prompt = { title = "prompt" },
+        prompt = { title = "prompt", bash_title = "bash" },
         attachments = { title = "attached" },
     },
     labels = {

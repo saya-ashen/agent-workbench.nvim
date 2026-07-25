@@ -231,7 +231,8 @@ require("pi").setup({
     panels = {
         -- Titles shown in panel winbars.
         history = { title = "π" },
-        prompt = { title = "󰫽󰫿󰫼󰫺󰫽󰬁" },
+        -- `bash_title` is shown on the prompt panel while in direct bash mode (text starts with `!`).
+        prompt = { title = "󰫽󰫿󰫼󰫺󰫽󰬁", bash_title = "bash" },
         attachments = { title = "󰫮󰬁󰬁󰫮󰫰󰫵󰫺󰫲󰫻󰬁󰬀" },
     },
 
@@ -579,7 +580,7 @@ The filetype names are stable — you can target them from your own `FileType` a
 
 Use `:PiToggleLayout` to swap `side` ↔ `float` without losing the conversation, and `:PiToggleChat` to hide and re-show the chat windows. Neither stops the agent. To actually shut down the underlying `pi --mode rpc` process for the current tab, use `:PiStop`.
 
-Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars.
+Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars. The prompt panel has an extra `panels.prompt.bash_title`: while the prompt text starts with `!` (direct bash mode, see below), the prompt title switches to this string and is drawn with the `PiChatPromptWinbarBashTitle` / `PiChatPromptFloatBashTitle` highlight groups (a distinct foreground color, derived from `WarningMsg` by default) so it's obvious you're about to run a shell command rather than message the agent.
 
 ### Prompt
 
@@ -624,6 +625,20 @@ require("pi").setup({
     },
 })
 ```
+
+### Direct bash mode (`!`)
+
+Just like the π TUI, you can run a shell command straight from the prompt by prefixing it with `!` — e.g. `!ls -la` or `!git status`. This mirrors pi's built-in bash mode: the command is executed immediately by the agent backend (via the RPC `bash` command), its output streams into the chat as it arrives, and the result is added to the LLM context on the **next** prompt (so the model can see what you just ran). It runs independently of the agent's streaming state — you can fire a `!` command even while a turn is in progress.
+
+While the prompt text starts with `!`, the prompt panel's title switches to `panels.prompt.bash_title` (default `"bash"`) and is drawn in a distinct foreground color, so you can tell at a glance that `<CR>` will run a shell command instead of messaging the agent. Removing the leading `!` switches the title back. In float layout the same switch applies to the prompt window's border title and `winhighlight`.
+
+A few details that match the TUI:
+
+- `!!command` runs the command but **excludes** its output from the LLM context — handy for noisy or private output you don't want the model to see. The block renders dimmer to mark it as excluded.
+- Output streams live into a collapsible block (`▾ $ <command>` header, indented output, fold with `<Tab>` like any other block). Multi-line commands show each line under the header. Non-zero exit codes render as `(exit N)`, cancellations as `(cancelled)`, and truncated output notes the full-output temp path.
+- Only one direct bash command can run at a time. Submitting another while one is running is rejected with a warning (press `<Esc>` to cancel the running one first, same as the TUI).
+- A single `<Esc>` (in either insert or normal mode on the prompt) cancels a running `!` command — the same as `:PiAbortBash` / `pi.abort_bash()`. This is separate from the double-`<Esc>` agent abort above: `<Esc>` cancels a bash command when one is running, and arms the double-`<Esc>` agent abort when the agent is streaming.
+- `!` commands are recorded in the prompt history, so `<C-p>` / `<Up>` recalls them like normal prompts.
 
 ### Prompt history
 
@@ -1864,6 +1879,7 @@ A rough triage checklist for common symptoms:
 | `:PiToggleChat` | Toggle chat visibility |
 | `:PiToggleLayout` | Switch between side and float layout |
 | `:PiAbort` | Abort the current agent operation |
+| `:PiAbortBash` | Abort the running direct bash (`!`) command |
 | `:PiStop` | Stop the RPC process and close the chat |
 | `:PiAttention` | Open the next queued attention request |
 | `:PiNewSession` | Start a new conversation in the current tab/session |
@@ -1909,6 +1925,7 @@ pi.changed_files()            -- string[]: files modified by edit/write tools th
 
 -- Agent control
 pi.abort()                    -- cancel the current agent turn, keep the session alive
+pi.abort_bash()               -- cancel the running direct bash (!) command
 pi.stop()                     -- kill the RPC process and close the chat for the current tab
 
 -- Prompt input
