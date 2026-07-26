@@ -396,6 +396,10 @@ require("pi").setup({
         draft = {
             enabled = true,
         },
+        -- Intercept paste in the prompt: when the system clipboard holds an
+        -- image, attach it (like :PiPasteImage) instead of inserting text.
+        -- Requires img-clip.nvim; plain-text pastes are never affected.
+        paste_image = true,
     },
 
     -- Markdown rendering of the chat history.
@@ -894,6 +898,8 @@ The path is resolved relative to the current working directory. Also exposed as 
 ```
 
 This requires [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) and a system clipboard tool (`pngpaste` on macOS, `xclip` on X11, `wl-paste` on Wayland). Clipboard images are auto-named `cb-image-1.png`, `cb-image-2.png`, and so on. Also exposed as `pi.paste_image()` from Lua.
+
+You normally don't need the command: with `prompt.paste_image = true` (the default), π wraps Neovim's global paste handler (`vim.paste`) and inspects anything pasted into the prompt. If the clipboard holds an image, it is attached automatically and the text paste is cancelled; any other paste is inserted as usual. This works for GUI paste (`nvim_paste`, e.g. `<D-v>`/`<C-v>` in Neovide). In a plain terminal the system paste shortcut is handled by the terminal itself and only delivers text, so an image-only clipboard may not trigger it — there, use `:PiPasteImage` (or map a key to `pi.paste_image()`) explicitly. Set `prompt.paste_image = false` to disable the interception entirely.
 
 **3. By drag-and-drop**, by dragging an image file into the π prompt buffer from your OS file manager. π intercepts the drop, recognizes it as a file path with a supported image extension, and adds it as an attachment instead of pasting the path as text. Plain-text pastes are not affected.
 
