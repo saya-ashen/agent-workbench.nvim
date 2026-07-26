@@ -169,6 +169,49 @@ local function render_body_line(history, text, hl_group, insert_at)
     return insert_at
 end
 
+--- Render input lines, wrapping in a fenced code block when render-markdown
+--- is active so that shell comments (#) and other markdown-significant syntax
+--- in tool input are not misparsed as headings, lists, etc.
+---@param history pi.ChatHistory
+---@param lines string[]  raw input lines (already split)
+---@param lang? string  language hint for the code fence (e.g. "bash")
+---@param insert_at? integer  when set, insert at this row instead of appending
+---@return integer? next_insert_at  advanced insertion cursor (nil when appending)
+local function render_input(history, lines, lang, insert_at)
+    local fenced = lines
+    if Render.engine() == "render-markdown" then
+        local max_run = 0
+        for _, line in ipairs(lines) do
+            local run = line:match("^(`+)")
+            if run and #run > max_run then
+                max_run = #run
+            end
+        end
+        local fence = string.rep("`", math.max(max_run + 1, 3))
+        fenced = { fence .. (lang or "") }
+        vim.list_extend(fenced, lines)
+        fenced[#fenced + 1] = fence
+    end
+
+    local start
+    if insert_at then
+        start, insert_at = history:_insert_lines(insert_at, fenced)
+    else
+        start = history:_append_lines(fenced)
+    end
+    for i = 0, #fenced - 1 do
+        M.set_border(history, start + i, M.GLYPHS.INDENT)
+        local line = fenced[i + 1] or ""
+        if #line > 0 then
+            vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), start + i, 0, {
+                end_col = #line,
+                hl_group = "PiToolCall",
+            })
+        end
+    end
+    return insert_at
+end
+
 ---@param history pi.ChatHistory
 ---@param text string
 ---@param insert_at? integer  when set, insert at this row instead of appending
@@ -477,16 +520,39 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
     end
 
     -- Input
+    local visible_input = {}
     if #input_lines <= input_visible then
         for _, l in ipairs(input_lines) do
-            add(l, "input")
+            visible_input[#visible_input + 1] = l
         end
     else
         for i = 1, input_visible do
-            add(input_lines[i], "input")
+            visible_input[#visible_input + 1] = input_lines[i]
         end
         lines[#lines + 1] = " +" .. (#input_lines - input_visible) .. " lines"
         specs[#specs + 1] = "summary"
+    end
+
+    -- When render-markdown is active, wrap visible input in a code fence
+    -- to prevent markdown parsing (e.g. shell comments → headings).
+    if Render.engine() == "render-markdown" and #visible_input > 0 then
+        local max_run = 0
+        for _, line in ipairs(visible_input) do
+            local run = line:match("^(`+)")
+            if run and #run > max_run then
+                max_run = #run
+            end
+        end
+        local fence = string.rep("`", math.max(max_run + 1, 3))
+        add(fence, "input")
+        for _, l in ipairs(visible_input) do
+            add(l, "input")
+        end
+        add(fence, "input")
+    else
+        for _, l in ipairs(visible_input) do
+            add(l, "input")
+        end
     end
 
     -- Separator + Output (hidden entirely when output_visible = 0)
@@ -573,6 +639,18 @@ function M.extract_tool_sections(history, block)
     end
     local input_lines = vim.api.nvim_buf_get_lines(buf, header_row + 1, input_end, false)
 
+    -- When the render-markdown engine is active, render_input() wraps tool
+    -- input in a fenced code block (```lang / ```).  Strip these display-only
+    -- fence artifacts so the collapsed view sees the raw input lines.
+    if Render.engine() == "render-markdown" and #input_lines >= 2 then
+        local first = input_lines[1]
+        local last = input_lines[#input_lines]
+        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then
+            table.remove(input_lines, 1)
+            table.remove(input_lines)
+        end
+    end
+
     local output_lines = {}
     if has_output then
         local output_row = vim.api.nvim_buf_get_extmark_by_id(buf, ns_id, block.output_extmark, {})[1]
@@ -650,9 +728,7 @@ local renderers = {
             if args and (args.command or args.cmd) then
                 local cmd = args.command or args.cmd
                 local lines = vim.split(cmd, "\n", { plain = true })
-                for _, line in ipairs(lines) do
-                    render_body_line(history, line)
-                end
+                render_input(history, lines, "bash")
             end
         end,
         on_end = function(history, _, result, _, insert_at)

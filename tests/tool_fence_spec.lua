@@ -113,14 +113,14 @@ describe("tool output fence wrapping", function()
       Config.options.render = { engine = "render-markdown" }
     end)
 
-    it("wraps bash output in a bare code fence (no language tag)", function()
+    it("wraps bash input and output in code fences", function()
       local h = new_history()
       bash_tool(h, "hello\n# a comment\nworld")
       local buf = h:buf()
-      -- Both opening and closing fences are bare ``` (no language tag),
-      -- so exactly two lines equal "```".
-      assert.is_true(#rows_exact(buf, "```") == 2, "open + close bare fences")
-      assert.is_true(#rows_with(buf, "```bash") == 0, "no language tag on fence")
+      -- Input fence opening carries the language tag (```bash);
+      -- input close + output open + output close are bare ```.
+      assert.is_true(#rows_exact(buf, "```") == 3, "input close + output open/close bare fences")
+      assert.is_true(#rows_with(buf, "```bash") == 1, "input fence has language tag")
       -- content is between the fences
       assert.is_true(#rows_with(buf, "# a comment") == 1, "content preserved")
     end)
