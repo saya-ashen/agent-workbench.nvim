@@ -1,16 +1,23 @@
-# pi.nvim
+```text
+            ████████████████████████    █████
+              ██                ██          ██
+              ██                ██       ████
+              ██                ██      ██
+              ██                ██      █████
+              ██                ██
+              p i ²    ·    p i 2 . n v i m
+```
 
-Use the [pi coding agent](https://pi.dev) without leaving Neovim.
+# pi2.nvim
 
-<p align="center">
-    <img width="2884" height="1764" alt="π" src="https://github.com/user-attachments/assets/92ee94b2-8770-4b34-bc61-7f536362b341" />
-    <sub> π + neovim </sub>
-</p>
+Use the [pi coding agent](https://pi.dev) without leaving Neovim — **π²**, a heavily extended fork of [`alex35mil/pi.nvim`](https://github.com/alex35mil/pi.nvim).
 
-`pi.nvim` runs `pi --mode rpc` in the background and gives you an in-editor workflow for project-aware prompts, reviewed edits, session resume, and extension prompts.
+`pi2.nvim` runs `pi --mode rpc` in the background and gives you an in-editor workflow for project-aware prompts, reviewed edits, session resume, and extension prompts — plus a growing set of features that live here rather than upstream (see [Differences from upstream](#differences-from-upstream)).
 
 ## Table of contents
 
+- [Origin](#origin)
+- [Differences from upstream](#differences-from-upstream)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -39,6 +46,49 @@ Use the [pi coding agent](https://pi.dev) without leaving Neovim.
 - [Commands](#commands)
 - [API](#api)
 - [Highlight groups](#highlight-groups)
+
+## Origin
+
+`pi2.nvim` is a fork of [`alex35mil/pi.nvim`](https://github.com/alex35mil/pi.nvim), the original Neovim frontend for the [pi coding agent](https://pi.dev). All credit for the foundation — the RPC bridge, the chat layout, diff review, sessions, and extension handling — goes to the upstream project.
+
+This fork began as local experiments and grew into a substantially different feature set (listed below). Rather than keep that work on a long-lived fork, it now lives in its own repository so it can evolve and release independently, while still tracking upstream where it makes sense and crediting it as the origin.
+
+> [!NOTE]
+> The project is named **pi2.nvim** (π²), but the Lua namespace, commands, and filetypes are unchanged for compatibility: you still `require("pi")`, use the `:Pi*` commands, and the buffers keep the `pi-chat-*` filetypes. Only the project / repository name differs.
+
+## Differences from upstream
+
+Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.nvim` (which is currently frozen at the fork point).
+
+**Prompt & input**
+
+- **Direct bash mode (`!`).** Prefix the prompt with `!` to run a shell command (e.g. `!ls -la`); output streams live into a collapsible history block and is added to the LLM context on the next prompt. `!!cmd` excludes output from context. The panel title switches to `bash`, and a single `<Esc>` cancels a running command (`:PiAbortBash` / `pi.abort_bash()`).
+- **Readline-style prompt history.** Recall previously submitted prompts with `<C-p>` / `<C-n>` (and `<Up>` / `<Down>` in insert mode), persisted to disk. Config: `prompt.history`.
+- **Unsent-draft persistence.** The prompt text survives restarts (debounced save, restored once per process). Config: `prompt.draft`.
+- **Auto-attach clipboard images on paste.** π wraps the global `vim.paste` handler: pasting while the clipboard holds an image attaches it instead of inserting text. Config: `prompt.paste_image` (requires `img-clip.nvim`).
+
+**Agent control**
+
+- **Double-`<Esc>` abort.** While streaming, a second `<Esc>` within a timeout aborts the running turn (same as `:PiAbort`), with a persistent hint row and an "Aborted" confirmation in the status overlay. Config: `abort`.
+
+**UI & rendering**
+
+- **Redesigned tool & thinking blocks.** Fold indicators (`▾`/`▸`) plus indentation replace box-drawing borders; successful tool calls end silently; running tools show an animated spinner. Thinking renders as a single header line with a rolling preview that freezes to a head summary; `<Tab>` expands/collapses it.
+- **Pinned status overlay.** The spinner and pending-queue display moved from virtual lines to a floating overlay pinned to the bottom of the history viewport.
+- **Opt-in `render-markdown.nvim` engine.** `render.engine = "render-markdown"` renders the history through render-markdown.nvim, with tool output fenced to avoid markdown misparsing. The default remains the builtin engine.
+
+**Navigation & layout**
+
+- **Open file under cursor (`gf`).** From a history line, `gf` resolves a bare path, an `@mention#L<line>`, or a `path:line` and opens it in a non-π window (`pi.goto_file_under_cursor()`).
+- **Left side panel.** `layout.side.position` accepts `"left"`.
+
+**Robustness fixes**
+
+- Thinking blocks render *after* inline tools (correct turn order); CJK / UTF-8 thinking-preview truncation no longer corrupts text; tool-block collapse/expand no longer corrupts the footer extmark; nerd-font icon codepoints corrected.
+
+**Developer infrastructure**
+
+- A hermetic plenary test suite (`make test`) plus a headless boot check (`make smoke`), and an agent "develop" skill documenting the test stack and Neovim-Lua gotchas.
 
 ## Features
 
@@ -145,7 +195,7 @@ Run `:checkhealth pi` to verify.
 ### vim.pack
 
 ```lua
-vim.pack.add({ "https://github.com/alex35mil/pi.nvim" })
+vim.pack.add({ "https://github.com/zgs225/pi2.nvim" })
 
 -- if you're fine with defaults:
 require("pi").setup()
@@ -161,7 +211,7 @@ require("pi").setup({
 
 ```lua
 {
-    "alex35mil/pi.nvim",
+    "zgs225/pi2.nvim",
 
     -- Optional: required only for `:PiPasteImage` (clipboard image paste).
     dependencies = { "HakonHarnes/img-clip.nvim" },
@@ -429,9 +479,9 @@ require("pi").setup({
 
 ### Project trust
 
-`pi.nvim` runs pi in RPC mode and does not currently implement the TUI's interactive project trust prompt or save trust decisions. It uses pi's non-interactive defaults, which means project-local settings, resources, packages, extensions, and project `.agents/skills` are not loaded.
+`pi2.nvim` runs pi in RPC mode and does not currently implement the TUI's interactive project trust prompt or save trust decisions. It uses pi's non-interactive defaults, which means project-local settings, resources, packages, extensions, and project `.agents/skills` are not loaded.
 
-To trust project-local pi files when using `pi.nvim`, either pass pi's trust flag through `cli.args`:
+To trust project-local pi files when using `pi2.nvim`, either pass pi's trust flag through `cli.args`:
 
 ```lua
 require("pi").setup({
@@ -449,11 +499,11 @@ or set the global pi default in `~/.pi/agent/settings.json`:
 }
 ```
 
-If you need interactive trust handling in `pi.nvim`, please open an issue.
+If you need interactive trust handling in `pi2.nvim`, please open an issue.
 
 ## Keymaps
 
-`pi.nvim` intentionally ships with a very small default keymap set. Keymaps tend to be highly personal, and many users already have their own conventions, leader-based layouts, or other mapping systems. Pi tries to provide the API and a few sensible defaults, while leaving the final keymap design to you.
+`pi2.nvim` intentionally ships with a very small default keymap set. Keymaps tend to be highly personal, and many users already have their own conventions, leader-based layouts, or other mapping systems. Pi tries to provide the API and a few sensible defaults, while leaving the final keymap design to you.
 
 ### Key specs
 
@@ -497,14 +547,14 @@ The `<S-Up>` / `<S-Down>` mappings below are sort of placeholders — replace th
 ```lua
 -- Buffer-local mappings inside π windows.
 -- Filetypes: "pi-chat-history", "pi-chat-prompt", "pi-chat-attachments".
-local group = vim.api.nvim_create_augroup("pi-keymaps", { clear = true })
+local group = vim.api2.nvim_create_augroup("pi-keymaps", { clear = true })
 
 local function map(buf, key, action, modes)
     vim.keymap.set(modes or { "n", "i", "v" }, key, action, { buffer = buf })
 end
 
 -- Shared across all π windows.
-vim.api.nvim_create_autocmd("FileType", {
+vim.api2.nvim_create_autocmd("FileType", {
     group = group,
     pattern = { "pi-chat-history", "pi-chat-prompt", "pi-chat-attachments" },
     callback = function(event)
@@ -515,7 +565,7 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 -- History window: jump to prompt.
-vim.api.nvim_create_autocmd("FileType", {
+vim.api2.nvim_create_autocmd("FileType", {
     group = group,
     pattern = "pi-chat-history",
     callback = function(event)
@@ -524,7 +574,7 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 -- Prompt window: navigation, scrolling, model & thinking, sessions, attachments.
-vim.api.nvim_create_autocmd("FileType", {
+vim.api2.nvim_create_autocmd("FileType", {
     group = group,
     pattern = "pi-chat-prompt",
     callback = function(event)
@@ -548,7 +598,7 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 -- Attachments window: jump back to prompt, paste image.
-vim.api.nvim_create_autocmd("FileType", {
+vim.api2.nvim_create_autocmd("FileType", {
     group = group,
     pattern = "pi-chat-attachments",
     callback = function(event)
@@ -560,7 +610,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
 ## Usage
 
-This section walks through how `pi.nvim` actually works in practice. Each subsection is independent — jump straight to what you need.
+This section walks through how `pi2.nvim` actually works in practice. Each subsection is independent — jump straight to what you need.
 
 ### Chat & layouts
 
@@ -720,13 +770,13 @@ While typing, `@mentions` are highlighted in the prompt buffer so you can see at
 
 ### Slash commands
 
-Slash commands come from the **pi backend**, not from pi.nvim. They cover three sources:
+Slash commands come from the **pi backend**, not from pi2.nvim. They cover three sources:
 
 - **Extension commands** — registered by pi extensions (e.g. `/permission-toggle-auto-accept`).
 - **Prompt templates** — reusable prompt snippets, expanded server-side before being sent to the LLM.
 - **Skills** — invoked as `/skill:name`, also expanded server-side.
 
-pi.nvim fetches the available command list from the running session over RPC and refreshes it periodically, so the set of `/commands` you can use depends on which extensions, templates, and skills the backend has loaded for the current session.
+pi2.nvim fetches the available command list from the running session over RPC and refreshes it periodically, so the set of `/commands` you can use depends on which extensions, templates, and skills the backend has loaded for the current session.
 
 To invoke a command, type it on the **first line** of the prompt:
 
@@ -740,7 +790,7 @@ Arguments, if the command takes any, follow on the same line:
 /some-command arg1 arg2
 ```
 
-Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not a pi.nvim restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
+Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not a pi2.nvim restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
 
 That said, this only applies to the explicit `/command` invocation path. Skills in particular are surfaced to the model as part of the system context: per the [Agent Skills spec](https://agentskills.io/specification), each skill's `name` and `description` are loaded at startup for _all_ available skills ("progressive disclosure"), and the full `SKILL.md` body is only loaded once the model decides to activate that skill. As a result, most models will pick up the right skill even when you _mention_ it inline ("please use the `commit` skill to write the message"), without you having to invoke `/skill:commit` explicitly. How reliably this works depends on the model and on how much other context it's juggling, so for anything load-bearing it's still safer to invoke the command explicitly on the first line.
 
@@ -786,7 +836,7 @@ This is the default Vim user-defined completion key. It will:
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.
 
-**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), pi.nvim ships a source at `pi.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
+**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), pi2.nvim ships a source at `pi.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
 
 ```lua
 require("blink.cmp").setup({
@@ -805,7 +855,7 @@ Other completion plugins (nvim-cmp, etc.) aren't shipped as first-class sources,
 
 #### Adapting non-upstream RPC backends
 
-pi.nvim targets upstream pi RPC. If you point `cli.bin` at a fork with a different protocol, use `rpc.map_command` / `rpc.map_event` to translate in user config instead of patching pi.nvim core.
+pi2.nvim targets upstream pi RPC. If you point `cli.bin` at a fork with a different protocol, use `rpc.map_command` / `rpc.map_event` to translate in user config instead of patching pi2.nvim core.
 
 <details>
 <summary>Example: adapt `omp` command-list compatibility</summary>
@@ -871,7 +921,7 @@ require("pi").setup({
 })
 ```
 
-`ctx.set_commands()` updates pi.nvim's shared slash-command cache, the same cache populated by upstream `get_commands` responses. It affects completion, prompt decorators, and command-aware chat behavior. It does not re-render the already-visible startup block.
+`ctx.set_commands()` updates pi2.nvim's shared slash-command cache, the same cache populated by upstream `get_commands` responses. It affects completion, prompt decorators, and command-aware chat behavior. It does not re-render the already-visible startup block.
 
 </details>
 
@@ -1048,7 +1098,7 @@ Return shapes:
 
 ### Navigation
 
-Moving between π panels and scrolling the history without leaving the prompt are some of the most common things you do during a session, so they're worth setting up properly. As with the rest of [Keymaps](#keymaps), pi.nvim doesn't bind these by default — it just exposes the API and lets you wire it into the navigation conventions you already use.
+Moving between π panels and scrolling the history without leaving the prompt are some of the most common things you do during a session, so they're worth setting up properly. As with the rest of [Keymaps](#keymaps), pi2.nvim doesn't bind these by default — it just exposes the API and lets you wire it into the navigation conventions you already use.
 
 #### Focus
 
@@ -1104,12 +1154,12 @@ It recognizes a bare path (the tool body lines contain exactly the path), an `@p
 
 ### Diff review
 
-When an `edit` or `write` tool is about to run, pi.nvim can intercept it and open a two-way diff in a new tab so you can inspect, tweak, and accept or reject the change _before_ it lands on disk. This is the main review surface for agent-driven refactoring.
+When an `edit` or `write` tool is about to run, pi2.nvim can intercept it and open a two-way diff in a new tab so you can inspect, tweak, and accept or reject the change _before_ it lands on disk. This is the main review surface for agent-driven refactoring.
 
 Once the diff is open:
 
 - **Left pane** — the current file content, opened read-only.
-- **Right pane** — the content the agent is proposing. You can modify the _right_ pane before accepting — anything you change there becomes the new content and pi.nvim will write your edited version instead of the agent's original proposal.
+- **Right pane** — the content the agent is proposing. You can modify the _right_ pane before accepting — anything you change there becomes the new content and pi2.nvim will write your edited version instead of the agent's original proposal.
 - **Accept** with `<Leader>da` (default) — or just `:w` the right pane.
 - **Reject** with `<Leader>dr`.
 - **Add/edit a review note** on the current line with `<Leader>dn`, or select multiple lines with `V` first to attach one note to the selected range. In the note dialog, `<CR>` submits and `<S-CR>` inserts a newline. Notes are review metadata: they show below the last target line as wrapped virtual text with a vertical border, plus a configurable sign/icon on the first line. Range notes use small dots on following lines. Multiple note blocks ending on the same line are separated by a horizontal separator. They are not inserted into the file. Set `diff.icons.note = false` to omit gutter signs. Submitting an empty note deletes it.
@@ -1123,22 +1173,22 @@ Markdown diffs enable wrapping and linebreak in the review panes for readability
 
 #### You need a permission extension
 
-Here's the part to understand before the rest of this section makes sense: **pi itself has no built-in permission system**. The agent dispatches tools whenever it decides to, and by default nothing stands between it and your files. pi.nvim's diff review _only_ triggers when an extension intercepts `edit`/`write` tool calls and routes them through a specially-formatted `ctx.ui.select` request.
+Here's the part to understand before the rest of this section makes sense: **pi itself has no built-in permission system**. The agent dispatches tools whenever it decides to, and by default nothing stands between it and your files. pi2.nvim's diff review _only_ triggers when an extension intercepts `edit`/`write` tool calls and routes them through a specially-formatted `ctx.ui.select` request.
 
 In other words, **without a permission extension, there is no diff review**. The agent will apply edits directly, and you'll see them in the chat history as completed tool calls, not as reviewable diffs.
 
 If you want a drop-in, fully-featured solution, use my reference implementation: [**alex35mil/agentic-af/extensions/permission**](https://github.com/alex35mil/agentic-af/tree/main/extensions/permission). It is very similar to Claude Code's allow / ask / deny model with glob rules, per-tool argument matching, skill-derived allowances, bash argument splitting and redirection safety, and an auto-accept toggle.
 
-If you'd rather roll your own, or just want to understand the protocol, here's a minimal pi extension that intercepts `edit` and `write` tool calls, routes them through pi.nvim's diff review UI, and handles all response variants.
+If you'd rather roll your own, or just want to understand the protocol, here's a minimal pi extension that intercepts `edit` and `write` tool calls, routes them through pi2.nvim's diff review UI, and handles all response variants.
 
 <details>
 <summary><strong>Minimal example</strong> — click to expand</summary>
 
 ```ts
 /**
- * Minimal diff-review permission extension for pi + pi.nvim.
+ * Minimal diff-review permission extension for pi + pi2.nvim.
  * Intercepts every `edit` and `write` tool call and routes it through
- * pi.nvim's diff review UI via ctx.ui.select.
+ * pi2.nvim's diff review UI via ctx.ui.select.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 
@@ -1180,7 +1230,7 @@ export default function (pi: ExtensionAPI) {
         const path = (event.input as { path?: string }).path
         if (!path) return undefined
 
-        // Build the payload pi.nvim recognizes as a diff review request.
+        // Build the payload pi2.nvim recognizes as a diff review request.
         const title = JSON.stringify({
             prompt: `${event.toolName}: ${path}`,
             toolName: event.toolName,
@@ -1193,12 +1243,12 @@ export default function (pi: ExtensionAPI) {
             return undefined
         }
 
-        // pi.nvim path: structured JSON response.
+        // pi2.nvim path: structured JSON response.
         if (choice?.startsWith("{")) {
             const parsed = JSON.parse(choice)
 
             if (parsed.result === "Accepted") {
-                // pi.nvim already wrote the file — block the tool so
+                // pi2.nvim already wrote the file — block the tool so
                 // pi's dispatcher doesn't double-write.
                 approvedToolCalls.add(event.toolCallId)
                 return {
@@ -1208,7 +1258,7 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (parsed.result === "AcceptModified") {
-                // pi.nvim wrote a user-modified version of the file.
+                // pi2.nvim wrote a user-modified version of the file.
                 approvedToolCalls.add(event.toolCallId)
                 return {
                     block: true,
@@ -1258,7 +1308,7 @@ Drop that file into your pi extensions directory (usually `~/.pi/agent/extension
 
 #### Protocol reference
 
-pi.nvim routes an extension `select` request to the diff review UI if and only if:
+pi2.nvim routes an extension `select` request to the diff review UI if and only if:
 
 1. The request method is `select`, and
 2. The `title` field is a JSON string that decodes to an object with `toolName === "edit"` or `"write"`.
@@ -1284,9 +1334,9 @@ For `write`, replace `edits` with `"content": "<full file text>"`.
 
 | Value | Meaning | Extension should… |
 | --- | --- | --- |
-| `"Accept"` | Only returned by the pi TUI, not by pi.nvim. | Return `undefined` and let the tool run normally. |
-| `'{"result":"Accepted","notes":[...]}'` | User accepted. pi.nvim already wrote the file. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }` so pi doesn't double-write. Include notes in `reason` when present. |
-| `'{"result":"AcceptModified","content":"...","notes":[...]}'` | User edited the proposal, then accepted. pi.nvim already wrote the modified version. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }`, ideally including the modified content so the agent sees the final state. Include notes when present. |
+| `"Accept"` | Only returned by the pi TUI, not by pi2.nvim. | Return `undefined` and let the tool run normally. |
+| `'{"result":"Accepted","notes":[...]}'` | User accepted. pi2.nvim already wrote the file. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }` so pi doesn't double-write. Include notes in `reason` when present. |
+| `'{"result":"AcceptModified","content":"...","notes":[...]}'` | User edited the proposal, then accepted. pi2.nvim already wrote the modified version. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }`, ideally including the modified content so the agent sees the final state. Include notes when present. |
 | `'{"result":"Rejected","notes":[...]}'` | User rejected with review notes. File unchanged. | Return `{ block: true, reason: "[rejected] ..." }` with the notes. Do **not** call `ctx.abort()` if you want the agent to continue and address the notes. |
 | Anything else (`"Reject"`, `undefined`, cancellation) | User rejected without notes. | Return `{ block: true, reason: "[rejected] ..." }`; call `ctx.abort()` if rejection should stop the turn. |
 
@@ -1318,19 +1368,19 @@ For `AcceptModified` specifically, it's important to surface the final content b
 
 This gives the agent three things in one message: confirmation that the edit landed, an explicit note that the user changed it, and the new authoritative content so the next turn starts from the right file state.
 
-The `[accepted]` and `[rejected]` prefixes in the `reason` string are parsed by pi.nvim and used to pick the tool-call display status (completed vs rejected) in the chat history.
+The `[accepted]` and `[rejected]` prefixes in the `reason` string are parsed by pi2.nvim and used to pick the tool-call display status (completed vs rejected) in the chat history.
 
-Because pi.nvim writes the file _itself_ for `Accepted` and `AcceptModified`, the extension **must** return `{ block: true }` in those cases. If it doesn't, pi's tool dispatcher will run the original `edit`/`write` on top of pi.nvim's version and you'll end up with a double-apply.
+Because pi2.nvim writes the file _itself_ for `Accepted` and `AcceptModified`, the extension **must** return `{ block: true }` in those cases. If it doesn't, pi's tool dispatcher will run the original `edit`/`write` on top of pi2.nvim's version and you'll end up with a double-apply.
 
 Blocked tool results come back to the agent with `isError: true`. For approved-but-blocked calls, flip that back in a `message_end` handler (as the minimal example does) so the LLM doesn't treat an accepted edit as a failure on the next turn.
 
 ### Attention & dialogs
 
-Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the diff review described above are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. pi.nvim calls these **attention requests**, and they share a single queue and UI surface.
+Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the diff review described above are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. pi2.nvim calls these **attention requests**, and they share a single queue and UI surface.
 
 #### Immediate vs queued
 
-When a request arrives, pi.nvim decides between showing it immediately and queueing it:
+When a request arrives, pi2.nvim decides between showing it immediately and queueing it:
 
 - **Immediate** — if the current tab's π prompt is focused _and_ has no draft text, the request is dispatched right away. This is the common case while you're actively working with the agent: confirmations, selects, and diffs just pop up as soon as they're needed.
 - **Queued** — otherwise (you're editing another file, you have draft text in the prompt, you're in a different tab, etc.), the request is added to a per-session queue, an attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. The agent stays blocked on that request regardless.
@@ -1380,10 +1430,10 @@ pi.has_attention()           -- boolean shortcut for the current tab
 pi.attention_state()         -- full state snapshot
 ```
 
-pi.nvim also fires a `User` autocmd when a new request is added to the queue:
+pi2.nvim also fires a `User` autocmd when a new request is added to the queue:
 
 ```lua
-vim.api.nvim_create_autocmd("User", {
+vim.api2.nvim_create_autocmd("User", {
     pattern = "PiAttentionRequested",
     callback = function(event)
         local data = event.data
@@ -1397,7 +1447,7 @@ The built-in `attention` statusline component already uses this state — see [S
 
 #### Dialog UI
 
-Selects, confirms, inputs, and editors are all rendered through pi.nvim's dialog UI. Everything lives under `dialog` in `setup()`:
+Selects, confirms, inputs, and editors are all rendered through pi2.nvim's dialog UI. Everything lives under `dialog` in `setup()`:
 
 ```lua
 require("pi").setup({
@@ -1433,7 +1483,7 @@ Anything you add under `dialog.keys.<action>` is bound in addition to the built-
 
 ### Startup block
 
-At the top of every π chat history, pi.nvim renders a **startup block** — a summary of what the agent has available in the current session. It lives just above the first message and is always in the history buffer.
+At the top of every π chat history, pi2.nvim renders a **startup block** — a summary of what the agent has available in the current session. It lives just above the first message and is always in the history buffer.
 
 By default the block is fully expanded. Set `expand_startup_details = false` to have it start collapsed, and toggle it at any time with either:
 
@@ -1442,7 +1492,7 @@ By default the block is fully expanded. Set `expand_startup_details = false` to 
 
 #### What's in it
 
-pi.nvim pulls the startup content from the backend's `get_commands` RPC response and groups it into up to three built-in sections:
+pi2.nvim pulls the startup content from the backend's `get_commands` RPC response and groups it into up to three built-in sections:
 
 - **`[Skills]`** — skill commands (`skill:name`) loaded for this session, with their location (`[user]` / `[project]` / `[path]`) and source path.
 - **`[Prompts]`** — prompt templates (`/name`) loaded for this session, with location and path.
@@ -1451,11 +1501,11 @@ pi.nvim pulls the startup content from the backend's `get_commands` RPC response
 Sections only appear when they have at least one entry, so a bare session with no skills or extensions just shows whatever exists.
 
 > [!WARNING]
-> The startup block is currently **incomplete**, and this is an upstream pi limitation rather than something pi.nvim can fix on its own. The RPC interface only exposes a subset of what the session actually has loaded — for example, loaded extensions that don't register any `/commands` are not surfaced here (even though they're running and active), and memory files (`AGENTS.md`, etc.) aren't reported at all. Treat the block as a useful-but-partial snapshot until the upstream protocol catches up. Until then, the most reliable way for an extension to advertise itself is via [extension startup announcements](#extension-startup-announcements) — sending a `:startup` widget with whatever state it wants the user to see.
+> The startup block is currently **incomplete**, and this is an upstream pi limitation rather than something pi2.nvim can fix on its own. The RPC interface only exposes a subset of what the session actually has loaded — for example, loaded extensions that don't register any `/commands` are not surfaced here (even though they're running and active), and memory files (`AGENTS.md`, etc.) aren't reported at all. Treat the block as a useful-but-partial snapshot until the upstream protocol catches up. Until then, the most reliable way for an extension to advertise itself is via [extension startup announcements](#extension-startup-announcements) — sending a `:startup` widget with whatever state it wants the user to see.
 
 #### Extension startup announcements
 
-Extensions can add their own sections to the startup block by calling `ctx.ui.setWidget` with a **widget key ending in `:startup`**. pi.nvim routes those widgets into the startup block instead of rendering them inline, and the `:startup` suffix is stripped from the key for display.
+Extensions can add their own sections to the startup block by calling `ctx.ui.setWidget` with a **widget key ending in `:startup`**. pi2.nvim routes those widgets into the startup block instead of rendering them inline, and the `:startup` suffix is stripped from the key for display.
 
 For example, an extension calling:
 
@@ -1482,7 +1532,7 @@ Note the distinction from regular widgets: `setWidget` calls with keys that **do
 
 ### Tool blocks
 
-When the agent invokes a tool, pi.nvim renders the call inline in the chat history as a **tool block**. Each block shows the tool name, its input summary, and its output. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
+When the agent invokes a tool, pi2.nvim renders the call inline in the chat history as a **tool block**. Each block shows the tool name, its input summary, and its output. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
 
 ```
 ▾ 󰻂 bash
@@ -1499,7 +1549,7 @@ Successful tool calls end silently (a blank breathing line); only errors print a
 Tools come in two rendering styles:
 
 - **Inline tools** render as a single line. `read` is the canonical example — it shows `read path/to/file (42 lines)` and stays on one line even when the file is huge, because inlining the content would just be noise. Consecutive inline tool calls are grouped without blank lines between them.
-- **Full-block tools** get the multi-line indented block shown above. `bash`, `edit`, `write`, and any tool pi.nvim doesn't have a dedicated renderer for fall into this category.
+- **Full-block tools** get the multi-line indented block shown above. `bash`, `edit`, `write`, and any tool pi2.nvim doesn't have a dedicated renderer for fall into this category.
 
 #### Auto-collapse and `<Tab>`
 
@@ -1508,7 +1558,7 @@ Every full-block tool has two collapse thresholds:
 - `input_visible` — how many lines of the input/arguments to show when collapsed. Extra lines become `+N lines`.
 - `output_visible` — how many lines of the tool output to show when collapsed. `output_visible = 0` hides the output section entirely when collapsed (used for `edit`/`write` where the diff is the input).
 
-When a tool's input or output exceeds its threshold, the block is auto-collapsed on first render (the fold indicator changes from `▾` to `▸`). You can toggle between the collapsed and fully-expanded view with `<Tab>` while the cursor is on the block in the history buffer. The same `<Tab>` also toggles the [Startup block](#startup-block) and [thinking blocks](#thinking) when the cursor is on one of those instead — pi.nvim dispatches based on what you're hovering over.
+When a tool's input or output exceeds its threshold, the block is auto-collapsed on first render (the fold indicator changes from `▾` to `▸`). You can toggle between the collapsed and fully-expanded view with `<Tab>` while the cursor is on the block in the history buffer. The same `<Tab>` also toggles the [Startup block](#startup-block) and [thinking blocks](#thinking) when the cursor is on one of those instead — pi2.nvim dispatches based on what you're hovering over.
 
 Bind `pi.toggle_history_blocks()` to expand/collapse all expandable history blocks at once; the [Keymaps](#keymaps) example uses `<C-o>`.
 
@@ -1524,7 +1574,7 @@ Built-in thresholds:
 
 #### Status resolution
 
-pi.nvim picks the tool's display status from the `isError` flag plus any status prefix embedded in the result text by an extension:
+pi2.nvim picks the tool's display status from the `isError` flag plus any status prefix embedded in the result text by an extension:
 
 | Prefix in result | Display status |
 | --- | --- |
@@ -1534,7 +1584,7 @@ pi.nvim picks the tool's display status from the `isError` flag plus any status 
 | `[aborted]` | `aborted` (turn was aborted while the tool was in flight) |
 | _none_ (and `isError=true`) | `error` |
 
-The prefix is stripped from the displayed text before the block is rendered, so your users never see the raw `[accepted]` / `[rejected]` markers — just the tool block in the corresponding state. This is how the permission extension in [Diff review](#diff-review) communicates "accepted but already applied elsewhere" back to pi.nvim without looking like an error.
+The prefix is stripped from the displayed text before the block is rendered, so your users never see the raw `[accepted]` / `[rejected]` markers — just the tool block in the corresponding state. This is how the permission extension in [Diff review](#diff-review) communicates "accepted but already applied elsewhere" back to pi2.nvim without looking like an error.
 
 #### Customization
 
@@ -1543,11 +1593,11 @@ The prefix is stripped from the displayed text before the block is rendered, so 
 
 ### Models
 
-π can talk to any model your local pi installation has access to — Claude, GPT, Gemini, Groq, OpenRouter, DeepSeek, locally-hosted models, and whatever else you've configured in your pi backend. pi.nvim doesn't manage credentials or provider wiring; all of that lives in pi itself. What pi.nvim _does_ give you is a way to shape the set of models you see, cycle through them quickly, and switch mid-session without restarting the chat.
+π can talk to any model your local pi installation has access to — Claude, GPT, Gemini, Groq, OpenRouter, DeepSeek, locally-hosted models, and whatever else you've configured in your pi backend. pi2.nvim doesn't manage credentials or provider wiring; all of that lives in pi itself. What pi2.nvim _does_ give you is a way to shape the set of models you see, cycle through them quickly, and switch mid-session without restarting the chat.
 
 #### The `models` list
 
-The top-level `models` option in `setup()` is an optional **preferred list** of model entries. When set, it curates the subset used by the cycle and select commands below. When unset, pi.nvim falls back to whatever the backend has available.
+The top-level `models` option in `setup()` is an optional **preferred list** of model entries. When set, it curates the subset used by the cycle and select commands below. When unset, pi2.nvim falls back to whatever the backend has available.
 
 Each entry is one of:
 
@@ -1590,11 +1640,11 @@ Typical setup binds the three operations in the prompt buffer: a fast cycle key,
 
 ### Thinking
 
-Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, OpenAI codex, etc.) emit **thinking blocks** alongside their normal output — an internal monologue the model uses to work through a problem before producing a final answer. pi.nvim renders these inline in the chat history with a distinct `labels.thinking` marker.
+Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, OpenAI codex, etc.) emit **thinking blocks** alongside their normal output — an internal monologue the model uses to work through a problem before producing a final answer. pi2.nvim renders these inline in the chat history with a distinct `labels.thinking` marker.
 
 #### Visibility
 
-Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so pi.nvim hides them by default. You can flip the default and toggle visibility on demand:
+Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so pi2.nvim hides them by default. You can flip the default and toggle visibility on demand:
 
 - **Default**: `show_thinking` (bool in `setup()`) — `false` by default.
 - **Toggle**: `:PiToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
@@ -1607,7 +1657,7 @@ When visible, each thinking block renders as a **single header line** with an in
 
 #### Thinking levels
 
-Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. pi.nvim exposes the backend's six thinking levels:
+Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. pi2.nvim exposes the backend's six thinking levels:
 
 ```
 off | minimal | low | medium | high | xhigh
@@ -1644,11 +1694,11 @@ Notes:
 
 ### Sessions
 
-π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and pi.nvim gives you a few ways to navigate between them.
+π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and pi2.nvim gives you a few ways to navigate between them.
 
 #### One chat per tab
 
-pi.nvim keeps **one live session per Neovim tabpage**. Two different tabs give you two independent conversations with their own history, prompt buffer, attachments, model, and thinking level. Closing the tab tears the session down, and nothing bleeds across tabs. This is the natural unit of work in Neovim, and it maps cleanly to "one agent per task" — e.g. one tab for an exploratory refactor and another for feature implementation, each with their own context.
+pi2.nvim keeps **one live session per Neovim tabpage**. Two different tabs give you two independent conversations with their own history, prompt buffer, attachments, model, and thinking level. Closing the tab tears the session down, and nothing bleeds across tabs. This is the natural unit of work in Neovim, and it maps cleanly to "one agent per task" — e.g. one tab for an exploratory refactor and another for feature implementation, each with their own context.
 
 #### Storage and scoping
 
@@ -1664,7 +1714,7 @@ where `<agent_dir>` is resolved in this order:
 2. `$PI_CODING_AGENT_DIR` environment variable
 3. `~/.pi/agent` (default)
 
-Crucially, sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when pi.nvim is running from the same directory. This matches how you'd actually want it: you don't want to accidentally resume an unrelated project's conversation just because you opened a chat in a new tab.
+Crucially, sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when pi2.nvim is running from the same directory. This matches how you'd actually want it: you don't want to accidentally resume an unrelated project's conversation just because you opened a chat in a new tab.
 
 #### Starting, continuing, resuming
 
@@ -1697,15 +1747,15 @@ Long sessions eventually run into the model's context window limit. pi delegates
 
 Compaction can't run while the agent is streaming — wait for the current turn to finish (or abort it) first. Message submits during compaction are queued and sent after compaction finishes.
 
-After successful compaction, pi.nvim renders a collapsed summary block in chat history. Focus the block and press `<Tab>` to expand the backend-generated summary.
+After successful compaction, pi2.nvim renders a collapsed summary block in chat history. Focus the block and press `<Tab>` to expand the backend-generated summary.
 
 ### Extensions & custom rendering
 
 pi extensions are small TypeScript (or Node-compatible) modules that the backend loads at session start. They can intercept tool calls, register slash commands, expose keybindings, surface UI to the user, and inject arbitrary content into the chat. The permission extension in [Diff review](#diff-review) is one example; the `rules:load` / progressive-disclosure hooks in [agentic-af](https://github.com/alex35mil/agentic-af) are others.
 
-pi.nvim is extension-aware. When pi runs under `--mode rpc`, extensions can address the client (pi.nvim) via the [extension UI protocol](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#extension-ui-protocol), and pi.nvim routes each method to the right surface in your editor:
+pi2.nvim is extension-aware. When pi runs under `--mode rpc`, extensions can address the client (pi2.nvim) via the [extension UI protocol](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#extension-ui-protocol), and pi2.nvim routes each method to the right surface in your editor:
 
-| Extension UI method | Where pi.nvim surfaces it |
+| Extension UI method | Where pi2.nvim surfaces it |
 | --- | --- |
 | `notify` | `vim.notify` via the configured notify dispatcher |
 | `setStatus` | `state.extensions[key]` in the statusline state (readable by custom [statusline](#statusline) components) |
@@ -1721,9 +1771,9 @@ Dialog-style methods (`select`, `confirm`, `input`, `editor`) flow through the [
 #### Inline custom blocks via `on_widget`
 
 > [!NOTE]
-> Conceptually, this is a hack. `setWidget` was designed in the upstream pi protocol as a way for extensions to surface UI widgets in the TUI, not as a general extension ↔ pi.nvim communication channel. pi.nvim piggybacks on it because it's currently the **best handle pi provides** for an extension to push arbitrary data into the client. If/when pi gets a dedicated extension-to-client message type, this mechanism will likely be revisited. For now, treat `on_widget` as the escape hatch where "extension wants to say something to pi.nvim" becomes possible at all.
+> Conceptually, this is a hack. `setWidget` was designed in the upstream pi protocol as a way for extensions to surface UI widgets in the TUI, not as a general extension ↔ pi2.nvim communication channel. pi2.nvim piggybacks on it because it's currently the **best handle pi provides** for an extension to push arbitrary data into the client. If/when pi gets a dedicated extension-to-client message type, this mechanism will likely be revisited. For now, treat `on_widget` as the escape hatch where "extension wants to say something to pi2.nvim" becomes possible at all.
 
-When an extension calls `ctx.ui.setWidget(key, lines)` with a key that **doesn't** end in `:startup`, pi.nvim passes it to your `on_widget` config function. The hook gets a chance to return a **custom block** that pi.nvim will render inline in the history — right at the point in the conversation where the extension fired.
+When an extension calls `ctx.ui.setWidget(key, lines)` with a key that **doesn't** end in `:startup`, pi2.nvim passes it to your `on_widget` config function. The hook gets a chance to return a **custom block** that pi2.nvim will render inline in the history — right at the point in the conversation where the extension fired.
 
 The signature:
 
@@ -1760,7 +1810,7 @@ A `pi.CustomBlockLine` is a list of styled chunks, and each chunk is a `{ text, 
 
 Let's walk through a concrete case. My [rules extension](https://github.com/alex35mil/agentic-af/tree/main/extensions/rules) discovers Markdown rule files under `~/.pi/agent/rules/` (global) and `<repo>/.agents/rules/` (project). Some rules are always-on — their bodies are injected into the system prompt on every turn. Others are **path-scoped**: they have a `paths:` glob list in the frontmatter and are only delivered when the agent reads a file that matches one of those globs. In that case the extension appends the rule body to the `read` tool result (so the agent sees it) _and_ fires a `setWidget("rules:load", [...rule paths])` so **you** can see, inline in the chat, which rules just got loaded for which file.
 
-Without `on_widget`, that widget would simply be ignored by pi.nvim. With `on_widget`, it becomes a small annotation attached to the read tool call, telling you exactly which rules the agent now has in its context for the file it just read. It's the difference between trusting that the rules extension is doing its job and being able to _see_ it do its job.
+Without `on_widget`, that widget would simply be ignored by pi2.nvim. With `on_widget`, it becomes a small annotation attached to the read tool call, telling you exactly which rules the agent now has in its context for the file it just read. It's the difference between trusting that the rules extension is doing its job and being able to _see_ it do its job.
 
 Here's the hook that turns that widget into an inline annotation:
 
@@ -1794,17 +1844,17 @@ ctx.ui.setWidget("rules:load", [
 ])
 ```
 
-pi.nvim calls your `on_widget`, sees the returned block, and writes it into the history buffer at the current insertion point — so the list appears directly underneath the tool call that triggered it, making it obvious which rules the agent should have loaded for that particular file.
+pi2.nvim calls your `on_widget`, sees the returned block, and writes it into the history buffer at the current insertion point — so the list appears directly underneath the tool call that triggered it, making it obvious which rules the agent should have loaded for that particular file.
 
 The payload the extension sends is deliberately minimal (just rule file paths); turning that into a nicely-formatted inline block — prefix, icon, highlight — is entirely the job of `on_widget` on the Neovim side. Different users can present the same widget data however they want without the extension having to know anything about styling.
 
 #### Limitations
 
-Same upstream constraint as [Startup block](#startup-block): `setWidget` in RPC mode only carries string arrays. Styling and structure are added _in pi.nvim_ by your `on_widget` hook — the extension can't pre-style the output. Give `on_widget` everything it needs to make decisions (the `key` namespaces widgets from different extensions, and `lines` carries the payload) and do the formatting there.
+Same upstream constraint as [Startup block](#startup-block): `setWidget` in RPC mode only carries string arrays. Styling and structure are added _in pi2.nvim_ by your `on_widget` hook — the extension can't pre-style the output. Give `on_widget` everything it needs to make decisions (the `key` namespaces widgets from different extensions, and `lines` carries the payload) and do the formatting there.
 
 ### Health & debugging
 
-When something misbehaves — the agent doesn't respond, a tool doesn't render correctly, an extension event doesn't arrive — pi.nvim gives you a few places to look.
+When something misbehaves — the agent doesn't respond, a tool doesn't render correctly, an extension event doesn't arrive — pi2.nvim gives you a few places to look.
 
 #### `:checkhealth pi`
 
@@ -1827,7 +1877,7 @@ If the executable isn't found, either install pi or set `cli = { bin = "/absolut
 
 #### RPC debug logging
 
-pi.nvim communicates with the backend over a JSONL RPC protocol on the pi process's stdin/stdout. When that conversation goes wrong, the best diagnostic is a transcript of the protocol traffic.
+pi2.nvim communicates with the backend over a JSONL RPC protocol on the pi process's stdin/stdout. When that conversation goes wrong, the best diagnostic is a transcript of the protocol traffic.
 
 There are two ways to enable it:
 
@@ -1842,7 +1892,7 @@ Logs are written to:
 
 where `<cwd-slug>` is the current working directory with `/` replaced by `--`. On a typical Linux setup that's something like `~/.local/state/nvim/log/pi/Users--you--Dev--myproject/rpc.log`. The log is **reset** every time debug is enabled, so each session starts with a clean transcript.
 
-The log contains every RPC command pi.nvim sends and every event it receives, including any unhandled event types (useful when the pi protocol evolves and pi.nvim hasn't caught up yet). Tailing the file in another terminal while reproducing the bug is usually the fastest way to pinpoint where things diverge:
+The log contains every RPC command pi2.nvim sends and every event it receives, including any unhandled event types (useful when the pi protocol evolves and pi2.nvim hasn't caught up yet). Tailing the file in another terminal while reproducing the bug is usually the fastest way to pinpoint where things diverge:
 
 ```sh
 tail -f ~/.local/state/nvim/log/pi/*/rpc.log
@@ -1856,7 +1906,7 @@ Each π session owns an underlying `pi --mode rpc` subprocess. One tab = one ses
 
 - **Spawned** lazily, the first time you open the chat in a tab (via `:Pi`, `:PiContinue`, `:PiResume`, `pi.toggle()`, etc.). There is no background daemon; nothing runs until you ask for it.
 - **Alive** as long as the tab is alive. Hiding the chat (`:PiToggleChat`) or switching away from the tab does **not** stop the process — the session keeps running in the background, and any queued [attention](#attention--dialogs) requests keep being tracked.
-- **Torn down** on `TabClosed` for the owning tab, or on `VimLeavePre` for all sessions at once. pi.nvim sends the appropriate shutdown, waits briefly, and lets the child exit cleanly.
+- **Torn down** on `TabClosed` for the owning tab, or on `VimLeavePre` for all sessions at once. pi2.nvim sends the appropriate shutdown, waits briefly, and lets the child exit cleanly.
 - **Stopped explicitly** via `:PiStop` / `pi.stop()` — kills the RPC process for the current tab's session immediately and closes the chat windows. Use this when you want to reclaim resources without closing the tab, or to force a clean restart (a subsequent `:Pi` will spawn a fresh process).
 - **Aborted** via `:PiAbort` / `pi.abort()` — cancels whatever the agent is currently doing mid-turn but keeps the session and process alive, so you can immediately send a new prompt. Different from `:PiStop`: abort stops the _agent_, stop kills the _process_.
 
@@ -1869,11 +1919,11 @@ A rough triage checklist for common symptoms:
 | `:Pi` does nothing / reports no executable | `:checkhealth pi` — is `bin` resolvable? |
 | Chat opens but never gets a response | Enable debug logging and watch `rpc.log` — are commands going out? Are events coming back? |
 | Diff review doesn't open on edit/write | Is a permission extension loaded? See [Diff review](#diff-review). |
-| Extension UI request ignored | Check the extension's `widgetKey` / method — is it something pi.nvim knows how to route? See [Extensions & custom rendering](#extensions--custom-rendering). |
+| Extension UI request ignored | Check the extension's `widgetKey` / method — is it something pi2.nvim knows how to route? See [Extensions & custom rendering](#extensions--custom-rendering). |
 | Slash command not highlighted | The command cache may not be populated yet (fetched on first chat open, refreshed every 30 seconds). |
 | Session doesn't continue with `:PiContinue` | Are you in the same cwd as when the session was started? Sessions are cwd-scoped — see [Sessions](#sessions). |
 | Statusline component shows stale data | The statusline is pushed from RPC events; if they stopped flowing, `rpc.log` will show the gap. |
-| Unhandled event warning | pi.nvim doesn't yet know about a new event type the backend is sending. Please [open an issue](https://github.com/alex35mil/pi.nvim/issues) with the event name and a snippet of `rpc.log`. |
+| Unhandled event warning | pi2.nvim doesn't yet know about a new event type the backend is sending. Please [open an issue](https://github.com/zgs225/pi2.nvim/issues) with the event name and a snippet of `rpc.log`. |
 
 ## Commands
 
@@ -1976,7 +2026,7 @@ pi.toggle_debug()             -- toggle RPC debug logging for the current Neovim
 
 ## Highlight groups
 
-All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Comment`, `WarningMsg`, `DiagnosticError`), rather than linking directly to another group. Run `:hi PiGroupName` at any time to see the current value.
+All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api2.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Comment`, `WarningMsg`, `DiagnosticError`), rather than linking directly to another group. Run `:hi PiGroupName` at any time to see the current value.
 
 ### Chat history
 
