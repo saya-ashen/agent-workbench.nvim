@@ -90,6 +90,15 @@ function Chat.new(tab, mode, agent)
     self._prompt:set_on_bash_mode_change(function(is_bash)
         self._layout:set_bash_mode(is_bash)
     end)
+    -- The history owns the busy/queue state (it drives the shared spinner
+    -- timer for tool headers); the prompt statusline renders it.
+    local statusline = self._prompt:statusline()
+    self._history:set_status_listener(function(model)
+        statusline:set_busy(model)
+    end)
+    self._history:set_queue_listener(function(count)
+        statusline:set_queue_count(count)
+    end)
     return self
 end
 
@@ -542,8 +551,8 @@ function Chat:is_streaming()
     return self._streaming
 end
 
---- Render or clear the abort hint in the status overlay to match the current
---- armed state. Deferred with vim.schedule because the caller may run inside
+--- Render or clear the abort hint in the statusline center to match the
+--- current armed state. Deferred with vim.schedule because the caller may run inside
 --- the insert-mode <expr> mapping, where buffer/window mutations are dropped
 --- (gotcha G1). State-driven (the last scheduled sync wins), so rapid
 --- arm/disarm sequences never leave a stale hint behind.
@@ -552,11 +561,11 @@ function Chat:_sync_abort_hint()
         if self._abort_esc_at and self._streaming then
             local cfg = Config.options.abort or {}
             if cfg.enabled ~= false then
-                self._history:set_abort_hint(cfg.message or "Press <Esc> again to abort")
+                self._prompt:statusline():set_abort_hint(cfg.message or "Press <Esc> again to abort")
                 return
             end
         end
-        self._history:clear_abort_hint()
+        self._prompt:statusline():clear_abort_hint()
     end)
 end
 
@@ -623,14 +632,14 @@ function Chat:_clear_aborted_notice()
         self._aborted_notice_timer:close()
         self._aborted_notice_timer = nil
     end
-    self._history:clear_aborted_notice()
+    self._prompt:statusline():clear_aborted_notice()
 end
 
---- Show a transient "Aborted" confirmation in the status overlay for ~2s, so
---- the user gets clear feedback that the turn was aborted.
+--- Show a transient "Aborted" confirmation in the statusline center for ~2s,
+--- so the user gets clear feedback that the turn was aborted.
 function Chat:_show_aborted_notice()
     self:_clear_aborted_notice()
-    self._history:set_aborted_notice("Aborted")
+    self._prompt:statusline():set_aborted_notice("Aborted")
     self._aborted_notice_timer = assert(vim.uv.new_timer())
     self._aborted_notice_timer:start(2000, 0, vim.schedule_wrap(function()
         self:_clear_aborted_notice()
