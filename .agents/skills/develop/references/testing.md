@@ -81,3 +81,34 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 - A change that touches rendering → unit/headless for "extmarks produced + text intact", **GUI screenshot** for "it looks right".
 
 When in doubt, add the cheaper test *and* the GUI screenshot; the screenshot is cheap insurance against the class of bug that only pixels reveal.
+
+## Verification discipline (how to avoid stacking errors)
+
+1. **Lock a baseline first (M0).** Before any feature work, confirm `make test` + `make smoke` are green on a clean checkout and create a feature branch. Every later step re-runs these; a regression fails fast.
+2. **Small steps, each verified, each committed.** Build a feature as: pure module → unit test (green) → commit; wire it in → headless e2e (green) → commit; if key/visual → GUI e2e (green) → commit. Each commit is a rollback point.
+3. **Milestone gates.** Group steps into milestones; do not start the next milestone until the gate (unit + smoke + relevant e2e, all green) passes. The risky rendering work goes *after* the low-risk input work is locked.
+4. **Stub the LLM.** In any e2e that submits a prompt, replace the backend so no real model call and no transcript write happen: `chat._agent.send = function(_) end`. Because the stub short-circuits *before* the RPC send, the pi backend never writes a session file — so sessions are not polluted. (Do **not** `grep` your way to "test sessions" to delete: a match can be inside an *assistant* quote of your test text, i.e. a real session. See gotcha G18.)
+5. **Isolate from the user's data.** A test instance shares the user's `stdpath` history/draft files and races with their live pi. Redirect both to `/tmp` (gotcha G17) and assert the user's files stayed untouched.
+6. **State exactly what you verified and what you could not**, per `AGENTS.md`.
+
+## How to use the bundled scripts
+
+The `scripts/` directory holds **templates** — copy into `/tmp/<run>/`, fill the few placeholders, run. They are deliberately parameterized (socket path, window id, workspace come from env/files, never hard-coded) so they are reusable across runs and machines.
+
+- `scripts/unit_spec_template.lua` — plenary spec skeleton (note the `describe`-scoping rule, G14).
+- `scripts/headless_e2e_template.lua` — headless `-l` skeleton (stub backend, `find_buf`, callable-save pattern for G4).
+- `scripts/gui_harness.sh` — `source` this; gives `q`/`qlua`/`runlua`/`find_buf`/`send`/`normal`/`type_text`/`shot`/`check`/`wait_for` over the RPC socket. Lua goes through files (`:luafile`) to dodge shell-quoting hell.
+- `scripts/gui_launch.sh` — starts a **dedicated, full-screen** WezTerm+nvim (`--listen`) on its own i3 workspace so screenshots are large; remembers the user's workspace to restore later.
+- `scripts/gui_cleanup.sh` — kills *only* the test instance (matched by the socket string in the cmdline), never the user's wezterm/nvim; safe against G16.
+- `scripts/makefile.snippet` — the `test`/`smoke` targets already in the repo `Makefile`, for reference when adding targets.
+
+A typical GUI run:
+
+```bash
+RUN=/tmp/pi_run; mkdir -p "$RUN"
+cp scripts/gui_harness.sh scripts/gui_launch.sh scripts/gui_cleanup.sh "$RUN"/
+# (write your run_all.sh in $RUN, sourcing $RUN/gui_harness.sh)
+bash "$RUN/gui_launch.sh"     # full-screen isolated instance, prints WIN
+bash "$RUN/run_all.sh"        # drives real keybindings, asserts over RPC, screenshots
+bash "$RUN/gui_cleanup.sh"    # removes only the test instance
+```
