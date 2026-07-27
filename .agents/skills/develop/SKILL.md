@@ -5,7 +5,7 @@ description: Use when developing, testing, debugging, or adding/changing feature
 
 # Developing & testing pi.nvim
 
-Operational playbook for taking a feature from idea to merged code. `AGENTS.md` is the architecture charter; this skill is authoritative for **workflow and testing**.
+Operational playbook for taking a feature from idea to merged code. `AGENTS.md` is the architecture charter; this skill is authoritative for **workflow and testing**. Depth lives in `references/` — this file is the index.
 
 ## Feature lifecycle
 
@@ -15,16 +15,16 @@ flowchart TD
     B --> C{"Maintainer triage"}
     C -- wontfix --> D["review:wontfix · close"]
     C -- approve --> E["review:approved"]
-    E --> F["git checkout -b feat/<name>"]
-    F --> G["Implement\n(config → module → wiring → tests → README → CHANGELOG)"]
-    G --> H{"make test\nmake smoke"}
+    E --> F["git worktree add <wt> -b feat/<name>"]
+    F --> G["Implement in the worktree\n(config → module → wiring → tests → README → CHANGELOG)"]
+    G --> H{"make test\nheadless e2e"}
     H -- fail --> G
     H -- green --> I["git commit · push feat/<name>"]
     I --> J["Implementation comment on issue\nlabel: pr:awaiting-review"]
     J --> K{"Human code review"}
     K -- changes requested --> L["pr:changes-requested"] --> G
     K -- approved --> M["pr:approved"]
-    M --> N["merge --no-ff → push main\ndelete feat branch"]
+    M --> N["merge --no-ff → push main\ndelete branch · remove worktree"]
     N --> O["Close issue"]
 ```
 
@@ -33,14 +33,25 @@ flowchart TD
 | Phase | Key rules |
 |-------|-----------|
 | Issue | Body is the spec — never overwrite it. Implementation notes go in **comments**. Labels: type (`rpc`/`original`), priority, review gate. |
-| Branch | `feat/<short-kebab-name>`. Baseline `make test && make smoke` green before starting. |
+| Branch | Create a **git worktree** on `feat/<short-kebab-name>` and develop there — never in the live `lazy/pi2.nvim` checkout. Baseline `make test` green before starting. |
 | Implement | Follow the **standard places** checklist below. Config knobs touch **three** spots in `config.lua` (G19). |
 | Test | Cheapest layer that can observe the behavior. State what was verified and what was not. |
 | PR | Push branch → implementation comment → `pr:awaiting-review`. |
 | Review | `pr:changes-requested` → fix → re-push → back to `pr:awaiting-review`. `pr:approved` → merge. |
-| Merge | `git merge --no-ff`, push main, delete remote+local branch, close issue. |
+| Merge | In the **main checkout**: `git merge --no-ff`, push main, delete remote+local branch, `git worktree remove`, close issue. |
 
 Gitea API: `https://git.yuez.me/api/v1/repos/yuez/pi.nvim`, auth via `GITEA_TOKEN` (chezmoi-encrypted in `~/.zshrc.local`).
+
+## Worktree workflow
+
+Develop every feature in its own **git worktree**, never in the main checkout: `~/.local/share/nvim/lazy/pi2.nvim` is a *live lazy.nvim plugin path* the running editor loads, so it must stay on `main` — branching there swaps the running editor's code and races with concurrent sessions.
+
+```bash
+MAIN=~/.local/share/nvim/lazy/pi2.nvim; WT_ROOT=~/.local/share/pi.nvim-worktrees; name=<short-kebab>
+git -C "$MAIN" worktree add "$WT_ROOT/$name" -b "feat/$name" origin/main   # keep OUTSIDE .../nvim/lazy
+```
+
+In a worktree, `make test` and headless e2e under `-u tests/minimal_init.lua` exercise **the worktree**, but `make smoke`/GUI load the **main checkout** (G23). Remove the worktree only after review is approved and merged. Full setup/verification/cleanup commands: `references/worktree.md`.
 
 ## Verification layers
 
@@ -65,37 +76,13 @@ Details, pitfalls, isolation recipe, and script usage: `references/testing.md`.
 
 ## Gotchas
 
-One-line quick reference below; full 现象/根因/修法 in `references/gotchas.md`.
-
-| # | Fix in one line |
-|---|-----------------|
-| G1 | Defer buffer edits in `<expr>` mappings with `vim.schedule` |
-| G2 | Return literal `"<Up>"` from `<expr>`, never `vim.keycode` |
-| G3 | Compare buffer text to last-applied, don't use a timing flag |
-| G4 | Headless: call save method directly, `TextChanged` won't fire |
-| G5 | Headless: feed `"i<Up>"` in one call, or bind `{ "i", "n" }` |
-| G6 | Visual correctness needs a GUI screenshot, headless can't prove it |
-| G7 | Builtin renderer is `conceallevel=0`; use render-markdown for chrome |
-| G8 | render-markdown auto-attach needs `plugin/` sourced (lazy does this) |
-| G9 | Headless: force `render-markdown.render({ buf = buf })` |
-| G10 | markview ignores `buftype=nofile`; prefer render-markdown |
-| G11 | Enter history window from prompt to avoid WinEnter redirect |
-| G12 | Send `Esc` before normal/leader keys (prompt auto-inserts) |
-| G13 | lazy loads on first key; `wait_for` the buffer |
-| G14 | `before_each`/`after_each` must be inside a `describe` |
-| G15 | Use `NVIM_BIN` not `NVIM` in Makefile |
-| G16 | Put cleanup in script files, not inline `bash -c` |
-| G17 | Redirect history/draft paths to `/tmp` in tests |
-| G18 | Never delete sessions by grep; stubbed send writes no transcript |
-| G19 | Edit all three config spots together |
-| G20 | Read `config.options` at call time, never cache at module load |
-| G21 | Restart nvim after editing `lua/pi/**`; lazy never hot-reloads |
-| G22 | No whole-buffer APIs (`nvim_win_text_height`, full `get_lines`) on per-event paths; gate behind a cheap provability check |
+G1–G23 are indexed in the quick-reference table at the top of `references/gotchas.md`, with full 现象/根因/修法 and minimal reproductions below it. Read the full entry before relying on a one-liner. Most frequent traps: G1/G2/G3 (expr-mapping keys), G4/G5 (headless e2e), G6 (visual needs a GUI screenshot), G14 (spec scoping), G19 (three config spots), G21 (restart nvim after editing `lua/pi/**`), G23 (worktree test layers).
 
 ## Cross-references
 
+- `references/worktree.md` — why worktrees, exact setup/verification/cleanup commands, layer caveats.
 - `references/architecture.md` — module map, hard design constraints, rationale for standard places.
 - `references/testing.md` — layer details, pitfalls, isolation recipe, verification discipline, script usage.
-- `references/gotchas.md` — full 现象/根因/修法 for G1–G21 with minimal reproductions.
+- `references/gotchas.md` — quick-reference table + full 现象/根因/修法 for G1–G23 with minimal reproductions.
 - `AGENTS.md` — architecture charter, style, type-annotation conventions.
 - `.agents/skills/commit/SKILL.md` — Conventional Commit format, CHANGELOG rules, breaking-change policy.
