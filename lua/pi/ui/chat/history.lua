@@ -7,11 +7,10 @@
 ---@field _scroll_scheduled boolean
 ---@field _status_extmark_id integer?
 ---@field _status_virt_line_count integer
----@field _status_pad integer Blank virt_lines prepended to pin the spinner to the window bottom
 ---@field _status_text string?
 ---@field _status_start_time number?
----@field _abort_hint string? Transient "press <Esc> again to abort" row in the status block
----@field _aborted_notice string? Transient "Aborted" confirmation row in the status block
+---@field _status_listener fun(model: pi.StatusLineBusy?)? Pushes the busy display model to the prompt statusline
+---@field _queue_listener fun(count: integer)? Pushes the pending queue count to the prompt statusline
 ---@field _spinner_frames string[]
 ---@field _spinner_rate integer
 ---@field _spinner_index integer
@@ -443,8 +442,8 @@ function History.new(tab)
     self._status_extmark_id = nil
     self._status_text = nil
     self._status_start_time = nil
-    self._abort_hint = nil
-    self._aborted_notice = nil
+    self._status_listener = nil
+    self._queue_listener = nil
     self._spinner_index = 1
     self._spinner_timer = nil
     self:_pick_spinner()
@@ -478,7 +477,6 @@ function History.new(tab)
     self._pending_queue = {}
     self._pending_queue_extmark_id = nil
     self._status_virt_line_count = 0
-    self._status_pad = 0
     self._replaying = false
     self._agent_text_start_row = nil
     self._current_turn_first_agent_response_extmark_id = nil
@@ -543,13 +541,9 @@ function History:_scroll_to_bottom()
     vim.api.nvim_win_call(self._win, function()
         -- G=last line, 0=col 1, zb=redraw with cursor at bottom
         vim.cmd("normal! G0zb")
-        -- Status virt_lines render below the last buffer line. When the
-        -- conversation does not fill the window, _update_status_extmark pads
-        -- the virt_lines so the spinner already sits at the viewport bottom;
-        -- scrolling here would push blank lines in from the top and undo that.
-        -- Only when there is no pad (content overflows the window) do we scroll
-        -- down to reveal the virt_lines that G0zb left clipped below the cursor.
-        local n = (self._status_pad or 0) == 0 and (self._status_virt_line_count or 0) or 0
+        -- Queue-preview virt_lines render below the last buffer line and
+        -- G0zb leaves them clipped below the cursor; scroll down to reveal.
+        local n = self._status_virt_line_count or 0
         if n > 0 then
             vim.cmd("normal! " .. n .. "\x05")
         end
@@ -620,8 +614,21 @@ function History:_pick_spinner()
     self._spinner_rate = s.refresh_rate
 end
 
+--- Rebuild the queue-preview virt_lines anchored below the last buffer line.
+--- Only the pending-queue preview renders in the history window now; the
+--- busy spinner and abort hints live in the prompt statusline (fixed
+--- position), so the old bottom-padding machinery is gone and the preview
+--- simply follows the content flow.
 function History:_update_status_extmark()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return
+    end
+    -- Hot path: with an empty queue there is nothing to render. Bail before
+    -- touching the window so per-delta calls stay O(1).
+    if #self._pending_queue == 0 then
+        if self._status_extmark_id then
+            self:_clear_status_virt_lines()
+        end
         return
     end
     local win = self:win()
@@ -650,60 +657,6 @@ function History:_update_status_extmark()
         }
     end
 
-    -- Spinner row (centered)
-    if self._status_text then
-        local frame = self._spinner_frames[self._spinner_index]
-        local elapsed = ""
-        if self._status_start_time then
-            local secs = math.floor(vim.uv.hrtime() / 1e9 - self._status_start_time)
-            if secs >= 60 then
-                elapsed = " " .. math.floor(secs / 60) .. "m " .. (secs % 60) .. "s"
-            elseif secs >= 1 then
-                elapsed = " " .. secs .. "s"
-            end
-        end
-        local content = frame .. "  " .. self._status_text
-        local suffix = self._is_thinking and (" · " .. Config.options.labels.thinking) or ""
-        local body = content .. elapsed .. suffix
-        local win_width = win and vim.api.nvim_win_get_width(win) or 80
-        local pad = math.max(0, math.floor((win_width - vim.fn.strdisplaywidth(body)) / 2))
-        local padstr = string.rep(" ", pad)
-        local text = padstr .. body
-        local c0 = #padstr
-        rows[#rows + 1] = {
-            text = text,
-            hls = {
-                { c0, c0 + #content, "PiBusy" },
-                { c0 + #content, c0 + #content + #elapsed, "PiBusyTime" },
-                { c0 + #content + #elapsed, #text, "PiThinking" },
-            },
-        }
-    end
-
-    -- Abort hint / aborted-confirmation rows (centered, single highlight).
-    -- Centering uses display width (CJK-safe); the highlight span uses byte
-    -- offsets into the padded line, matching the spinner row above.
-    local function centered_row(body, hl)
-        local win_width = win and vim.api.nvim_win_get_width(win) or 80
-        local pad = math.max(0, math.floor((win_width - vim.fn.strdisplaywidth(body)) / 2))
-        local padstr = string.rep(" ", pad)
-        local text = padstr .. body
-        local c0 = #padstr
-        rows[#rows + 1] = { text = text, hls = { { c0, c0 + #body, hl } } }
-    end
-    if self._abort_hint then
-        centered_row(self._abort_hint, "PiAbortHint")
-    end
-    if self._aborted_notice then
-        centered_row(self._aborted_notice, "PiAborted")
-    end
-
-    -- Nothing to show: clear the status virt_lines.
-    if #rows == 0 then
-        self:_clear_status_virt_lines()
-        return
-    end
-
     -- Text area width for right-padding (excludes signcolumn / foldcolumn).
     local width = 80
     if win then
@@ -714,32 +667,6 @@ function History:_update_status_extmark()
             width = vim.api.nvim_win_get_width(win)
         end
     end
-
-    -- When the conversation does not fill the window, the status virt_lines
-    -- (anchored below the last buffer line) would otherwise float in the upper
-    -- part of the viewport with empty window space below them — leaving a large
-    -- gap between the spinner and the prompt. Prepend blank virt_lines (same
-    -- trick the prompt statusline uses) so the spinner is pushed down to the
-    -- viewport bottom. _scroll_to_bottom skips its Ctrl-E compensation while
-    -- this pad is active, since the pad already pins the bottom.
-    local status_rows_no_pad = 1 + #rows
-    local pad = 0
-    if win then
-        local has_winbar = vim.wo[win].winbar ~= ""
-        local text_rows = vim.api.nvim_win_get_height(win) - (has_winbar and 1 or 0)
-        -- nvim_win_text_height scans the whole buffer — O(n) per call — and
-        -- _update_status_extmark runs on every appended line and every spinner
-        -- tick, so on large histories it saturates the main loop. Skip it
-        -- whenever padding is provably zero: visual height is always >= the
-        -- buffer line count, so once lines fill the window pad must be 0.
-        if vim.api.nvim_buf_line_count(self._buf) < text_rows then
-            local ok, ht = pcall(vim.api.nvim_win_text_height, win, {})
-            local visual_total = ok and ht.all or 0
-            local visual_content = visual_total - (self._status_virt_line_count or 0)
-            pad = math.max(0, text_rows - visual_content - status_rows_no_pad)
-        end
-    end
-    self._status_pad = pad
 
     --- Convert a row's hls ({ start, end, hl } in 0-indexed byte offsets)
     --- into virt_lines chunk format ({ { text, hl }, ... }).
@@ -767,14 +694,10 @@ function History:_update_status_extmark()
         return chunks
     end
 
-    -- Build virt_lines: top padding (pins the block to the window bottom when
-    -- the conversation is short) + leading blank margin line + status rows.
+    -- Build virt_lines: one blank margin line + queue rows.
     ---@type string[][][]
     local virt_lines = {}
     local blank = { { string.rep(" ", width), "" } }
-    for i = 1, pad do
-        virt_lines[#virt_lines + 1] = blank
-    end
     virt_lines[#virt_lines + 1] = blank
     for _, r in ipairs(rows) do
         virt_lines[#virt_lines + 1] = row_to_chunks(r)
@@ -806,39 +729,52 @@ function History:_clear_status_virt_lines()
     end
     self._status_extmark_id = nil
     self._status_virt_line_count = 0
-    self._status_pad = 0
 end
 
---- Show the "press <Esc> again to abort" hint row in the status block.
----@param text string
-function History:set_abort_hint(text)
-    self._abort_hint = text
-    self:_update_status_extmark()
+--- Register the listener receiving the busy (spinner) display model.
+---@param listener fun(model: pi.StatusLineBusy?)?
+function History:set_status_listener(listener)
+    self._status_listener = listener
 end
 
---- Hide the abort hint row.
-function History:clear_abort_hint()
-    if self._abort_hint == nil then
+--- Register the listener receiving the pending queue count.
+---@param listener fun(count: integer)?
+function History:set_queue_listener(listener)
+    self._queue_listener = listener
+end
+
+--- Push the current busy display model to the statusline listener.
+function History:_emit_status()
+    local listener = self._status_listener
+    if not listener then
         return
     end
-    self._abort_hint = nil
-    self:_update_status_extmark()
-end
-
---- Show a transient "Aborted" confirmation row in the status block.
----@param text string
-function History:set_aborted_notice(text)
-    self._aborted_notice = text
-    self:_update_status_extmark()
-end
-
---- Hide the aborted-confirmation row.
-function History:clear_aborted_notice()
-    if self._aborted_notice == nil then
+    if not self._status_text then
+        listener(nil)
         return
     end
-    self._aborted_notice = nil
-    self:_update_status_extmark()
+    local elapsed = ""
+    if self._status_start_time then
+        local secs = math.floor(vim.uv.hrtime() / 1e9 - self._status_start_time)
+        if secs >= 60 then
+            elapsed = " " .. math.floor(secs / 60) .. "m " .. (secs % 60) .. "s"
+        elseif secs >= 1 then
+            elapsed = " " .. secs .. "s"
+        end
+    end
+    listener({
+        frame = self._spinner_frames[self._spinner_index],
+        text = self._status_text,
+        elapsed = elapsed,
+        thinking = self._is_thinking,
+    })
+end
+
+--- Push the pending queue count to the statusline listener.
+function History:_emit_queue_count()
+    if self._queue_listener then
+        self._queue_listener(#self._pending_queue)
+    end
 end
 
 ---@param text string
@@ -1058,9 +994,9 @@ function History:set_status(status)
         self._status_text = text
         self._status_start_time = text and math.floor(vim.uv.hrtime() / 1e9) or nil
         self._spinner_index = 1
-        self:_update_status_extmark()
-        -- Force scroll (bypass _scroll_scheduled guard) so the spinner
-        -- virt_lines are visible even if a prior scroll is still pending.
+        self:_emit_status()
+        -- Force scroll (bypass _scroll_scheduled guard) so the turn start is
+        -- visible even if a prior scroll is still pending.
         if text and self:_should_auto_scroll() then
             self:_scroll_to_bottom()
         else
@@ -1082,7 +1018,7 @@ function History:set_status(status)
                 vim.schedule_wrap(function()
                     self._spinner_index = self._spinner_index % #self._spinner_frames + 1
                     if self._status_text then
-                        self:_update_status_extmark()
+                        self:_emit_status()
                     end
                     -- Animate tool header spinners
                     local frame = self._spinner_frames[self._spinner_index]
@@ -3106,6 +3042,7 @@ function History:on_thinking_start()
             return
         end
         self._is_thinking = true
+        self:_emit_status()
         local label = Config.options.labels.thinking
         local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
         local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
@@ -3135,20 +3072,16 @@ function History:on_thinking_start()
             local header_text = label .. " Thinking…"
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, anchor, {})
             local row = pos[1]
-            -- Trailing margin lines after the header: purely visual breathing
-            -- room between the thinking header and the spinner status block that
-            -- renders as virt_lines below the buffer's last line. The status is
-            -- part of the content flow (not a covering overlay), so the header is
-            -- never hidden by it — when the conversation is short the status pad
-            -- pins the spinner to the viewport bottom with the header sitting just
-            -- above it, and when it overflows auto-scroll keeps both in view. We
-            -- keep exactly two blank lines *after* the header regardless of whether
-            -- the buffer already ended in a breathing blank: when it did, that
-            -- existing blank becomes the second margin line (insert one); when it
-            -- didn't (e.g. after an inline tool) we insert both. _append_text
-            -- reuses the final blank line for the next text delta, so this margin
-            -- does not accumulate into extra empty lines later.
-            local margin = last_text == "" and 1 or 2
+            -- Trailing margin after the header: exactly one blank breathing
+            -- line between the thinking header and whatever follows. The
+            -- spinner no longer renders below the buffer (it lives in the
+            -- prompt statusline), so no extra margin is needed. When the
+            -- buffer already ended in a breathing blank, that blank becomes
+            -- the margin (insert none); after an inline tool we insert one.
+            -- _append_text reuses the final blank line for the next text
+            -- delta, so this margin does not accumulate into extra empty
+            -- lines later.
+            local margin = last_text == "" and 0 or 1
             local block = { "", header_text }
             for _ = 1, margin do
                 block[#block + 1] = ""
@@ -3209,6 +3142,7 @@ function History:on_thinking_end()
             return
         end
         self._is_thinking = false
+        self:_emit_status()
         local elapsed = math.floor(vim.uv.hrtime() / 1e9 - self._thinking_accum.start_time)
         local header
         if elapsed >= 60 then
@@ -3406,6 +3340,7 @@ function History:add_pending_queue_entry(queue_type, display_text, expanded_text
         image_count = image_count,
     }
     self:_update_status_extmark()
+    self:_emit_queue_count()
     if self:_should_auto_scroll() then
         self:_scroll_to_bottom()
     end
@@ -3420,6 +3355,7 @@ function History:remove_pending_queue_entry(text)
         if entry.expanded_text == text then
             table.remove(self._pending_queue, i)
             self:_update_status_extmark()
+            self:_emit_queue_count()
             return entry
         end
     end
@@ -3439,6 +3375,7 @@ function History:clear_pending_queue()
     end
     self._pending_queue = {}
     self:_update_status_extmark()
+    self:_emit_queue_count()
 end
 
 function History:clear()
@@ -3452,8 +3389,6 @@ function History:clear()
     end
     self:_clear_status_virt_lines()
     self._status_text = nil
-    self._abort_hint = nil
-    self._aborted_notice = nil
     self._status_extmark_id = nil
     self._pending_queue = {}
     self._pending_queue_extmark_id = nil
@@ -3485,6 +3420,8 @@ function History:clear()
     self:_with_modifiable(function()
         vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })
     end)
+    self:_emit_status()
+    self:_emit_queue_count()
 end
 
 -- ---------------------------------------------------------------------------
