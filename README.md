@@ -69,12 +69,12 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 **Agent control**
 
-- **Double-`<Esc>` abort.** While streaming, a second `<Esc>` within a timeout aborts the running turn (same as `:PiAbort`), with a persistent hint row and an "Aborted" confirmation in the status overlay. Config: `abort`.
+- **Double-`<Esc>` abort.** While streaming, a second `<Esc>` within a timeout aborts the running turn (same as `:PiAbort`), with a persistent hint and an "Aborted" confirmation in the statusline center. Config: `abort`.
 
 **UI & rendering**
 
 - **Redesigned tool & thinking blocks.** Fold indicators (`▾`/`▸`) plus indentation replace box-drawing borders; successful tool calls end silently; running tools show an animated spinner. Thinking renders as a single header line with a rolling preview that freezes to a head summary; `<Tab>` expands/collapses it.
-- **Pinned status overlay.** The spinner and pending-queue display moved from virtual lines to a floating overlay pinned to the bottom of the history viewport.
+- **Status line in the prompt.** The busy spinner (with elapsed time and thinking state), the pending-queue count, and the abort hint/confirmation live in a configurable status line pinned to the bottom of the prompt window — always visible, regardless of how far you scroll the history. The queue *preview* rows stay at the end of the history.
 - **Opt-in `render-markdown.nvim` engine.** `render.engine = "render-markdown"` renders the history through render-markdown.nvim, with tool output fenced to avoid markdown misparsing. The default remains the builtin engine.
 
 **Navigation & layout**
@@ -86,8 +86,8 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 **Robustness fixes**
 
 - Thinking blocks render *after* inline tools (correct turn order); CJK / UTF-8 thinking-preview truncation no longer corrupts text; tool-block collapse/expand no longer corrupts the footer extmark; nerd-font icon codepoints corrected.
-- The streaming thinking header no longer flickers (alternating one/two wrapped lines): the rolling preview is drawn as end-of-line virtual text (`eol`) instead of `inline`, so it never counts toward the header line's wrap width — the inline preview used to wrap onto a second line whenever the rendered glyph widths (nerd icon, `…`) exceeded what Neovim's wrap calculation assumes. The header also keeps two trailing margin lines as breathing room before the spinner status block rendered below it (the margin is reused by the next text delta, so it does not leave extra blank lines behind).
-- The spinner / pending-queue / abort-hint status no longer covers history content: it is drawn as virtual lines at the end of the buffer instead of a floating window pinned over the viewport, so a freshly sent message and any scrolled-up content are never hidden behind it. When the conversation is shorter than the window the status is padded down to sit flush against the bottom edge, keeping the gap to the prompt minimal.
+- The streaming thinking header no longer flickers (alternating one/two wrapped lines): the rolling preview is drawn as end-of-line virtual text (`eol`) instead of `inline`, so it never counts toward the header line's wrap width — the inline preview used to wrap onto a second line whenever the rendered glyph widths (nerd icon, `…`) exceeded what Neovim's wrap calculation assumes. The header keeps a single trailing margin line as breathing room (reused by the next text delta, so it does not leave extra blank lines behind).
+- The busy spinner and abort hints moved from virtual lines at the end of the history buffer into the prompt statusline, where they have a fixed position that never scrolls away; only the pending-queue preview remains as virtual lines at the end of the history.
 
 **Developer infrastructure**
 
@@ -338,7 +338,9 @@ require("pi").setup({
         -- Entries are built-in component names, literal separators,
         -- or custom component functions.
         layout = {
-            left = { "context", "  ", "attention" },
+            left = { "context", "  ", "attention", "  ", "queue" },
+            -- Centered group; has placement priority over left/right.
+            center = { "spinner" },
             right = { "model", "   ", "thinking" },
         },
         components = {
@@ -350,6 +352,7 @@ require("pi").setup({
             attention = { icon = "󰵚", counter = false },
             model = { icon = "󰚩" },
             thinking = { icon = "󰟶" },
+            queue = { icon = "⏵" },
         },
     },
 
@@ -680,9 +683,9 @@ Both queued messages are rendered in the history with distinct labels (`labels.s
 
 ### Aborting with double `<Esc>`
 
-While the agent is **streaming**, pressing `<Esc>` twice in quick succession aborts the current turn — the same as `:PiAbort` / `pi.abort()`. The first `<Esc>` arms the gesture and shows a hint row in the **status overlay** pinned to the bottom of the chat history (the same overlay that shows the busy spinner) — so it stays visible instead of flashing by like a command-line message. The second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. If you don't press a second `<Esc>` in time, the gesture disarms itself and the hint disappears. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
+While the agent is **streaming**, pressing `<Esc>` twice in quick succession aborts the current turn — the same as `:PiAbort` / `pi.abort()`. The first `<Esc>` arms the gesture and shows a hint in the **statusline center** (temporarily replacing the busy spinner there) — so it stays visible instead of flashing by like a command-line message. The second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. If you don't press a second `<Esc>` in time, the gesture disarms itself and the hint disappears. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
 
-When a turn is aborted (by double-`<Esc>`, `:PiAbort`, or `pi.abort()`), the overlay briefly shows a centered **Aborted** confirmation (`PiAborted` highlight) for about two seconds, and the completion marker left in the history (`· aborted`) uses that same prominent highlight rather than the muted busy color — so it's obvious the turn was cancelled.
+When a turn is aborted (by double-`<Esc>`, `:PiAbort`, or `pi.abort()`), the statusline center briefly shows an **Aborted** confirmation (`PiAborted` highlight) for about two seconds, and the completion marker left in the history (`· aborted`) uses that same prominent highlight rather than the muted busy color — so it's obvious the turn was cancelled.
 
 When the agent is **idle**, `<Esc>` keeps its normal behavior (leaves insert mode) and the gesture is inert — no hint, no abort.
 
@@ -693,7 +696,7 @@ require("pi").setup({
     abort = {
         enabled = true, -- set false to disable double-<Esc> abort entirely
         timeout = 1500, -- ms window for the second <Esc> to count
-        message = "Press <Esc> again to abort", -- hint row shown in the overlay on the first <Esc>
+        message = "Press <Esc> again to abort", -- hint shown in the statusline center on the first <Esc>
     },
 })
 ```
@@ -1012,9 +1015,9 @@ The toggle key is registered as a permanent buffer-local mapping on the prompt b
 
 ### Statusline
 
-π renders a configurable status line pinned to the bottom of the prompt buffer. It's where session-level info lives — current model, thinking level, context usage, token counts, cost, pending attention, and anything else you want to surface from your extensions.
+π renders a configurable status line pinned to the bottom of the prompt buffer. It's where session-level info lives — current model, thinking level, context usage, token counts, cost, pending attention, the busy spinner, and anything else you want to surface from your extensions.
 
-The layout is split into **left** and **right** groups. Each group is just an array of items, and items can be:
+The layout is split into **left**, **center**, and **right** groups. Each group is just an array of items, and items can be:
 
 - **A built-in component name** — a string matching one of the built-ins listed below.
 - **A literal separator** — any other string, rendered between two _visible_ components as-is. If the next component is hidden, the separator is dropped too, so `{ "a", "  ", "b" }` automatically collapses to just `a` when `b` has nothing to show.
@@ -1024,12 +1027,15 @@ The layout is split into **left** and **right** groups. Each group is just an ar
 require("pi").setup({
     statusline = {
         layout = {
-            left  = { "context", "  ", "cost", "  ", "attention" },
-            right = { "model", "   ", "thinking" },
+            left   = { "context", "  ", "cost", "  ", "attention", "  ", "queue" },
+            center = { "spinner" },
+            right  = { "model", "   ", "thinking" },
         },
     },
 })
 ```
+
+The **center** group is centered in the window and has placement priority: when the window is too narrow for everything, the left/right groups are truncated into whatever space remains on either side of the center. With no visible center component, the layout falls back to plain left/right behavior (left has priority; right is truncated first).
 
 #### Built-in components
 
@@ -1043,6 +1049,8 @@ require("pi").setup({
 | `attention` | `󰵚` / `󰵚 2` | There's at least one pending attention request |
 | `model` | `claude-opus-4-6` | A model is active |
 | `thinking` | `xhigh` / `thinking off` | The current model supports reasoning |
+| `spinner` | `⠋ Working… 12s · Thinking` | The agent is busy. While the double-<Esc> abort gesture is armed, the hint temporarily replaces the spinner; an `Aborted` confirmation outranks both |
+| `queue` | `⏵ 2` | There are pending steer/follow-up messages |
 
 Any component that has nothing to show returns `nil` and is silently skipped (along with its adjacent separator).
 
@@ -1084,7 +1092,7 @@ local function my_component(state)
 end
 ```
 
-The `state` table exposes everything the built-ins see — model info, thinking level, token totals, cost, context usage, and a `state.extensions` map of per-extension status values (populated via the RPC `setStatus` call from extensions).
+The `state` table exposes everything the built-ins see — model info, thinking level, token totals, cost, context usage, a `state.extensions` map of per-extension status values (populated via the RPC `setStatus` call from extensions), plus the busy/queue status: `state.busy` (spinner display model: `frame`, `text`, `elapsed`, `thinking`), `state.queue_count`, `state.abort_hint`, and `state.aborted_notice`.
 
 Drop a custom component anywhere in the layout array. For example, surfacing a status from an extension:
 
@@ -2086,7 +2094,7 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiMessageDateTime` | Timestamp next to messages |
 | `PiMessageQueueTag` | Queue tag (steer / follow-up) next to queued messages |
 | `PiMessageAttachments` | Attachment summary under a message |
-| `PiPendingQueueLabel` | Label for the pending queue area below the prompt |
+| `PiPendingQueueLabel` | Label/icon for pending queued messages (history preview rows and statusline `queue` count) |
 | `PiPendingQueueText` | Text of pending queued messages |
 | `PiThinking` | Thinking block body |
 | `PiMention` | Highlighted `@mention` in the prompt and history |
@@ -2095,8 +2103,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiWelcomeHint` | Hint text under the welcome |
 | `PiBusy` | "Agent is working" status text |
 | `PiBusyTime` | Elapsed time counter next to the busy status |
-| `PiAbortHint` | "Press <Esc> again to abort" hint row in the status overlay |
-| `PiAborted` | Transient "Aborted" confirmation overlay + in-history abort marker |
+| `PiAbortHint` | "Press <Esc> again to abort" hint in the statusline center |
+| `PiAborted` | Transient "Aborted" confirmation in the statusline center + in-history abort marker |
 | `PiWarning` | Inline warning lines |
 | `PiError` | Inline error lines |
 | `PiDebug` | Inline debug lines |
