@@ -56,7 +56,21 @@ function M.get_sessions_dir()
     return join_path(agent_dir, "sessions", encode_cwd(cwd))
 end
 
---- Parse a .jsonl session file: read header + first user message.
+--- Decode a line if it is a `session_info` entry carrying a non-empty name.
+---@param line string
+---@return string? name trimmed display name, or nil
+local function session_info_name(line)
+    if not line:find('"session_info"', 1, true) then
+        return nil
+    end
+    local lok, entry = pcall(vim.json.decode, line)
+    if lok and entry and entry.type == "session_info" and type(entry.name) == "string" and entry.name ~= "" then
+        return entry.name:match("^%s*(.-)%s*$") -- trim
+    end
+    return nil
+end
+
+--- Parse a .jsonl session file: read header + first user message + latest name.
 ---@param path string
 ---@return pi.SessionInfo?
 local function parse_session_file(path)
@@ -76,16 +90,19 @@ local function parse_session_file(path)
         return nil
     end
 
-    -- Scan entire file for first user message and session name (latest wins).
+    -- Single forward pass over the buffered file. The first user message sits
+    -- near the top, so stop decoding message lines once it is found. The latest
+    -- session name can appear anywhere (latest wins), so every line is visited,
+    -- but only rare, small `session_info` lines are JSON-decoded — huge message
+    -- and tool-output lines are skipped via a cheap substring prefilter. This
+    -- keeps listing I/O-bound rather than decode-bound for multi-MB sessions
+    -- (the previous full JSON-decode of every line made it take many seconds).
     local first_message = ""
     local name = nil
     for line in file:lines() do
-        local lok, entry = pcall(vim.json.decode, line)
-        if lok and entry then
-            if entry.type == "session_info" and type(entry.name) == "string" and entry.name ~= "" then
-                name = entry.name:match("^%s*(.-)%s*$") -- trim
-            end
-            if first_message == "" and entry.type == "message" then
+        if first_message == "" and line:find('"message"', 1, true) then
+            local lok, entry = pcall(vim.json.decode, line)
+            if lok and entry and entry.type == "message" then
                 local msg = entry.message
                 if msg and msg.role == "user" then
                     local content = msg.content
@@ -101,6 +118,10 @@ local function parse_session_file(path)
                     end
                 end
             end
+        end
+        local entry_name = session_info_name(line)
+        if entry_name then
+            name = entry_name
         end
     end
     file:close()

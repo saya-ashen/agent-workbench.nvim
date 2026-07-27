@@ -2,6 +2,8 @@
 
 ## 2026-07-27
 
+- **FIXED:** Opening the resume-session picker (and the continue-session lookup) no longer takes many seconds on projects with large session files. Session listing had regressed to JSON-decoding *every* line of *every* `.jsonl` just to find the latest session name; it now decodes only the rare, small `session_info` lines (cheap substring prefilter) and stops decoding message lines once the first user message is found, keeping listing I/O-bound. The "latest name wins" behavior is unchanged.
+
 - **FIXED:** The spinner, pending-queue, and abort-hint status no longer cover history content. The pinned floating overlay introduced on 2026-07-25 is replaced by virtual lines at the end of the buffer, so a freshly sent message and any scrolled-up content are never hidden behind it; when the conversation is shorter than the window the status is padded to sit flush against the bottom edge.
 - **FIXED:** The streaming thinking header no longer flickers between one and two wrapped lines. The rolling preview is now end-of-line virtual text (`eol`) instead of `inline`, so it no longer counts toward the header's wrap width.
 
