@@ -218,8 +218,13 @@ local function handle_event(session, msg)
         chat:on_tool_start(msg.toolName or "tool", msg.toolCallId, args)
         -- Stash args for file-changing tools; tool_execution_end doesn't carry args.
         stash_file_tool_args(session, msg.toolName, msg.toolCallId, args)
+        -- Stash search-tool args so the quickfix list can be titled with the pattern.
+        require("pi.quickfix").on_tool_start(msg.toolName, msg.toolCallId, args)
     elseif t == "tool_execution_end" then
         chat:on_tool_end(msg.toolName or "tool", msg.toolCallId, msg.result, msg.isError)
+        vim.schedule(function()
+            require("pi.quickfix").on_tool_end(msg.toolName, msg.toolCallId, msg.result, msg.isError)
+        end)
         if session._pending_file_change_args and not msg.isError then
             local args = session._pending_file_change_args[msg.toolCallId]
             track_changed_file(session, args)
