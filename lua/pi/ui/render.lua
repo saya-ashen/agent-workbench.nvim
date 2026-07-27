@@ -97,6 +97,54 @@ function M.attach_history(buf)
     end)
 end
 
+---@return any? manager the render-markdown core manager, if usable
+local function rm_manager()
+    local ok, manager = pcall(require, "render-markdown.core.manager")
+    return ok and manager or nil
+end
+
+--- Pause render-markdown rendering for the history buffer.
+---
+-- render-markdown re-renders the whole buffer on every TextChanged. During a
+-- session replay pi makes hundreds of buffer edits, so leaving it active makes
+-- each edit re-parse the growing buffer — O(n^2) overall, which hangs loading
+-- of large sessions. Disabling the buffer makes render-markdown's autocmds bail
+-- out cheaply until resume_history() re-enables and renders once.
+---@param buf integer
+function M.pause_history(buf)
+    if M.engine() ~= "render-markdown" or not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+    local manager = rm_manager()
+    if manager then
+        pcall(manager.set_buf, buf, false)
+    end
+end
+
+--- Re-enable render-markdown for the history buffer and render it once.
+---
+-- The re-enable is deferred one scheduler tick: replay applies its buffer edits
+-- via vim.schedule(), and set_replaying(false) runs synchronously right after
+-- the replay loop — i.e. *before* those edits land. Re-enabling immediately
+-- would let every still-queued edit re-render the whole buffer again. Deferring
+-- puts the re-enable after the pending edits, so rendering happens once.
+---@param buf integer
+function M.resume_history(buf)
+    if M.engine() ~= "render-markdown" or not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+    vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) then
+            return
+        end
+        local manager = rm_manager()
+        if manager then
+            -- set_buf(buf, true) re-enables and triggers a single full render.
+            pcall(manager.set_buf, buf, true)
+        end
+    end)
+end
+
 --- Reset module state (used by tests).
 function M._reset()
     warned_missing = false

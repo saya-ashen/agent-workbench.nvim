@@ -39,6 +39,7 @@ local CommandsCache = require("pi.cache.commands")
 local Layout = require("pi.ui.chat.layout")
 local Attention = require("pi.attention")
 local History = require("pi.ui.chat.history")
+local Render = require("pi.ui.render")
 local Prompt = require("pi.ui.chat.prompt")
 local Attachments = require("pi.ui.chat.attachments")
 local Mentions = require("pi.ui.chat.mentions")
@@ -1020,6 +1021,16 @@ end
 ---@param replaying boolean
 function Chat:set_replaying(replaying)
     self._history._replaying = replaying
+    -- Pause render-markdown while replaying: it would otherwise re-render the
+    -- whole buffer on every edit (hundreds of edits during a large session
+    -- load), which is O(n^2) and hangs loading. On completion, re-enable and
+    -- render once.
+    local buf = self._history:buf()
+    if replaying then
+        Render.pause_history(buf)
+    else
+        Render.resume_history(buf)
+    end
 end
 
 ---@param timestamp? number
