@@ -393,6 +393,14 @@ require("pi").setup({
         notify_on_completion = true,
     },
 
+    -- Buffer reload: what to do when pi modifies a file that is open in a buffer.
+    reload = {
+        -- "silent" : reload unmodified buffers silently; skip modified ones (default)
+        -- "notify" : same as silent, plus a notification listing reloaded/skipped files
+        -- false    : disabled — buffers are never touched
+        mode = "silent",
+    },
+
     -- Double-<Esc> aborts the running agent (same as :PiAbort).
     abort = {
         -- Enable the double-<Esc> abort gesture.
@@ -1375,6 +1383,28 @@ The `[accepted]` and `[rejected]` prefixes in the `reason` string are parsed by 
 Because pi2.nvim writes the file _itself_ for `Accepted` and `AcceptModified`, the extension **must** return `{ block: true }` in those cases. If it doesn't, pi's tool dispatcher will run the original `edit`/`write` on top of pi2.nvim's version and you'll end up with a double-apply.
 
 Blocked tool results come back to the agent with `isError: true`. For approved-but-blocked calls, flip that back in a `message_end` handler (as the minimal example does) so the LLM doesn't treat an accepted edit as a failure on the next turn.
+
+### Buffer reload
+
+When pi's `edit` or `write` tool modifies a file that is currently open in a Neovim buffer, pi2.nvim can automatically reload that buffer so you always see the latest content without a manual `:edit!`.
+
+The behavior is controlled by `reload.mode`:
+
+| Mode | Behavior |
+|------|----------|
+| `"silent"` (default) | Reload unmodified buffers silently. Buffers with unsaved user changes are left untouched. |
+| `"notify"` | Same as silent, plus a `vim.notify` message listing which files were reloaded and which were skipped. |
+| `false` | Disabled — buffers are never touched. |
+
+```lua
+require("pi").setup({
+    reload = {
+        mode = "silent",  -- or "notify" or false
+    },
+})
+```
+
+A buffer is considered *modified* when `vim.bo[buf].modified` is true (i.e. the user has unsaved changes). pi2.nvim never overwrites unsaved work — modified buffers are always skipped regardless of mode.
 
 ### Attention & dialogs
 
