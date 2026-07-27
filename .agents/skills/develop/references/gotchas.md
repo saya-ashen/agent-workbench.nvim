@@ -120,3 +120,17 @@ Each entry is a real defect or trap encountered while adding features to this pl
 - **根因:** `_update_status_extmark` computed its bottom padding with `nvim_win_text_height(win, {})` — an O(whole-buffer) scan, ~17ms at 32k lines — and it ran on **every streamed delta, every tool-output insert, every replay step, and every spinner tick (~80ms)**. Per-event O(n) saturates the main loop (input events queue behind it) and makes replay O(n²). Prime suspect treesitter was innocent: incremental parse stays flat (~0.07ms) regardless of buffer size — measure before blaming it.
 - **修法:** Never call whole-buffer APIs (`nvim_win_text_height`, full-buffer `nvim_buf_get_lines`, linear extmark scans) on per-event paths; gate them behind a cheap provability check. Here: visual height ≥ buffer line count always, so once lines fill the window the pad is provably 0 and the scan is skipped (`history.lua` `_update_status_extmark`). Regression-test by stubbing the API to count calls and asserting 0 on the hot path (`tests/history_status_pad_spec.lua`).
 - **排查方法:** Headless profile, no UI needed: build a large conversation through the real public API (`on_agent_start` / `on_text_delta` / `on_tool_start` / `on_tool_end`, pumping `vim.wait`), then time individual operations with `vim.uv.hrtime` at several sizes (e.g. 5k / 16k / 32k lines). Scaling exposes the O(n) even when absolute numbers look small at one size.
+
+### G23 — In a worktree, `make smoke` / GUI test the MAIN checkout, not your code
+- **现象:** Working in a feature worktree, `make test` reflects your edits but `make smoke` (or a GUI run) still behaves like `main` — a fix "doesn't take", or a smoke check passes/fails for reasons unrelated to your change.
+- **根因:** The layers resolve the plugin path differently. `make test` boots `tests/minimal_init.lua`, which computes the repo root from **its own file location** (`debug.getinfo`) and prepends *that* to `runtimepath` — so it loads the worktree's `lua/pi`. But `make smoke` and the GUI harness boot the user's real `~/.config/nvim/init.lua`, and lazy.nvim loads pi from its **installed path** `~/.local/share/nvim/lazy/pi2.nvim` (the main checkout) regardless of your cwd. So those layers exercise main's code, never the worktree's.
+- **修法:** During worktree development, verify with the worktree-local layers: `make test` and headless e2e scripts run under `nvim --headless -u tests/minimal_init.lua -l script.lua` (both resolve to the worktree). For smoke/GUI proof of the worktree code, either (a) run it **after merging to `main`**, or (b) temporarily point lazy at the worktree by adding an env-gated `dir` to the pi lazy spec and launching with that env set:
+  ```lua
+  -- in the user's pi lazy spec (one-time, opt-in)
+  dir = vim.env.PI_DEV_DIR or nil,   -- nil => lazy's normal installed path
+  ```
+  ```bash
+  PI_DEV_DIR="$WT_ROOT/<name>" make smoke   # now loads the worktree
+  ```
+  Never place a worktree **under** `~/.local/share/nvim/lazy/`: lazy treats every directory there as a plugin and would load it as a *second* pi plugin (duplicate modules, double autocmds). Keep worktrees at a sibling root such as `~/.local/share/pi.nvim-worktrees/<name>`.
+- **元教训:** The main checkout is a *live plugin path* the running editor depends on; keep it on `main` and do feature work in a worktree so branch switches (yours or a concurrent session's) can't strand uncommitted work on the wrong branch or swap the running editor's code mid-session.

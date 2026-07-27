@@ -6,7 +6,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **What it's for:** pure Lua with no UI — stores, parsers, config resolution, pure transforms. Examples in repo: `tests/prompt_history_spec.lua`, `tests/draft_spec.lua`, `tests/render_spec.lua`, `tests/sanity_spec.lua`.
 
-**How it runs:** `make test` → `nvim --headless -u tests/minimal_init.lua -c "...test_directory('tests'...)"`. `minimal_init.lua` prepends plenary + the repo root to `runtimepath` *without* loading the user's config, so it is fast and deterministic. `PLENARY_PATH` overrides the plenary location.
+**How it runs:** `make test` → `nvim --headless -u tests/minimal_init.lua -c "...test_directory('tests'...)"`. `minimal_init.lua` prepends plenary + the repo root to `runtimepath` *without* loading the user's config, so it is fast and deterministic. `PLENARY_PATH` overrides the plenary location. Because the repo root is resolved from `minimal_init.lua`'s **own file path**, this layer runs against the current **worktree's** code — it is worktree-safe (G23).
 
 **Rules / pitfalls:**
 - `before_each` / `after_each` **must be inside a `describe`**. At the top level they silently no-op *and* the run exits non-zero (`make: Error 1`) with no clear message — the spec just never executes (G14). Always wrap.
@@ -20,7 +20,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **What it's for:** the real plugin loading under the real config, the real chat opening, the RPC backend spawning, buffer/extmark wiring, keymap *registration*, and method-level behavior — everything that doesn't need pixels or real key events.
 
-**How it runs:** `nvim --headless -u ~/.config/nvim/init.lua -l script.lua`. The script drives `require("pi").show{layout="side"}`, `vim.wait(...)` for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` is the minimal version of this (load + assert the two chat buffers exist).
+**How it runs:** `nvim --headless -u ~/.config/nvim/init.lua -l script.lua`. The script drives `require("pi").show{layout="side"}`, `vim.wait(...)` for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` is the minimal version of this (load + assert the two chat buffers exist). **Worktree caveat:** this boots the user's real config, so lazy loads pi from the **main checkout** (`~/.local/share/nvim/lazy/pi2.nvim`), not a feature worktree. To exercise worktree code headless, run the script under `-u tests/minimal_init.lua` instead (path-relative, worktree-safe); see G23.
 
 **Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) end` (get `chat` via `require("pi.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
 
@@ -34,7 +34,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 ## Layer 3 — GUI automation (xdotool + wmctrl + maim + RPC)
 
-**What it's for:** the only layer that exercises real keybindings through the terminal emulator, real insert mode, and **visual rendering**. This is where G1, G2, G3, G11, G12 were actually caught.
+**What it's for:** the only layer that exercises real keybindings through the terminal emulator, real insert mode, and **visual rendering**. This is where G1, G2, G3, G11, G12 were actually caught. Like `make smoke`, it boots the user config and loads pi from the **main checkout**, so a GUI run does not see a feature worktree's code (G23) — verify worktree changes via unit / headless-`minimal_init`, or point lazy at the worktree first.
 
 **Topology.** A dedicated WezTerm window runs `nvim --listen <SOCK>` on its own i3 workspace (so it tiles full-screen and screenshots are legible — a shared workspace splits the screen and the UI is tiny). `xdotool` sends keys to that window id; `wmctrl` enumerates windows; `maim -i <WID>` screenshots; the nvim **RPC socket** is ground truth (`nvim --server $SOCK --remote-expr 'luaeval("...")'`).
 
