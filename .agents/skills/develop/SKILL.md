@@ -90,6 +90,7 @@ One-line quick reference below; full 现象/根因/修法 in `references/gotchas
 | G19 | Edit all three config spots together |
 | G20 | Read `config.options` at call time, never cache at module load |
 | G21 | Restart nvim after editing `lua/pi/**`; lazy never hot-reloads |
+| G22 | No whole-buffer APIs (`nvim_win_text_height`, full `get_lines`) on per-event paths; gate behind a cheap provability check |
 
 ## Cross-references
 
