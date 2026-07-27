@@ -83,6 +83,11 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 - **Search results in the quickfix list.** When the `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) and loaded into the quickfix list, so you can jump between them with `:cnext` / `:cprev`. The `find` tool's file list can be loaded the same way. The quickfix window is never opened automatically — use `:copen` to see it; the list is titled `pi <tool>: <pattern>`. Config: `quickfix`.
 - **Left side panel.** `layout.side.position` accepts `"left"`.
 
+**Sessions & editor integration**
+
+- **Per-tab model pinning.** The pi backend persists every model switch to its global settings, so out of the box a switch in one tab leaks into every other tab's next `:PiNewSession`. π pins the model per tab instead: captured when the session starts, updated on manual switches (`:PiCycleModel` / `:PiSelectModel` / `:PiSelectModelAll`), adopted from the session file on resume, and reapplied after `:PiNewSession` so the tab's new conversation keeps the tab's model. If the pinned model becomes unavailable, π silently falls back to the backend's choice and adopts it as the new pin.
+- **Auto-reload of open buffers.** When pi's `edit` / `write` tools modify a file that is open in a Neovim buffer, π reloads it so you always see the latest content without a manual `:edit!`; buffers with unsaved user changes are never touched. Config: `reload.mode` (`"silent"` default, `"notify"`, or `false`).
+
 **Robustness fixes**
 
 - Thinking blocks render *after* inline tools (correct turn order); CJK / UTF-8 thinking-preview truncation no longer corrupts text; tool-block collapse/expand no longer corrupts the footer extmark; nerd-font icon codepoints corrected.
