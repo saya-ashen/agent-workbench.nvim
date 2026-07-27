@@ -1,6 +1,34 @@
 # Gotchas — full 现象 / 根因 / 修法
 
-Each entry is a real defect or trap encountered while adding features to this plugin, with the mechanism and the fix. The one-line versions live in the table in `SKILL.md`; this file is the detail. Where a minimal reproduction exists it is included — these reproductions are the fastest way to *see* the trap, and they double as regression checks.
+Each entry is a real defect or trap encountered while adding features to this plugin, with the mechanism and the fix. The quick-reference table below is the index; the full 现象/根因/修法 detail follows. Where a minimal reproduction exists it is included — these reproductions are the fastest way to *see* the trap, and they double as regression checks.
+
+## Quick reference
+
+| # | Fix in one line |
+|---|-----------------|
+| G1 | Defer buffer edits in `<expr>` mappings with `vim.schedule` |
+| G2 | Return literal `"<Up>"` from `<expr>`, never `vim.keycode` |
+| G3 | Compare buffer text to last-applied, don't use a timing flag |
+| G4 | Headless: call save method directly, `TextChanged` won't fire |
+| G5 | Headless: feed `"i<Up>"` in one call, or bind `{ "i", "n" }` |
+| G6 | Visual correctness needs a GUI screenshot, headless can't prove it |
+| G7 | Builtin renderer is `conceallevel=0`; use render-markdown for chrome |
+| G8 | render-markdown auto-attach needs `plugin/` sourced (lazy does this) |
+| G9 | Headless: force `render-markdown.render({ buf = buf })` |
+| G10 | markview ignores `buftype=nofile`; prefer render-markdown |
+| G11 | Enter history window from prompt to avoid WinEnter redirect |
+| G12 | Send `Esc` before normal/leader keys (prompt auto-inserts) |
+| G13 | lazy loads on first key; `wait_for` the buffer |
+| G14 | `before_each`/`after_each` must be inside a `describe` |
+| G15 | Use `NVIM_BIN` not `NVIM` in Makefile |
+| G16 | Put cleanup in script files, not inline `bash -c` |
+| G17 | Redirect history/draft paths to `/tmp` in tests |
+| G18 | Never delete sessions by grep; stubbed send writes no transcript |
+| G19 | Edit all three config spots together |
+| G20 | Read `config.options` at call time, never cache at module load |
+| G21 | Restart nvim after editing `lua/pi/**`; lazy never hot-reloads |
+| G22 | No whole-buffer APIs (`nvim_win_text_height`, full `get_lines`) on per-event paths; gate behind a cheap provability check |
+| G23 | In a worktree, `make smoke`/GUI load the MAIN checkout (lazy path), not your code; verify with `make test` + `-u tests/minimal_init.lua` |
 
 ---
 
