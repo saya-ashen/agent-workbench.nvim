@@ -85,6 +85,8 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 **Robustness fixes**
 
 - Thinking blocks render *after* inline tools (correct turn order); CJK / UTF-8 thinking-preview truncation no longer corrupts text; tool-block collapse/expand no longer corrupts the footer extmark; nerd-font icon codepoints corrected.
+- The streaming thinking header no longer flickers (alternating one/two wrapped lines): the rolling preview is drawn as end-of-line virtual text (`eol`) instead of `inline`, so it never counts toward the header line's wrap width — the inline preview used to wrap onto a second line whenever the rendered glyph widths (nerd icon, `…`) exceeded what Neovim's wrap calculation assumes. The header also keeps two trailing margin lines as breathing room before the spinner status block rendered below it (the margin is reused by the next text delta, so it does not leave extra blank lines behind).
+- The spinner / pending-queue / abort-hint status no longer covers history content: it is drawn as virtual lines at the end of the buffer instead of a floating window pinned over the viewport, so a freshly sent message and any scrolled-up content are never hidden behind it. When the conversation is shorter than the window the status is padded down to sit flush against the bottom edge, keeping the gap to the prompt minimal.
 
 **Developer infrastructure**
 

@@ -6,10 +6,12 @@
 ---@field _tab pi.TabId
 ---@field _scroll_scheduled boolean
 ---@field _status_extmark_id integer?
+---@field _status_virt_line_count integer
+---@field _status_pad integer Blank virt_lines prepended to pin the spinner to the window bottom
 ---@field _status_text string?
 ---@field _status_start_time number?
----@field _abort_hint string? Transient "press <Esc> again to abort" row in the status overlay
----@field _aborted_notice string? Transient "Aborted" confirmation row in the status overlay
+---@field _abort_hint string? Transient "press <Esc> again to abort" row in the status block
+---@field _aborted_notice string? Transient "Aborted" confirmation row in the status block
 ---@field _spinner_frames string[]
 ---@field _spinner_rate integer
 ---@field _spinner_index integer
@@ -118,7 +120,6 @@ local Render = require("pi.ui.render")
 local Text = require("pi.ui.chat.text")
 
 local ns = vim.api.nvim_create_namespace("pi-chat")
-local status_ns = vim.api.nvim_create_namespace("pi-status-float")
 
 local SCROLL_THRESHOLD = 10
 local STARTUP_HL_PRIORITY = 200
@@ -476,8 +477,8 @@ function History.new(tab)
     self._startup_errors = {}
     self._pending_queue = {}
     self._pending_queue_extmark_id = nil
-    self._status_win = nil
-    self._status_buf = nil
+    self._status_virt_line_count = 0
+    self._status_pad = 0
     self._replaying = false
     self._agent_text_start_row = nil
     self._current_turn_first_agent_response_extmark_id = nil
@@ -542,6 +543,16 @@ function History:_scroll_to_bottom()
     vim.api.nvim_win_call(self._win, function()
         -- G=last line, 0=col 1, zb=redraw with cursor at bottom
         vim.cmd("normal! G0zb")
+        -- Status virt_lines render below the last buffer line. When the
+        -- conversation does not fill the window, _update_status_extmark pads
+        -- the virt_lines so the spinner already sits at the viewport bottom;
+        -- scrolling here would push blank lines in from the top and undo that.
+        -- Only when there is no pad (content overflows the window) do we scroll
+        -- down to reveal the virt_lines that G0zb left clipped below the cursor.
+        local n = (self._status_pad or 0) == 0 and (self._status_virt_line_count or 0) or 0
+        if n > 0 then
+            vim.cmd("normal! " .. n .. "\x05")
+        end
     end)
 end
 
@@ -610,10 +621,13 @@ function History:_pick_spinner()
 end
 
 function History:_update_status_extmark()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return
+    end
     local win = self:win()
 
-    -- Build the bottom status overlay rows: each row is { text, hls }.
-    -- hls entries are { start_col, end_col, hl_group } in byte offsets.
+    -- Build the status rows (rendered as virt_lines below the last buffer line).
+    -- hls entries are { start_col, end_col, hl_group } in 0-indexed byte offsets.
     ---@type { text: string, hls: table[] }[]
     local rows = {}
 
@@ -684,81 +698,111 @@ function History:_update_status_extmark()
         centered_row(self._aborted_notice, "PiAborted")
     end
 
-    -- Nothing to show, or no window to pin to: tear down the overlay.
-    if #rows == 0 or not win then
-        self:_close_status_float()
+    -- Nothing to show: clear the status virt_lines.
+    if #rows == 0 then
+        self:_clear_status_virt_lines()
         return
     end
 
-    -- Ensure a backing scratch buffer for the overlay.
-    if not self._status_buf or not vim.api.nvim_buf_is_valid(self._status_buf) then
-        self._status_buf = vim.api.nvim_create_buf(false, true)
-        vim.bo[self._status_buf].buftype = "nofile"
-        vim.bo[self._status_buf].bufhidden = "wipe"
-        vim.bo[self._status_buf].swapfile = false
-    end
-    local buf = self._status_buf
-
-    -- Leading blank line: one-line margin separating the overlay from the
-    -- history content above it (the overlay is bottom-pinned, so the extra
-    -- line grows it upward while the status rows stay at the bottom).
-    local lines = { "" }
-    for _, r in ipairs(rows) do
-        lines[#lines + 1] = r.text
-    end
-    vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    vim.api.nvim_buf_clear_namespace(buf, status_ns, 0, -1)
-    for i, r in ipairs(rows) do
-        for _, h in ipairs(r.hls) do
-            if h[3] and h[3] ~= "" and h[2] > h[1] then
-                -- +1 line offset for the leading padding line.
-                vim.api.nvim_buf_set_extmark(buf, status_ns, i, h[1], { end_col = h[2], hl_group = h[3] })
-            end
-        end
-    end
-
-    -- Pin the overlay to the bottom row of the history viewport.
-    local win_h = vim.api.nvim_win_get_height(win)
-    local win_w = vim.api.nvim_win_get_width(win)
-    local height = math.min(#lines, win_h)
-    local cfg = {
-        relative = "win",
-        win = win,
-        row = math.max(0, win_h - height),
-        col = 0,
-        width = win_w,
-        height = height,
-        anchor = "NW",
-        focusable = false,
-        style = "minimal",
-        border = "none",
-        zindex = 45,
-    }
-    if self._status_win and vim.api.nvim_win_is_valid(self._status_win) then
-        pcall(vim.api.nvim_win_set_config, self._status_win, cfg)
-    else
-        local ok, w = pcall(vim.api.nvim_open_win, buf, false, cfg)
-        if ok then
-            self._status_win = w
-            -- winhighlight is a window option, not an open_win config key.
-            pcall(function() vim.wo[w].winhighlight = "Normal:PiFloat" end)
+    -- Text area width for right-padding (excludes signcolumn / foldcolumn).
+    local width = 80
+    if win then
+        local info = vim.fn.getwininfo(win)
+        if info and info[1] then
+            width = info[1].width - info[1].textoff
         else
-            self._status_win = nil
+            width = vim.api.nvim_win_get_width(win)
+        end
+    end
+
+    -- When the conversation does not fill the window, the status virt_lines
+    -- (anchored below the last buffer line) would otherwise float in the upper
+    -- part of the viewport with empty window space below them — leaving a large
+    -- gap between the spinner and the prompt. Prepend blank virt_lines (same
+    -- trick the prompt statusline uses) so the spinner is pushed down to the
+    -- viewport bottom. _scroll_to_bottom skips its Ctrl-E compensation while
+    -- this pad is active, since the pad already pins the bottom.
+    local status_rows_no_pad = 1 + #rows
+    local pad = 0
+    if win then
+        local has_winbar = vim.wo[win].winbar ~= ""
+        local text_rows = vim.api.nvim_win_get_height(win) - (has_winbar and 1 or 0)
+        local ok, ht = pcall(vim.api.nvim_win_text_height, win, {})
+        local visual_total = ok and ht.all or 0
+        local visual_content = visual_total - (self._status_virt_line_count or 0)
+        pad = math.max(0, text_rows - visual_content - status_rows_no_pad)
+    end
+    self._status_pad = pad
+
+    --- Convert a row's hls ({ start, end, hl } in 0-indexed byte offsets)
+    --- into virt_lines chunk format ({ { text, hl }, ... }).
+    local function row_to_chunks(row)
+        local chunks = {} ---@type string[][]
+        local pos = 0
+        for _, h in ipairs(row.hls) do
+            local s, e, hl = h[1], h[2], h[3]
+            if s > pos then
+                chunks[#chunks + 1] = { row.text:sub(pos + 1, s), "" }
+            end
+            if e > s then
+                chunks[#chunks + 1] = { row.text:sub(s + 1, e), (hl and hl ~= "") and hl or "" }
+            end
+            pos = e
+        end
+        if pos < #row.text then
+            chunks[#chunks + 1] = { row.text:sub(pos + 1), "" }
+        end
+        -- Right-pad to full width so the background extends edge-to-edge.
+        local text_width = vim.fn.strdisplaywidth(row.text)
+        if text_width < width then
+            chunks[#chunks + 1] = { string.rep(" ", width - text_width), "" }
+        end
+        return chunks
+    end
+
+    -- Build virt_lines: top padding (pins the block to the window bottom when
+    -- the conversation is short) + leading blank margin line + status rows.
+    ---@type string[][][]
+    local virt_lines = {}
+    local blank = { { string.rep(" ", width), "" } }
+    for i = 1, pad do
+        virt_lines[#virt_lines + 1] = blank
+    end
+    virt_lines[#virt_lines + 1] = blank
+    for _, r in ipairs(rows) do
+        virt_lines[#virt_lines + 1] = row_to_chunks(r)
+    end
+
+    self._status_virt_line_count = #virt_lines
+
+    -- Attach virt_lines to the last line of the history buffer.
+    local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
+    if self._status_extmark_id then
+        pcall(vim.api.nvim_buf_set_extmark, self._buf, ns, last_line, 0, {
+            id = self._status_extmark_id,
+            virt_lines = virt_lines,
+        })
+    else
+        local ok, id = pcall(vim.api.nvim_buf_set_extmark, self._buf, ns, last_line, 0, {
+            virt_lines = virt_lines,
+        })
+        if ok then
+            self._status_extmark_id = id
         end
     end
 end
 
---- Close the pinned bottom status overlay (spinner + pending queue).
-function History:_close_status_float()
-    if self._status_win and vim.api.nvim_win_is_valid(self._status_win) then
-        pcall(vim.api.nvim_win_close, self._status_win, true)
+--- Clear the status virt_lines from the history buffer.
+function History:_clear_status_virt_lines()
+    if self._status_extmark_id and self._buf and vim.api.nvim_buf_is_valid(self._buf) then
+        pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, self._status_extmark_id)
     end
-    self._status_win = nil
+    self._status_extmark_id = nil
+    self._status_virt_line_count = 0
+    self._status_pad = 0
 end
 
---- Show the "press <Esc> again to abort" hint row in the status overlay.
+--- Show the "press <Esc> again to abort" hint row in the status block.
 ---@param text string
 function History:set_abort_hint(text)
     self._abort_hint = text
@@ -774,7 +818,7 @@ function History:clear_abort_hint()
     self:_update_status_extmark()
 end
 
---- Show a transient "Aborted" confirmation row in the status overlay.
+--- Show a transient "Aborted" confirmation row in the status block.
 ---@param text string
 function History:set_aborted_notice(text)
     self._aborted_notice = text
@@ -866,7 +910,22 @@ function History:_thinking_preview_width(header_text)
     return math.max(16, w - reserved)
 end
 
---- Set (or clear) the inline preview virtual text on a thinking header row.
+--- Set (or clear) the end-of-line preview virtual text on a thinking header row.
+---
+--- Uses `virt_text_pos = "eol"` on purpose, not `"inline"`. An inline virt_text
+--- counts toward the line's wrap width, so when the preview contains long
+--- space-less runs (e.g. `pcall(vim.api.nvim_win_set_config)`) or wide glyphs,
+--- the header line wraps onto a second screen line. Worse, Neovim computes the
+--- wrap width with utf8proc char widths while the real terminal font often
+--- renders nerd icons and ambiguous-width chars (the thinking icon, `…`) one
+--- cell wider; that mismatch makes the *rendered* width oscillate between the
+--- window width and width+1 as the rolling preview changes, so the header
+--- flickers between one and two wrapped lines. An `eol` virt_text does not
+--- participate in wrap width at all — it is drawn after the line and clipped at
+--- the window edge — so the header always stays a single screen line regardless
+--- of preview width or glyph-width mismatch. Visually it is nearly identical to
+--- inline (the preview still sits right after a short header) and the hard clip
+--- matches the existing tail truncation (which adds no ellipsis either).
 ---@param row integer 0-indexed header row
 ---@param text string? preview text; nil clears
 ---@return integer? virt_id
@@ -880,7 +939,7 @@ function History:_set_thinking_preview(row, text, virt_id)
     local line = vim.api.nvim_buf_get_lines(self._buf, row, row + 1, false)[1] or ""
     local opts = {
         virt_text = { { "  " .. text, "PiThinking" } },
-        virt_text_pos = "inline",
+        virt_text_pos = "eol",
     }
     if virt_id then
         opts.id = virt_id
@@ -3064,13 +3123,31 @@ function History:on_thinking_start()
         }
         if self._show_thinking then
             -- Single-line presentation: a blank breathing line + one header line.
-            -- The streaming preview is drawn as inline virtual text on the header
-            -- (a rolling tail window), so thinking never grows vertically.
+            -- The streaming preview is drawn as end-of-line virtual text on the
+            -- header (a rolling tail window), so thinking never grows vertically.
             local header_text = label .. " Thinking…"
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, anchor, {})
             local row = pos[1]
+            -- Trailing margin lines after the header: purely visual breathing
+            -- room between the thinking header and the spinner status block that
+            -- renders as virt_lines below the buffer's last line. The status is
+            -- part of the content flow (not a covering overlay), so the header is
+            -- never hidden by it — when the conversation is short the status pad
+            -- pins the spinner to the viewport bottom with the header sitting just
+            -- above it, and when it overflows auto-scroll keeps both in view. We
+            -- keep exactly two blank lines *after* the header regardless of whether
+            -- the buffer already ended in a breathing blank: when it did, that
+            -- existing blank becomes the second margin line (insert one); when it
+            -- didn't (e.g. after an inline tool) we insert both. _append_text
+            -- reuses the final blank line for the next text delta, so this margin
+            -- does not accumulate into extra empty lines later.
+            local margin = last_text == "" and 1 or 2
+            local block = { "", header_text }
+            for _ = 1, margin do
+                block[#block + 1] = ""
+            end
             self:_with_modifiable(function()
-                vim.api.nvim_buf_set_lines(self._buf, row, row, false, { "", header_text })
+                vim.api.nvim_buf_set_lines(self._buf, row, row, false, block)
             end)
             self:_apply_thinking_hl(row + 1, 1)
             self._thinking_accum.buf_lines = 2
@@ -3366,11 +3443,7 @@ function History:clear()
         self._spinner_timer:close()
         self._spinner_timer = nil
     end
-    self:_close_status_float()
-    if self._status_buf and vim.api.nvim_buf_is_valid(self._status_buf) then
-        pcall(vim.api.nvim_buf_delete, self._status_buf, { force = true })
-    end
-    self._status_buf = nil
+    self:_clear_status_virt_lines()
     self._status_text = nil
     self._abort_hint = nil
     self._aborted_notice = nil

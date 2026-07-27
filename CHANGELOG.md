@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-07-27
+
+- **FIXED:** The spinner, pending-queue, and abort-hint status no longer cover history content. The pinned floating overlay introduced on 2026-07-25 is replaced by virtual lines at the end of the buffer, so a freshly sent message and any scrolled-up content are never hidden behind it; when the conversation is shorter than the window the status is padded to sit flush against the bottom edge.
+- **FIXED:** The streaming thinking header no longer flickers between one and two wrapped lines. The rolling preview is now end-of-line virtual text (`eol`) instead of `inline`, so it no longer counts toward the header's wrap width.
+
 ## 2026-07-26
 
 - **ADDED:** Direct bash mode — prefix the prompt with `!` to run a shell command (e.g. `!ls -la`). Output streams live into a collapsible block in the history, and the result is added to the LLM context on the next prompt. `!!command` excludes output from context. The prompt panel title switches to `bash` (configurable via `panels.prompt.bash_title`) with a distinct foreground color while in bash mode. A single `<Esc>` cancels a running `!` command (`:PiAbortBash` / `pi.abort_bash()`). Bash execution messages replay correctly on session load/switch.
