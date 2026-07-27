@@ -224,6 +224,12 @@ local function handle_event(session, msg)
             local args = session._pending_file_change_args[msg.toolCallId]
             track_changed_file(session, args)
             session._pending_file_change_args[msg.toolCallId] = nil
+            local changed_path = get_changed_file_path(args)
+            if changed_path then
+                vim.schedule(function()
+                    require("pi.reload").on_file_changed(changed_path)
+                end)
+            end
         end
     elseif t == "compaction_start" or t == "auto_compaction_start" then
         chat:set_compacting(true)

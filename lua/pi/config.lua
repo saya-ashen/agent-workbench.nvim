@@ -155,6 +155,9 @@
 ---@field auto_open_on_prompt_focus boolean Automatically open the next pending attention request for the current tab when the prompt gains focus and has no draft.
 ---@field notify_on_completion boolean Show an info notification when the agent finishes a turn and the prompt does not have focus.
 
+---@class pi.ReloadConfig
+---@field mode? "silent"|"notify"|false How to handle open buffers when pi modifies their file. "silent": reload unmodified buffers silently, skip modified ones. "notify": same as silent but also show a notification listing reloaded and skipped files. false: disabled. Default: "silent"
+
 ---@class pi.AbortConfig
 ---@field enabled? boolean Enable double-<Esc> to abort the running agent (default: true)
 ---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
@@ -223,6 +226,7 @@
 ---@field statusline pi.StatusLineConfig
 ---@field diff pi.DiffConfig
 ---@field attention pi.UiAttentionConfig
+---@field reload pi.ReloadConfig
 ---@field abort pi.AbortConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
@@ -332,6 +336,9 @@ local defaults = {
     attention = {
         auto_open_on_prompt_focus = true,
         notify_on_completion = true,
+    },
+    reload = {
+        mode = "silent",
     },
     abort = {
         enabled = true,
