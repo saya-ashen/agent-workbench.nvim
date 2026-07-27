@@ -80,6 +80,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 **Navigation & layout**
 
 - **Open file under cursor (`gf`).** From a history line, `gf` resolves a bare path, an `@mention#L<line>`, or a `path:line` and opens it in a non-π window (`pi.goto_file_under_cursor()`).
+- **Search results in the quickfix list.** When the `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) and loaded into the quickfix list, so you can jump between them with `:cnext` / `:cprev`. The `find` tool's file list can be loaded the same way. The quickfix window is never opened automatically — use `:copen` to see it; the list is titled `pi <tool>: <pattern>`. Config: `quickfix`.
 - **Left side panel.** `layout.side.position` accepts `"left"`.
 
 **Robustness fixes**
@@ -399,6 +400,13 @@ require("pi").setup({
         -- "notify" : same as silent, plus a notification listing reloaded/skipped files
         -- false    : disabled — buffers are never touched
         mode = "silent",
+    },
+
+    -- Load search-tool results into the quickfix list (never auto-opened; use :copen).
+    quickfix = {
+        grep = true, -- grep matches (path:line[:col]: text)
+        find = false, -- find file list (one path per line)
+        glob = false, -- alias of `find` for older pi versions that named the tool `glob`
     },
 
     -- Double-<Esc> aborts the running agent (same as :PiAbort).

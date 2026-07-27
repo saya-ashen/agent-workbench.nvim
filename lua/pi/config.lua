@@ -158,6 +158,11 @@
 ---@class pi.ReloadConfig
 ---@field mode? "silent"|"notify"|false How to handle open buffers when pi modifies their file. "silent": reload unmodified buffers silently, skip modified ones. "notify": same as silent but also show a notification listing reloaded and skipped files. false: disabled. Default: "silent"
 
+---@class pi.QuickfixConfig
+---@field grep? boolean Fill the quickfix list from grep tool results (default: true)
+---@field find? boolean Fill the quickfix list from find tool results (default: false)
+---@field glob? boolean Alias of `find` for older pi versions that named the tool `glob` (default: false)
+
 ---@class pi.AbortConfig
 ---@field enabled? boolean Enable double-<Esc> to abort the running agent (default: true)
 ---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
@@ -227,6 +232,7 @@
 ---@field diff pi.DiffConfig
 ---@field attention pi.UiAttentionConfig
 ---@field reload pi.ReloadConfig
+---@field quickfix pi.QuickfixConfig
 ---@field abort pi.AbortConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
@@ -339,6 +345,11 @@ local defaults = {
     },
     reload = {
         mode = "silent",
+    },
+    quickfix = {
+        grep = true,
+        find = false,
+        glob = false,
     },
     abort = {
         enabled = true,

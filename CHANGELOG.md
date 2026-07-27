@@ -2,6 +2,8 @@
 
 ## 2026-07-27
 
+- **ADDED:** `quickfix` config option. When pi's `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) and loaded into the quickfix list so you can jump between them with `:cnext` / `:cprev`; the `find` tool's file list can be loaded the same way. The list is titled `pi <tool>: <pattern>` and is never opened automatically (use `:copen`). Defaults: `grep = true`, `find = false`, `glob = false` (`glob` is an alias of `find` for older pi versions).
+
 - **FIXED:** Chat no longer stutters once the history grows large, and large-session replay is faster. The status block (spinner / pending queue / abort hint) recomputed its bottom padding with a whole-buffer `nvim_win_text_height` scan on every streamed token and every spinner tick — O(history size) each, which saturated the main loop on big sessions. The scan is now skipped whenever the conversation provably fills the window.
 - **ADDED:** `reload.mode` config option. When pi's `edit`/`write` tool modifies a file that is open in a Neovim buffer, pi2.nvim now automatically reloads it. `"silent"` (default) reloads unmodified buffers quietly; `"notify"` also shows a notification; `false` disables the behavior. Modified buffers (unsaved user changes) are never touched.
 - **FIXED:** Opening the resume-session picker (and the continue-session lookup) no longer takes many seconds on projects with large session files. Session listing had regressed to JSON-decoding *every* line of *every* `.jsonl` just to find the latest session name; it now decodes only the rare, small `session_info` lines (cheap substring prefilter) and stops decoding message lines once the first user message is found, keeping listing I/O-bound. The "latest name wins" behavior is unchanged.
