@@ -112,7 +112,7 @@
 ---@field _pending table<string, fun(msg: pi.RpcEvent)>
 ---@field _tab pi.TabId
 ---@field _req_id integer
----@field _stdout_buf string
+---@field _stdout_parts string[] Chunks of the not-yet-complete trailing stdout line
 local Rpc = {}
 Rpc.__index = Rpc
 
@@ -277,7 +277,7 @@ function Rpc.new(tab)
     self._pending = {}
     self._tab = tab
     self._req_id = 1
-    self._stdout_buf = ""
+    self._stdout_parts = {}
     return self
 end
 
@@ -312,7 +312,7 @@ function Rpc:start()
     if self._job_id then
         return true
     end
-    self._stdout_buf = ""
+    self._stdout_parts = {}
     local cmd = Cli.command()
     self._job_id = vim.fn.jobstart(cmd, {
         on_stdout = function(_, data)
@@ -374,7 +374,7 @@ function Rpc:stop()
         vim.fn.jobstop(self._job_id)
         self._job_id = nil
     end
-    self._stdout_buf = ""
+    self._stdout_parts = {}
     self._pending = {}
 end
 
@@ -383,28 +383,57 @@ function Rpc:is_running()
     return self._job_id ~= nil
 end
 
+---@param line string
+function Rpc:_decode_line(line)
+    local ok, msg = pcall(vim.json.decode, line)
+    if ok and msg then
+        self:_dispatch(msg)
+    else
+        local err = tostring(msg)
+        log("ERROR", "Failed to decode: " .. err .. " | " .. line)
+        vim.schedule(function()
+            Notify.warn("Failed to decode RPC message: " .. err)
+        end)
+    end
+end
+
 ---@param data string[]?
 function Rpc:_on_stdout(data)
     if not data then
         return
     end
-    data[1] = self._stdout_buf .. data[1]
-    self._stdout_buf = data[#data]
-    for i = 1, #data - 1 do
-        local line = data[i]
-        if line ~= "" then
-            local ok, msg = pcall(vim.json.decode, line)
-            if ok and msg then
-                self:_dispatch(msg)
-            else
-                local err = tostring(msg)
-                log("ERROR", "Failed to decode: " .. err .. " | " .. line)
-                vim.schedule(function()
-                    Notify.warn("Failed to decode RPC message: " .. err)
-                end)
-            end
+    -- nvim splits job stdout on newlines: data[1] continues the previous
+    -- partial line, data[2..#data-1] are complete lines, and data[#data] is the
+    -- new trailing partial ("" when the chunk ended on a newline).
+    --
+    -- A response can be a single very large line (e.g. get_messages for a big
+    -- session). Accumulate its chunks in a table and concat only once the line
+    -- is complete: growing the partial via repeated string concatenation is
+    -- O(n^2) and took seconds for multi-MB responses.
+    if #data == 1 then
+        -- No newline in this chunk: extend the pending partial line.
+        if data[1] ~= "" then
+            self._stdout_parts[#self._stdout_parts + 1] = data[1]
+        end
+        return
+    end
+
+    -- data[1] completes the pending partial line.
+    self._stdout_parts[#self._stdout_parts + 1] = data[1]
+    local line = table.concat(self._stdout_parts)
+    if line ~= "" then
+        self:_decode_line(line)
+    end
+
+    -- Middle elements are already-complete lines.
+    for i = 2, #data - 1 do
+        if data[i] ~= "" then
+            self:_decode_line(data[i])
         end
     end
+
+    -- Last element is the new trailing partial line.
+    self._stdout_parts = { data[#data] }
 end
 
 ---@param data string[]?
@@ -422,7 +451,7 @@ end
 ---@param code integer
 function Rpc:_on_exit(code)
     self._job_id = nil
-    self._stdout_buf = ""
+    self._stdout_parts = {}
     self:_dispatch({ type = "_process_exit", code = code })
 end
 
