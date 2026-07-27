@@ -88,6 +88,8 @@ function M.format_label(model)
 end
 
 --- Send set_model RPC and notify on result.
+--- A successful manual switch updates the tab's model pin, so subsequent
+--- `:PiNewSession` in this tab keep this model.
 ---@param session pi.Session
 ---@param model table backend model object with .provider and .id
 function M.set(session, model)
@@ -95,6 +97,7 @@ function M.set(session, model)
     session.rpc:send({ type = "set_model", provider = model.provider, modelId = model.id }, function(res)
         vim.schedule(function()
             if res.success then
+                session.pinned_model = { provider = model.provider, id = model.id }
                 Sessions.refresh_state(session)
             else
                 Notify.warn(res.error or "Failed to set model")
@@ -133,6 +136,10 @@ function M.cycle(session)
         session.rpc:send({ type = "cycle_model" }, function(res)
             vim.schedule(function()
                 if res.success and res.data then
+                    local model = res.data.model
+                    if type(model) == "table" and type(model.provider) == "string" and type(model.id) == "string" then
+                        session.pinned_model = { provider = model.provider, id = model.id }
+                    end
                     require("pi.sessions.manager").refresh_state(session)
                 elseif res.success then
                     Notify.info("Only one model available")

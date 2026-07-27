@@ -11,11 +11,16 @@
 ---@field message string
 ---@field timestamp integer
 
+---@class pi.ModelRef
+---@field provider string
+---@field id string
+
 ---@class pi.Session
 ---@field tab pi.TabId
 ---@field rpc pi.Rpc
 ---@field chat pi.Chat
 ---@field attention pi.SessionAttention
+---@field pinned_model? pi.ModelRef Model chosen in this tab. Reapplied after `new_session` so model switches made in other sessions (which core persists to global settings) don't leak into this tab's next conversation.
 ---@field startup_announcements table<string, pi.StartupAnnouncement> Extension startup data (keys ending with `:startup`) shown in the system preamble. Process-level: persists across session switches.
 ---@field system_errors pi.SystemErrorEntry[]
 ---@field changed_files table<string, true> Set of file paths modified by edit/write tools during the current session.
@@ -162,6 +167,59 @@ function M.refresh_state(session)
             end)
         end
     end)
+end
+
+--- Capture the backend's current model as this tab's pinned model.
+---@param session pi.Session
+---@param state table? get_state response data
+local function capture_model_pin(session, state)
+    local model = type(state) == "table" and state.model or nil
+    if type(model) == "table" and type(model.provider) == "string" and type(model.id) == "string" then
+        session.pinned_model = { provider = model.provider, id = model.id }
+    end
+end
+
+--- Fetch current state, update the status line, and (re)capture the model pin.
+--- Used where the backend's model is authoritative for this tab: session
+--- creation (core resolves it from global settings) and session resume
+--- (core restores it from the session file).
+---@param session pi.Session
+local function refresh_state_and_pin(session)
+    session.rpc:send({ type = "get_state" }, function(res)
+        if res.success and res.data then
+            vim.schedule(function()
+                capture_model_pin(session, res.data)
+                session.chat:update_state(res.data)
+            end)
+        end
+    end)
+end
+
+--- Re-apply the tab's pinned model after a `new_session`.
+--- Core resolves a fresh session's model from global settings — i.e. the last
+--- model selected in *any* session — so without this, another tab's model
+--- switch would leak into this tab's next conversation. On failure the pinned
+--- model is no longer usable (auth revoked, model gone): fall back silently
+--- and resync the pin to the model core chose.
+---@param session pi.Session
+local function reapply_pinned_model(session)
+    local pin = session.pinned_model
+    if not pin then
+        refresh_state_and_pin(session)
+        return
+    end
+    local sent = session.rpc:send({ type = "set_model", provider = pin.provider, modelId = pin.id }, function(res)
+        vim.schedule(function()
+            if res.success then
+                M.refresh_state(session)
+            else
+                refresh_state_and_pin(session)
+            end
+        end)
+    end)
+    if not sent then
+        refresh_state_and_pin(session)
+    end
 end
 
 --- Central event handler for a session.
@@ -441,8 +499,9 @@ function M.get_or_create(opts)
     -- Fetch available /commands for completion, highlighting, and system info
     fetch_commands_and_show_startup_block(session)
 
-    -- Fetch initial state for status line (model, thinking level)
-    M.refresh_state(session)
+    -- Fetch initial state for status line (model, thinking level) and
+    -- capture the initial model pin.
+    refresh_state_and_pin(session)
 
     return session
 end
@@ -497,6 +556,7 @@ local function start_new_session(session)
                 session.changed_files = {}
                 session._pending_file_change_args = nil
                 session.chat:clear()
+                reapply_pinned_model(session)
                 fetch_commands_and_show_startup_block(session)
             end)
         end)
@@ -713,7 +773,9 @@ local function load_session(session, session_path)
         end
 
         Attention.end_session_transition(session, true)
-        M.refresh_state(session)
+        -- The resumed session's model was restored from its session file by
+        -- core; adopt it as this tab's pin.
+        refresh_state_and_pin(session)
 
         vim.schedule(function()
             session.changed_files = {}

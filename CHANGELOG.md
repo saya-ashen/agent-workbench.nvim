@@ -2,6 +2,8 @@
 
 ## 2026-07-27
 
+- **ADDED:** Per-tab model pinning. The pi backend persists every model switch to its global settings and resolves fresh conversations from there, so a model switch in one tab used to leak into every other tab's next `:PiNewSession` (and any newly opened tab). π now pins the model per tab: the pin is captured when the session starts, updated whenever you switch the model in that tab (`:PiCycleModel` / `:PiSelectModel` / `:PiSelectModelAll`), and reapplied after `:PiNewSession` so the tab's new conversation keeps the tab's model. Resumed sessions adopt the model restored from their session file. If the pinned model becomes unavailable, π silently falls back to the backend's choice and adopts it as the new pin. Brand-new tabs still follow pi's normal initial-model resolution.
+
 - **ADDED:** `quickfix` config option. When pi's `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) and loaded into the quickfix list so you can jump between them with `:cnext` / `:cprev`; the `find` tool's file list can be loaded the same way. The list is titled `pi <tool>: <pattern>` and is never opened automatically (use `:copen`). Defaults: `grep = true`, `find = false`, `glob = false` (`glob` is an alias of `find` for older pi versions).
 
 - **FIXED:** Chat no longer stutters once the history grows large, and large-session replay is faster. The status block (spinner / pending queue / abort hint) recomputed its bottom padding with a whole-buffer `nvim_win_text_height` scan on every streamed token and every spinner tick — O(history size) each, which saturated the main loop on big sessions. The scan is now skipped whenever the conversation provably fills the window.
