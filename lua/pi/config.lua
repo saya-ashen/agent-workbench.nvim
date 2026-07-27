@@ -306,7 +306,8 @@ local defaults = {
     },
     statusline = {
         layout = {
-            left = { "context", "  ", "attention" },
+            left = { "context", "  ", "attention", "  ", "queue" },
+            center = { "spinner" },
             right = { "model", "   ", "thinking" },
         },
         components = {
@@ -318,6 +319,7 @@ local defaults = {
             attention = { icon = "󰵚", counter = false },
             model = { icon = "󰚩" },
             thinking = { icon = "󰟶" },
+            queue = { icon = "⏵" },
         },
     },
     diff = {

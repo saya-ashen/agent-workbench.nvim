@@ -1,5 +1,5 @@
 --- Configurable status line at the bottom of the prompt buffer.
---- Composed of named components arranged in left/right groups.
+--- Composed of named components arranged in left/center/right groups.
 --- Renders padding virt_lines above the status to pin it to the window bottom.
 
 --- Component function: receives state, returns either:
@@ -7,6 +7,13 @@
 ---   table of {text, hl?} pairs  — multi-chunk with per-chunk highlights
 ---   nil                         — hidden (component not rendered)
 ---@alias pi.StatusLineComponentFn fun(state: pi.StatusLineState): string|string[][]|nil, string|nil
+
+--- Display model for the busy (spinner) component, pushed by ChatHistory.
+---@class pi.StatusLineBusy
+---@field frame string Current spinner frame
+---@field text string Status text (e.g. "Working…")
+---@field elapsed string Pre-formatted elapsed time (" 12s", "" under 1s)
+---@field thinking boolean Whether the model is currently thinking
 
 ---@class pi.StatusLineState
 ---@field model_id string?
@@ -21,6 +28,10 @@
 ---@field total_cost number
 ---@field auto_compaction boolean
 ---@field extensions table<string, string> Extension status values set via setStatus
+---@field busy pi.StatusLineBusy? Busy/spinner display model (nil = idle)
+---@field abort_hint string? Transient "press <Esc> again to abort" hint
+---@field aborted_notice string? Transient "Aborted" confirmation
+---@field queue_count integer Number of pending (steer/follow-up) queue entries
 
 ---@class pi.StatusLine
 ---@field _buf integer
@@ -213,6 +224,39 @@ function builtin.model(state)
     return nil
 end
 
+--- Busy spinner (⠋ Working… 12s · Thinking) for the center group.
+--- The transient abort rows take priority over the spinner: the "Aborted"
+--- confirmation outranks the armed "press <Esc> again" hint, which outranks
+--- the busy spinner. Idle (all three nil) hides the component.
+function builtin.spinner(state)
+    if state.aborted_notice then
+        return state.aborted_notice, "PiAborted"
+    end
+    if state.abort_hint then
+        return state.abort_hint, "PiAbortHint"
+    end
+    local busy = state.busy
+    if not busy then
+        return nil
+    end
+    local chunks = { { busy.frame .. "  " .. busy.text, "PiBusy" } }
+    if busy.elapsed and busy.elapsed ~= "" then
+        chunks[#chunks + 1] = { busy.elapsed, "PiBusyTime" }
+    end
+    if busy.thinking then
+        chunks[#chunks + 1] = { " · " .. Config.options.labels.thinking, "PiThinking" }
+    end
+    return chunks
+end
+
+--- ⏵ 2  (pending steer/follow-up queue count)
+function builtin.queue(state)
+    if state.queue_count <= 0 then
+        return nil
+    end
+    return tostring(state.queue_count), "PiPendingQueueLabel"
+end
+
 --- xhigh / thinking off
 function builtin.thinking(state)
     if not state.model_reasoning or not state.thinking_level then
@@ -241,6 +285,10 @@ local function new_state()
         total_cost = 0,
         auto_compaction = false,
         extensions = {},
+        busy = nil,
+        abort_hint = nil,
+        aborted_notice = nil,
+        queue_count = 0,
     }
 end
 
@@ -329,6 +377,52 @@ end
 ---@param value string? nil to clear
 function StatusLine:set_extension_status(key, value)
     self._state.extensions[key] = value
+    self:render()
+end
+
+--- Update the busy (spinner) display model; nil hides the spinner.
+---@param busy pi.StatusLineBusy?
+function StatusLine:set_busy(busy)
+    self._state.busy = busy
+    self:render()
+end
+
+--- Show the "press <Esc> again to abort" hint (center group).
+---@param text string
+function StatusLine:set_abort_hint(text)
+    self._state.abort_hint = text
+    self:render()
+end
+
+--- Hide the abort hint.
+function StatusLine:clear_abort_hint()
+    if self._state.abort_hint == nil then
+        return
+    end
+    self._state.abort_hint = nil
+    self:render()
+end
+
+--- Show the transient "Aborted" confirmation (center group).
+---@param text string
+function StatusLine:set_aborted_notice(text)
+    self._state.aborted_notice = text
+    self:render()
+end
+
+--- Hide the aborted confirmation.
+function StatusLine:clear_aborted_notice()
+    if self._state.aborted_notice == nil then
+        return
+    end
+    self._state.aborted_notice = nil
+    self:render()
+end
+
+--- Update the pending queue count shown by the queue component.
+---@param count integer
+function StatusLine:set_queue_count(count)
+    self._state.queue_count = count
     self:render()
 end
 
@@ -431,6 +525,36 @@ local function eval_side(items, state, tab)
     return chunks, total_width
 end
 
+--- Truncate a chunk list to at most `avail` display columns, keeping chunk
+--- order; the last kept chunk is cut mid-text when needed.
+---@param chunks string[][]
+---@param avail integer
+---@return string[][] kept
+---@return integer kept_width
+local function truncate_chunks(chunks, avail)
+    local kept_width = 0
+    ---@type string[][]
+    local kept = {}
+    for _, chunk in ipairs(chunks) do
+        local cw = vim.fn.strdisplaywidth(chunk[1])
+        if kept_width + cw <= avail then
+            kept[#kept + 1] = chunk
+            kept_width = kept_width + cw
+        else
+            local remaining = avail - kept_width
+            if remaining > 0 then
+                -- TODO: strcharpart uses char indices, not display width;
+                -- would miscount wide chars (CJK, emoji). Fine for typical
+                -- model names and status values which are ASCII.
+                kept[#kept + 1] = { vim.fn.strcharpart(chunk[1], 0, remaining), chunk[2] }
+                kept_width = kept_width + remaining
+            end
+            break
+        end
+    end
+    return kept, kept_width
+end
+
 --- Re-render the status line extmark on the last line of the buffer.
 function StatusLine:render()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
@@ -441,60 +565,78 @@ function StatusLine:render()
     local width = win and text_area_width(win) or 80
 
     local sl_cfg = Config.options.statusline
-    local left_names = sl_cfg and sl_cfg.layout and sl_cfg.layout.left or { "context" }
-    local right_names = sl_cfg and sl_cfg.layout and sl_cfg.layout.right or { "model", " · ", "thinking" }
+    local layout = sl_cfg and sl_cfg.layout or {}
+    local left_names = layout.left or { "context" }
+    local center_names = layout.center or { "spinner" }
+    local right_names = layout.right or { "model", " · ", "thinking" }
 
     local left_chunks, left_width = eval_side(left_names, self._state, self._tab)
+    local center_chunks, center_width = eval_side(center_names, self._state, self._tab)
     local right_chunks, right_width = eval_side(right_names, self._state, self._tab)
 
-    -- Truncate right side if it doesn't fit (left has priority).
-    -- right_margin keeps 1 column of breathing room before the window edge.
     local right_margin = 1
     local min_gap = 2
-    if left_width + min_gap + right_width + right_margin > width then
-        local avail = width - left_width - min_gap - right_margin
-        if avail > 0 then
-            -- Rebuild right side truncated to avail columns
-            local kept_width = 0
-            ---@type string[][]
-            local kept = {}
-            for _, chunk in ipairs(right_chunks) do
-                local cw = vim.fn.strdisplaywidth(chunk[1])
-                if kept_width + cw <= avail then
-                    kept[#kept + 1] = chunk
-                    kept_width = kept_width + cw
-                else
-                    local remaining = avail - kept_width
-                    if remaining > 0 then
-                        -- TODO: strcharpart uses char indices, not display width;
-                        -- would miscount wide chars (CJK, emoji). Fine for typical
-                        -- model names and status values which are ASCII.
-                        kept[#kept + 1] = { vim.fn.strcharpart(chunk[1], 0, remaining), chunk[2] }
-                        kept_width = kept_width + remaining
-                    end
-                    break
-                end
+
+    ---@type string[][]
+    local status_chunks
+    if center_width > 0 then
+        -- Canvas placement with center priority: the center group is
+        -- positioned first; left and right are truncated into the regions
+        -- remaining on either side of it.
+        local cavail = math.max(0, width - 2 * min_gap)
+        if center_width > cavail then
+            center_chunks, center_width = truncate_chunks(center_chunks, cavail)
+        end
+        local center_start = math.max(0, math.floor((width - center_width) / 2))
+        local center_end = center_start + center_width
+
+        local lavail = math.max(0, center_start - min_gap)
+        if left_width > lavail then
+            left_chunks, left_width = truncate_chunks(left_chunks, lavail)
+        end
+        local ravail = math.max(0, width - right_margin - center_end - min_gap)
+        if right_width > ravail then
+            right_chunks, right_width = truncate_chunks(right_chunks, ravail)
+        end
+
+        status_chunks = {}
+        for _, c in ipairs(left_chunks) do
+            status_chunks[#status_chunks + 1] = c
+        end
+        status_chunks[#status_chunks + 1] = { string.rep(" ", math.max(0, center_start - left_width)), "" }
+        for _, c in ipairs(center_chunks) do
+            status_chunks[#status_chunks + 1] = c
+        end
+        local right_start = width - right_margin - right_width
+        status_chunks[#status_chunks + 1] = { string.rep(" ", math.max(min_gap, right_start - center_end)), "" }
+        for _, c in ipairs(right_chunks) do
+            status_chunks[#status_chunks + 1] = c
+        end
+    else
+        -- No center content: left/right layout (left has priority, the right
+        -- group is truncated first when the window is too narrow).
+        if left_width + min_gap + right_width + right_margin > width then
+            local avail = width - left_width - min_gap - right_margin
+            if avail > 0 then
+                right_chunks, right_width = truncate_chunks(right_chunks, avail)
+            else
+                right_chunks = {}
+                right_width = 0
             end
-            right_chunks = kept
-            right_width = kept_width
-        else
-            right_chunks = {}
-            right_width = 0
+        end
+
+        -- Assemble: left + padding + right
+        local gap = math.max(min_gap, width - left_width - right_width - right_margin)
+        status_chunks = {}
+        for _, c in ipairs(left_chunks) do
+            status_chunks[#status_chunks + 1] = c
+        end
+        status_chunks[#status_chunks + 1] = { string.rep(" ", gap), "" }
+        for _, c in ipairs(right_chunks) do
+            status_chunks[#status_chunks + 1] = c
         end
     end
-
-    -- Assemble: left + padding + right
-    local gap = math.max(min_gap, width - left_width - right_width - right_margin)
-    ---@type string[][]
-    local status_chunks = {}
-    for _, c in ipairs(left_chunks) do
-        status_chunks[#status_chunks + 1] = c
-    end
-    status_chunks[#status_chunks + 1] = { string.rep(" ", gap), "" }
-    for _, c in ipairs(right_chunks) do
-        status_chunks[#status_chunks + 1] = c
-    end
-    if #left_chunks == 0 and #right_chunks == 0 then
+    if #left_chunks == 0 and #center_chunks == 0 and #right_chunks == 0 then
         status_chunks = { { " ", "" } }
     end
 
@@ -507,9 +649,17 @@ function StatusLine:render()
         local win_height = vim.api.nvim_win_get_height(win)
         local has_winbar = vim.wo[win].winbar ~= ""
         local text_rows = win_height - (has_winbar and 1 or 0)
-        local visual_total = vim.api.nvim_win_text_height(win, {}).all
-        local visual_content = visual_total - self._virt_line_count
-        local pad_count = math.max(0, text_rows - visual_content - 1)
+        -- G22: nvim_win_text_height scans the whole buffer, and render() now
+        -- runs on every spinner tick (~80ms) — a huge paste in the prompt
+        -- would make each tick O(n). Visual height is always >= the buffer
+        -- line count, so once lines fill the window the pad is provably 0
+        -- and the scan is skipped.
+        local pad_count = 0
+        if vim.api.nvim_buf_line_count(self._buf) < text_rows - 1 then
+            local visual_total = vim.api.nvim_win_text_height(win, {}).all
+            local visual_content = visual_total - self._virt_line_count
+            pad_count = math.max(0, text_rows - visual_content - 1)
+        end
         for i = 1, pad_count do
             virt_lines[i] = { { " ", "" } }
         end
