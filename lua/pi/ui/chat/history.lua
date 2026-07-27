@@ -3072,16 +3072,16 @@ function History:on_thinking_start()
             local header_text = label .. " Thinking…"
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, anchor, {})
             local row = pos[1]
-            -- Trailing margin after the header: exactly one blank breathing
-            -- line between the thinking header and whatever follows. The
-            -- spinner no longer renders below the buffer (it lives in the
-            -- prompt statusline), so no extra margin is needed. When the
-            -- buffer already ended in a breathing blank, that blank becomes
-            -- the margin (insert none); after an inline tool we insert one.
-            -- _append_text reuses the final blank line for the next text
-            -- delta, so this margin does not accumulate into extra empty
-            -- lines later.
-            local margin = last_text == "" and 0 or 1
+            -- Trailing margin lines after the header: two blank lines, so
+            -- that when the next text delta reuses the final breathing blank
+            -- (_append_text writes into the buffer's last line), exactly one
+            -- blank line of separation remains between the header and the
+            -- following content. When the buffer already ended in a breathing
+            -- blank, that blank becomes the second margin line (insert one);
+            -- after an inline tool (buffer ends with real content) we insert
+            -- both. The spinner no longer renders below the buffer, so no
+            -- additional margin is needed beyond this convention.
+            local margin = last_text == "" and 1 or 2
             local block = { "", header_text }
             for _ = 1, margin do
                 block[#block + 1] = ""

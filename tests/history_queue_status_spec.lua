@@ -160,18 +160,27 @@ describe("history queue status rendering", function()
     assert.are.same({ 1, 2, 1, 0 }, counts)
   end)
 
-  it("leaves exactly one blank line after the thinking header", function()
+  it("keeps a two-blank margin after the thinking header (settles to one)", function()
     Config.options.show_thinking = true
-    -- Case 1: buffer ends with a breathing blank — it becomes the margin.
+    -- Case 1: buffer ends with a breathing blank — it becomes the 2nd margin.
     local h = setup_history(1)
     h:on_thinking_start()
     pump(50)
     local lines = vim.api.nvim_buf_get_lines(h:buf(), 0, -1, false)
-    assert.are.equal(3, #lines) -- blank, header, blank
+    assert.are.equal(4, #lines) -- blank, header, 2 margin blanks
     assert.are.equal("", lines[3])
+    assert.are.equal("", lines[4])
 
-    -- Case 2: buffer ends with real content (e.g. an inline tool) — one
-    -- margin blank is inserted.
+    -- The next text delta reuses the final blank, leaving exactly one blank
+    -- line of separation after the header.
+    h:_append_text("answer")
+    lines = vim.api.nvim_buf_get_lines(h:buf(), 0, -1, false)
+    assert.are.equal(4, #lines)
+    assert.are.equal("", lines[3])
+    assert.are.equal("answer", lines[4])
+
+    -- Case 2: buffer ends with real content (e.g. an inline tool) — both
+    -- margin blanks are inserted.
     local h2 = setup_history(1)
     h2:_with_modifiable(function()
       vim.api.nvim_buf_set_lines(h2:buf(), 0, -1, false, { "read tool output" })
@@ -179,7 +188,8 @@ describe("history queue status rendering", function()
     h2:on_thinking_start()
     pump(50)
     lines = vim.api.nvim_buf_get_lines(h2:buf(), 0, -1, false)
-    assert.are.equal(4, #lines) -- content, blank, header, blank
+    assert.are.equal(5, #lines) -- content, blank, header, 2 margin blanks
     assert.are.equal("", lines[4])
+    assert.are.equal("", lines[5])
   end)
 end)
