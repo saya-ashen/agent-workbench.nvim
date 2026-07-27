@@ -727,10 +727,17 @@ function History:_update_status_extmark()
     if win then
         local has_winbar = vim.wo[win].winbar ~= ""
         local text_rows = vim.api.nvim_win_get_height(win) - (has_winbar and 1 or 0)
-        local ok, ht = pcall(vim.api.nvim_win_text_height, win, {})
-        local visual_total = ok and ht.all or 0
-        local visual_content = visual_total - (self._status_virt_line_count or 0)
-        pad = math.max(0, text_rows - visual_content - status_rows_no_pad)
+        -- nvim_win_text_height scans the whole buffer — O(n) per call — and
+        -- _update_status_extmark runs on every appended line and every spinner
+        -- tick, so on large histories it saturates the main loop. Skip it
+        -- whenever padding is provably zero: visual height is always >= the
+        -- buffer line count, so once lines fill the window pad must be 0.
+        if vim.api.nvim_buf_line_count(self._buf) < text_rows then
+            local ok, ht = pcall(vim.api.nvim_win_text_height, win, {})
+            local visual_total = ok and ht.all or 0
+            local visual_content = visual_total - (self._status_virt_line_count or 0)
+            pad = math.max(0, text_rows - visual_content - status_rows_no_pad)
+        end
     end
     self._status_pad = pad
 
