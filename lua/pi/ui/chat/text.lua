@@ -69,8 +69,10 @@ function M.thinking_tail(s, w)
     local acc, start_byte, i = 0, #s + 1, #s
     while i >= 1 do
         -- walk back to the start byte of the char ending at i
+        -- (range check = UTF-8 continuation byte; avoids Lua 5.3 bitwise `&`,
+        -- which the LuaJIT bundled with Neovim stable releases cannot parse)
         local cs = i
-        while cs > 1 and (s:byte(cs) & 0xc0) == 0x80 do
+        while cs > 1 and s:byte(cs) >= 0x80 and s:byte(cs) <= 0xbf do
             cs = cs - 1
         end
         local cw = dw(s:sub(cs, i))
