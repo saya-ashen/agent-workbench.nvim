@@ -3378,6 +3378,88 @@ function History:clear_pending_queue()
     self:_emit_queue_count()
 end
 
+--- Reconcile the pending queue with pi's authoritative queue state
+--- (payload of a `queue_update` event).
+---
+--- Entries present in the payload but missing locally are synthesized
+--- (the payload text serves as both display and expanded text); this covers
+--- messages queued from outside the plugin (e.g. extensions).
+---
+--- Local entries missing from the payload are NOT removed while `active`
+--- (agent streaming or compacting): they are either mid-delivery (pi emits
+--- queue_update right before the delivering message_start) or about to be
+--- flushed into history by on_agent_end (abort clears pi's queues first).
+--- Removing them here would break both flows. When idle, however, no
+--- delivery can arrive anymore, so unmatched entries are ghosts and are
+--- swept.
+---@param steering_texts string[]
+---@param followup_texts string[]
+---@param active boolean true while the agent is streaming or compacting
+function History:sync_pending_queue(steering_texts, followup_texts, active)
+    ---@param texts any
+    ---@return string[]
+    local function normalize(texts)
+        local out = {}
+        if type(texts) == "table" then
+            for _, text in ipairs(texts) do
+                if type(text) == "string" then
+                    out[#out + 1] = text
+                end
+            end
+        end
+        return out
+    end
+    steering_texts = normalize(steering_texts)
+    followup_texts = normalize(followup_texts)
+
+    -- Remaining unmatched payload copies per (queue_type, text).
+    ---@type table<string, integer>
+    local payload_counts = {}
+    local function count_payload(queue_type, texts)
+        for _, text in ipairs(texts) do
+            local key = queue_type .. "\0" .. text
+            payload_counts[key] = (payload_counts[key] or 0) + 1
+        end
+    end
+    count_payload("steer", steering_texts)
+    count_payload("follow_up", followup_texts)
+
+    -- Keep locally tracked entries that pi still holds (consuming one payload
+    -- copy each). While active, keep the rest too — their removal is handled
+    -- by message_start (delivery) or on_agent_end (abort flush).
+    local kept = {}
+    local swept = false
+    for _, entry in ipairs(self._pending_queue) do
+        local key = entry.queue_type .. "\0" .. entry.expanded_text
+        if (payload_counts[key] or 0) > 0 then
+            payload_counts[key] = payload_counts[key] - 1
+            kept[#kept + 1] = entry
+        elseif active then
+            kept[#kept + 1] = entry
+        else
+            swept = true
+        end
+    end
+    if swept then
+        self._pending_queue = kept
+        self:_update_status_extmark()
+        self:_emit_queue_count()
+    end
+
+    -- Synthesize entries for payload items the plugin never saw.
+    local function add_missing(queue_type, texts)
+        for _, text in ipairs(texts) do
+            local key = queue_type .. "\0" .. text
+            if (payload_counts[key] or 0) > 0 then
+                payload_counts[key] = payload_counts[key] - 1
+                self:add_pending_queue_entry(queue_type, text, text)
+            end
+        end
+    end
+    add_missing("steer", steering_texts)
+    add_missing("follow_up", followup_texts)
+end
+
 function History:clear()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return

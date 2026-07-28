@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-28
+
+- **FIXED:** The pending steer/follow-up queue display now stays in sync with pi's authoritative queue state. π used to track the queue purely by local inference (add on send, remove on delivery, drain on `agent_end`) and ignored the backend's `queue_update` events, so messages queued from outside the plugin (e.g. by extensions) never appeared, and entries pi dropped through untracked paths could linger as ghosts. `queue_update` is now handled: payload items missing locally are synthesized into the queue display, and — when the agent is idle, so no delivery can still arrive — locally tracked entries pi no longer holds are swept. Delivery (`message_start` arrives right after the event) and abort (`agent_end` flush) behavior is unchanged.
+
 ## 2026-07-27
 
 - **ADDED:** Per-tab model pinning. The pi backend persists every model switch to its global settings and resolves fresh conversations from there, so a model switch in one tab used to leak into every other tab's next `:PiNewSession` (and any newly opened tab). π now pins the model per tab: the pin is captured when the session starts, updated whenever you switch the model in that tab (`:PiCycleModel` / `:PiSelectModel` / `:PiSelectModelAll`), and reapplied after `:PiNewSession` so the tab's new conversation keeps the tab's model. Resumed sessions adopt the model restored from their session file. If the pinned model becomes unavailable, π silently falls back to the backend's choice and adopts it as the new pin. Brand-new tabs still follow pi's normal initial-model resolution.
