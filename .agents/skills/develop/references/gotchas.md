@@ -29,6 +29,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 | G21 | Restart nvim after editing `lua/pi/**`; lazy never hot-reloads |
 | G22 | No whole-buffer APIs (`nvim_win_text_height`, full `get_lines`) on per-event paths; gate behind a cheap provability check |
 | G23 | In a worktree, `make smoke`/GUI load the MAIN checkout (lazy path), not your code; verify with `make test` + `-u tests/minimal_init.lua` |
+| G24 | No Lua 5.3-only syntax (`&` `\|` `~` `<<` `>>`, `//`, `\u{}`) — stable Neovim's LuaJIT can't parse it; `loop or previous error` is only the secondary symptom |
 
 ---
 
@@ -162,3 +163,16 @@ Each entry is a real defect or trap encountered while adding features to this pl
   ```
   Never place a worktree **under** `~/.local/share/nvim/lazy/`: lazy treats every directory there as a plugin and would load it as a *second* pi plugin (duplicate modules, double autocmds). Keep worktrees at a sibling root such as `~/.local/share/pi.nvim-worktrees/<name>`.
 - **元教训:** The main checkout is a *live plugin path* the running editor depends on; keep it on `main` and do feature work in a worktree so branch switches (yours or a concurrent session's) can't strand uncommitted work on the wrong branch or swap the running editor's code mid-session.
+
+### G24 — Lua 5.3-only syntax parses on your nvim but breaks plugin load on Neovim stable
+- **现象:** The plugin loads fine on your machine but on another (Neovim stable, e.g. macOS Homebrew) the first toggle fails with `E5108: ... loop or previous error loading module 'pi.sessions.manager'`. Both machines run the **same commit**.
+- **根因:** Two layers. (1) The real error — visible only in `:messages`, above the E5108 — is a *parse* error, e.g. `lua/pi/ui/chat/text.lua:73: ')' expected near '&'`: the code used a Lua 5.3 bitwise operator. Neovim's official stable builds embed LuaJIT, whose parser accepts Lua 5.1 plus a few extensions (`goto`, labels, `continue`) but **not** 5.3-only syntax: bitwise operators (`& | ~ << >>`), integer division `//`, and `\u{...}` escapes. Recent LuaJIT rolling releases (shipped by nvim 0.12+/nightly) added 5.3 bitwise-op *parsing*, so the identical code loads there — the failure is parser-generation-dependent, not commit-dependent, which is why "works on my machine" lied. (2) The message the user sees is a secondary symptom: LuaJIT's `require` plants a sentinel in `package.loaded` before running the module body; when the body throws (a parse error counts), the sentinel stays, and every later `require` of that module in the same session reports `loop or previous error loading module` instead of the real cause. The first failure happens inside lazy.nvim's `setup()` call (reported as `Failed to run 'config' for pi2.nvim` + the real error); the replayed keypress then hits the poisoned module.
+- **修法:** Keep everything under `lua/pi/**` parseable by the LuaJIT that Neovim stable ships (Lua 5.1 + goto/continue). Replace bitwise ops with arithmetic or range checks — e.g. the UTF-8 continuation-byte test `(b & 0xc0) == 0x80` is exactly `b >= 0x80 and b <= 0xbf`. Audit a change with:
+  ```bash
+  grep -rnE '\)&|&\s*0x|[a-z_)]\s*&\s*[0-9a-zA-Z_(]|[<>][<>]\s*[0-9]' lua/   # bitwise ops
+  grep -rnE '[0-9a-z_)]\s*//\s*[0-9a-z_(]' lua/                              # integer division
+  grep -rn '\\u{' lua/                                                       # 5.3 unicode escapes
+  ```
+  Belt-and-braces parse check: `find lua -name '*.lua' -exec luac5.1 -p {} +` — but PUC Lua 5.1 also rejects the LuaJIT extensions this repo *does* use (`continue` in `history.lua`, `goto`), so treat those hits as false positives; the authoritative ban list is 5.3-only syntax.
+- **排查方法:** `loop or previous error loading module X` is **never** the root cause — it means module X already failed to load earlier in the same nvim session. Look one message up in `:messages` (lazy's `Failed to run 'config' for ...` carries the real error), or restart nvim and `:lua require("pi.sessions.manager")` — a fresh session has no sentinel, so the first require prints the real error. When the same commit behaves differently across machines, compare `:lua =jit and jit.version or _VERSION`: differing LuaJIT vintages explain it.
+- **元教训:** This plugin promises "Neovim 0.10+", so its code must parse on the LuaJIT those releases ship — not just on yours. Syntax compatibility is runtime-dependent and stays invisible until someone's stable build fails to load the plugin at all.
