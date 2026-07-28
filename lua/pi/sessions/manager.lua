@@ -80,7 +80,6 @@ end
 local ignored_events = {
     turn_start = true,
     turn_end = true,
-    queue_update = true,
     thinking_level_changed = true,
     session_info_changed = true,
 }
@@ -389,6 +388,8 @@ local function handle_event(session, msg)
         end
     elseif t == "tool_execution_update" then
         chat:on_tool_update(msg.toolName or "tool", msg.toolCallId, msg)
+    elseif t == "queue_update" then
+        chat:on_queue_update(msg)
     elseif t == "bash_execution_update" then
         chat:on_bash_update(msg.id, msg.delta or "")
     elseif ignored_events[t] then

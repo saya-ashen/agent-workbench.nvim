@@ -1164,6 +1164,17 @@ function Chat:on_agent_end()
     end
 end
 
+--- Handle queue_update events: reconcile the pending queue display with
+--- pi's authoritative queue state (steer/follow-up queues). Payload shape:
+--- `{ steering: string[], followUp: string[] }` (expanded message texts).
+---@param msg pi.RpcEvent
+function Chat:on_queue_update(msg)
+    -- Treat compaction as active: compaction-held entries are displayed in
+    -- the pending queue but only sent to pi after compaction ends, so pi's
+    -- payload legitimately lacks them until then.
+    self._history:sync_pending_queue(msg.steering, msg.followUp, self._streaming or self._compacting)
+end
+
 --- Handle message_start events. When a user message arrives and matches
 --- a pending queue entry, move it from the queue into the chat history.
 ---@param msg pi.RpcEvent
