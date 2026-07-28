@@ -65,7 +65,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 - **Direct bash mode (`!`).** Prefix the prompt with `!` to run a shell command (e.g. `!ls -la`); output streams live into a collapsible history block and is added to the LLM context on the next prompt. `!!cmd` excludes output from context. The panel title switches to `bash`, and a single `<Esc>` cancels a running command (`:PiAbortBash` / `pi.abort_bash()`).
 - **Readline-style prompt history.** Recall previously submitted prompts with `<C-p>` / `<C-n>` (and `<Up>` / `<Down>` in insert mode), persisted to disk. Config: `prompt.history`.
 - **Unsent-draft persistence.** The prompt text survives restarts (debounced save, restored once per process). Config: `prompt.draft`.
-- **Auto-attach clipboard images on paste.** π wraps the global `vim.paste` handler: pasting while the clipboard holds an image attaches it instead of inserting text. Config: `prompt.paste_image` (requires `img-clip.nvim`).
+- **Auto-attach clipboard images on paste.** π wraps the global `vim.paste` handler, but only acts inside the π prompt — pasting there while the clipboard holds an image attaches it instead of inserting text. Everywhere else the wrapper is a pure pass-through, so paste in the rest of your editor is untouched. Config: `prompt.paste_image` (requires `img-clip.nvim`).
 
 **Agent control**
 

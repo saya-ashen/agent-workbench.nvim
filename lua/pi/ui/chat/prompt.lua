@@ -19,6 +19,7 @@ local Config = require("pi.config")
 local Keys = require("pi.keys")
 local Decorators = require("pi.ui.chat.decorators")
 local Draft = require("pi.draft")
+local Paste = require("pi.paste")
 local StatusLine = require("pi.ui.chat.statusline")
 
 Prompt.HEIGHT = 5
@@ -74,6 +75,9 @@ function Prompt.new(tab, attachments)
     vim.bo[self._buf].swapfile = false
     vim.bo[self._buf].bufhidden = "hide"
     vim.api.nvim_buf_set_name(self._buf, name)
+    -- Let the single global paste handler (pi.paste) route dropped image file
+    -- paths to this prompt's attachments. It only acts inside a π prompt buffer.
+    Paste.register(self._buf, self._attachments)
 
     -- Unsent-draft persistence: restore a draft saved before a restart (once
     -- per process) and keep saving the current text (debounced) thereafter.
@@ -168,28 +172,6 @@ function Prompt.new(tab, attachments)
             end
         end,
     })
-
-    -- Override vim.paste to intercept drag-and-drop image file paths
-    local original_paste = vim.paste
-    vim.paste = (function(original)
-        return function(lines, phase)
-            if vim.api.nvim_get_current_buf() ~= self._buf then
-                return original(lines, phase)
-            end
-            local line = lines[1]
-            if line and #lines == 1 and line ~= "" then
-                local stat = vim.uv.fs_stat(line)
-                if stat and stat.type == "file" then
-                    local ext = line:match("%.(%w+)$")
-                    if ext and vim.tbl_contains({ "png", "jpg", "jpeg", "gif", "webp", "svg" }, ext:lower()) then
-                        self._attachments:add_file(line)
-                        return true
-                    end
-                end
-            end
-            return original(lines, phase)
-        end
-    end)(original_paste)
 
     return self
 end
