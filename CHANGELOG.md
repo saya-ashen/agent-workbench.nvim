@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-28
+
+- **FIXED:** The paste interception no longer affects paste outside of π. Previously two separate global `vim.paste` overrides were installed — one at setup and another re-wrapped around the last on *every* prompt creation (and never removed), so the editor's global paste handler was permanently modified and the wrappers accumulated across sessions. There is now a single, idempotent wrapper that short-circuits on the current filetype: any paste outside a π prompt buffer is a pure pass-through that runs no π logic at all (no clipboard query, no `fs_stat`). Clipboard-image attach and drag-and-drop image-path attach inside the prompt are unchanged.
+
 ## 2026-07-27
 
 - **ADDED:** Per-tab model pinning. The pi backend persists every model switch to its global settings and resolves fresh conversations from there, so a model switch in one tab used to leak into every other tab's next `:PiNewSession` (and any newly opened tab). π now pins the model per tab: the pin is captured when the session starts, updated whenever you switch the model in that tab (`:PiCycleModel` / `:PiSelectModel` / `:PiSelectModelAll`), and reapplied after `:PiNewSession` so the tab's new conversation keeps the tab's model. Resumed sessions adopt the model restored from their session file. If the pinned model becomes unavailable, π silently falls back to the backend's choice and adopts it as the new pin. Brand-new tabs still follow pi's normal initial-model resolution.
