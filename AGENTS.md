@@ -14,50 +14,16 @@ Neovim plugin (Lua) — a frontend for the [pi coding agent](https://github.com/
 
 > **Developing or testing a feature?** Read `.agents/skills/develop/SKILL.md` first. It is the operational playbook: the three-layer test stack (unit / headless-e2e / GUI automation), the non-obvious Neovim-Lua gotchas, the standard places a change lands, and the verification discipline. `AGENTS.md` (this file) stays the authority on architecture and style.
 
-## Architecture
+## Layout
 
-```
-lua/pi/
-├── init.lua              -- public API
-├── config.lua            -- configuration
-├── commands.lua          -- :Pi* user commands
-├── rpc.lua               -- JSON-RPC over stdin/stdout to `pi --mode rpc`
-├── filetypes.lua         -- pi filetype constants
-├── health.lua            -- :checkhealth pi
-├── notify.lua            -- vim.notify wrappers
-├── keys.lua              -- shared key-binding utilities (pi.KeySpec)
-├── models.lua            -- model selection: cycle, pick, resolve entries
-├── thinking.lua          -- thinking visibility + level controls
-├── attention.lua         -- pending attention state for blocking extension UI
-├── startup.lua           -- startup block data (commands, extension widgets)
-├── cache/
-│   ├── files.lua         -- project file listing & cache
-│   └── commands.lua      -- slash-command cache from RPC
-├── sessions/
-│   ├── manager.lua       -- session lifecycle, central event dispatcher
-│   └── history.lua       -- session file parsing for resume
-├── completion/
-│   ├── init.lua          -- shared fuzzy-match logic
-│   ├── blink.lua         -- blink.cmp source for @-mentions and commands
-│   └── omnifunc.lua      -- built-in completefunc fallback
-└── ui/
-    ├── highlights.lua    -- highlight groups
-    ├── diff.lua          -- pre-execution diff review (edit/write tools)
-    ├── dialog.lua        -- floating select/confirm/input dialogs
-    ├── extension.lua     -- extension_ui_request handler
-    ├── winfix.lua        -- window option isolation for plugin windows
-    └── chat/
-        ├── init.lua        -- Chat class, orchestrates chat layout
-        ├── layout.lua      -- window management (side panel / float stack)
-        ├── history.lua     -- ChatHistory: message rendering, spinners, tool blocks
-        ├── prompt.lua      -- prompt input buffer
-        ├── attachments.lua -- image attachment management
-        ├── mentions.lua    -- @-mention parsing, highlighting, expansion
-        ├── decorators.lua  -- prompt buffer @-mention / /command highlighting
-        ├── statusline.lua  -- configurable status line at prompt bottom
-        ├── tools.lua       -- tool renderers + collapsed/expanded views
-        └── zen.lua         -- full-screen overlay with centered prompt
-```
+Use `find lua -type f` for the authoritative file list — don't rely on any snapshot. Directory-level map:
+
+- `lua/pi/` — core: `init.lua` (public API), `config.lua`, `commands.lua` (:Pi* commands), `rpc.lua` (JSON-RPC to `pi --mode rpc`), plus feature modules (models, thinking, paste, quickfix, draft, prompt_history, reload, …)
+- `lua/pi/sessions/` — session lifecycle (`manager.lua`, central event dispatch) and resume parsing (`history.lua`)
+- `lua/pi/ui/` — all UI: `ui/chat/` holds the Chat class, history rendering, prompt, tool blocks, layout modes; `diff.lua` is the pre-execution diff review; `dialog.lua` / `extension.lua` handle blocking extension UI; `render.lua` is the optional render-markdown.nvim integration
+- `lua/pi/completion/` — @-mention / slash-command completion (blink.cmp source + omnifunc fallback, shared fuzzy matching)
+- `lua/pi/cache/` — project file listing and slash-command caches
+- `tests/` — plenary specs (`make test`); `make smoke` = headless boot check
 
 ## Key Patterns
 
