@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-29
+
+- **FIXED:** Chat streaming is dramatically cheaper on the main loop. Every streamed token (text, thinking, bash output, tool live updates) used to schedule its own callback and buffer write — hundreds of scheduled callbacks and one screen redraw per token at model streaming rates, starving input handling and other plugins while a fast model responded. Deltas are now coalesced and flushed at most once every 30ms: a 3000-token response drops from ~3000 scheduled callbacks/buffer writes to ~30, the per-token Lua work in the render path falls ~200x, and the number of screen updates delivered to the terminal falls ~8-20x. Stream ordering is preserved exactly (text, thinking blocks, tool blocks, and bash output land in RPC dispatch order), and the `on_thinking_end` no-op that was scheduled before every text token is gone.
+
 ## 2026-07-28
 
 - **FIXED:** The plugin failed to load at all on Neovim stable releases (0.10/0.11): the thinking-preview tail walker used the Lua 5.3 bitwise operator `&`, which the LuaJIT embedded in stable builds cannot parse, so one syntax error in `lua/pi/ui/chat/text.lua` cascaded into `Failed to run 'config' for pi2.nvim` at startup and `loop or previous error loading module 'pi.sessions.manager'` on every toggle. The check is now a plain byte-range comparison that every Neovim build parses. (Recent nightly builds were unaffected: their newer LuaJIT accepts 5.3 bitwise ops, which is how this went unnoticed.)

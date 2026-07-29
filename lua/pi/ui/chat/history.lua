@@ -46,8 +46,24 @@
 ---@field _agent_text_start_row integer?
 ---@field _current_turn_first_agent_response_extmark_id integer?
 ---@field _current_turn_last_agent_response_extmark_id integer?
+---@field _text_batches string[][] sealed/open text-delta batches, one per structural boundary
+---@field _structural_inflight integer structural dispatches whose callback has not run yet
+---@field _pending_thinking string[]? coalesced thinking deltas awaiting flush
+---@field _pending_bash table<string, string[]> coalesced bash output chunks by block id
+---@field _pending_tool_updates table<string, pi.RpcEvent> latest tool live-update per tool call
+---@field _bash_start_pending table<string, true> bash blocks whose start callback is queued
+---@field _tool_start_pending table<string, true> tool blocks whose start callback is queued
+---@field _stream_timer uv.uv_timer_t?
+---@field _thinking_requested boolean? thinking block whose start callback is queued
 local History = {}
 History.__index = History
+
+--- Milliseconds between streamed-content flushes. Rapid RPC deltas (text,
+--- thinking, bash output, tool live updates) accumulate and are written to
+--- the buffer at most once per interval instead of once per delta: every
+--- buffer write dirties the screen, so per-delta writes cost roughly one
+--- redraw per delta at model streaming rates. Tests may lower this.
+History._stream_flush_ms = 30
 
 ---@class pi.MdTable
 ---@field start_row integer 0-indexed first row in the buffer
@@ -481,6 +497,15 @@ function History.new(tab)
     self._agent_text_start_row = nil
     self._current_turn_first_agent_response_extmark_id = nil
     self._current_turn_last_agent_response_extmark_id = nil
+    self._text_batches = {}
+    self._structural_inflight = 0
+    self._pending_thinking = nil
+    self._pending_bash = {}
+    self._pending_tool_updates = {}
+    self._bash_start_pending = {}
+    self._tool_start_pending = {}
+    self._stream_timer = nil
+    self._thinking_requested = nil
 
     local panel = Config.options.panels.history
     local name = panel.name and panel.name(tab) or ("π-chat | " .. tab)
@@ -788,6 +813,226 @@ function History:_append_text(text)
     end)
     self:_update_status_extmark()
     self:_maybe_scroll()
+end
+
+-- ---------------------------------------------------------------------------
+-- Stream coalescing
+--
+-- Streaming RPC events (text_delta, thinking_delta, bash output, tool live
+-- updates) used to each vim.schedule() their own buffer write — hundreds of
+-- scheduled callbacks per response, and because every write dirties the
+-- screen, roughly one redraw per delta at model streaming rates. Deltas now
+-- accumulate synchronously at dispatch time and are flushed by a one-shot
+-- timer at most once per History._stream_flush_ms.
+--
+-- Ordering with structural events (tool blocks, thinking blocks, turn
+-- boundaries) is preserved exactly, even when many events dispatch inside
+-- one event-loop turn: text deltas append to an open batch; every structural
+-- *dispatch* seals the current batch (synchronously, so seals and callbacks
+-- share one FIFO timeline); every structural *callback* pops and renders
+-- exactly the batch sealed at its dispatch before mutating the buffer. The
+-- timer flush only drains text while no structural callback is in flight.
+-- ---------------------------------------------------------------------------
+
+--- Append a coalesced text batch to the buffer, applying the stream-position
+--- transforms (first-delta newline strip, post-tool breathing line).
+---@param delta string
+function History:_render_text_deltas(delta)
+    if self._first_delta then
+        self._first_delta = false
+        delta = delta:gsub("^\n+", "")
+        if delta == "" then
+            return
+        end
+    end
+    self._last_was_inline = false
+    -- After a tool block, prepend a newline so the blank footer line
+    -- becomes breathing room and text starts on a fresh line.
+    if self._needs_breathing_line then
+        self._needs_breathing_line = false
+        delta = "\n" .. delta
+    end
+    if self._agent_text_chunks then
+        self._agent_text_chunks[#self._agent_text_chunks + 1] = delta
+    end
+    if delta ~= "" then
+        self:_append_text(delta)
+    end
+end
+
+--- Seal the current text batch at a structural dispatch. Synchronous by
+--- design: the seal shares the dispatch timeline, so the batch a structural
+--- callback later pops is exactly the text that preceded its event.
+function History:_seal_stream_text()
+    self._text_batches[#self._text_batches + 1] = {}
+    self._structural_inflight = self._structural_inflight + 1
+end
+
+--- Pop and render the batch sealed at this callback's dispatch. Every sealed
+--- dispatch pops exactly once (keeping seals and callbacks FIFO-aligned), so
+--- structural callbacks pop unconditionally at their top — even on early
+--- returns.
+function History:_pop_text_batch()
+    self._structural_inflight = math.max(0, self._structural_inflight - 1)
+    local batch = table.remove(self._text_batches, 1)
+    if not batch or #batch == 0 then
+        return
+    end
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return
+    end
+    self:_render_text_deltas(table.concat(batch))
+end
+
+--- Timer-side text drain. Only safe while no structural callback is in
+--- flight; those drain their own sealed batch in order.
+function History:_flush_stream_text()
+    if self._structural_inflight > 0 then
+        return
+    end
+    local batches = self._text_batches
+    if #batches == 0 then
+        return
+    end
+    self._text_batches = {}
+    if #batches == 1 then
+        self:_render_text_deltas(table.concat(batches[1]))
+        return
+    end
+    local flat = {}
+    for _, batch in ipairs(batches) do
+        vim.list_extend(flat, batch)
+    end
+    self:_render_text_deltas(table.concat(flat))
+end
+
+--- Pending content needing a timer re-arm: text batches not yet drainable
+--- (structural callbacks in flight) or deltas whose anchor block does not
+--- exist yet (its start callback runs next loop turn).
+---@return boolean
+function History:_has_deferred_stream()
+    for _, batch in ipairs(self._text_batches) do
+        if #batch > 0 then
+            return true
+        end
+    end
+    if self._pending_thinking then
+        return true
+    end
+    if next(self._pending_bash) then
+        return true
+    end
+    if next(self._pending_tool_updates) then
+        return true
+    end
+    return false
+end
+
+--- Arm the one-shot flush timer (no-op when already armed).
+function History:_ensure_stream_timer()
+    if self._stream_timer then
+        return
+    end
+    local timer = assert(vim.uv.new_timer())
+    self._stream_timer = timer
+    timer:start(History._stream_flush_ms, 0, vim.schedule_wrap(function()
+        if self._stream_timer ~= timer then
+            return -- cleared while this callback was queued
+        end
+        self._stream_timer = nil
+        timer:stop()
+        timer:close()
+        self:_flush_stream()
+        if self:_has_deferred_stream() then
+            self:_ensure_stream_timer()
+        end
+    end))
+end
+
+--- Drain all pending streamed content. Synchronous; called from the flush
+--- timer (structural handlers drain their own sealed batch via
+--- _pop_text_batch instead, keeping FIFO alignment).
+function History:_flush_stream()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        self._text_batches = {}
+        self._pending_thinking = nil
+        self._pending_bash = {}
+        self._pending_tool_updates = {}
+        return
+    end
+    self:_flush_stream_text()
+    self:_flush_stream_thinking()
+    self:_flush_stream_bash()
+    self:_flush_tool_updates()
+end
+
+function History:_flush_stream_thinking()
+    local pending = self._pending_thinking
+    if not pending then
+        return
+    end
+    if not self._thinking_accum then
+        -- on_thinking_start's scheduled callback has not run yet; keep queued.
+        return
+    end
+    self._pending_thinking = nil
+    local delta = table.concat(pending)
+    local parts = vim.split(delta, "\n", { plain = true })
+    self._thinking_accum.lines[#self._thinking_accum.lines] = self._thinking_accum.lines[#self._thinking_accum.lines]
+        .. parts[1]
+    for i = 2, #parts do
+        self._thinking_accum.lines[#self._thinking_accum.lines + 1] = parts[i]
+    end
+
+    if not self._show_thinking then
+        return
+    end
+    -- Single-line: keep the header row fixed, roll the latest thinking
+    -- through its inline preview (tail window) so the block stays one line.
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, self._thinking_accum.anchor, {})
+    local header_row = pos[1] and (pos[1] + 1) or nil
+    if header_row then
+        local flat = Text.thinking_flat(self._thinking_accum.lines)
+        local pw = self:_thinking_preview_width(self._thinking_accum.header_text or "")
+        local preview = Text.thinking_tail(flat, pw)
+        self._thinking_accum.virt_id =
+            self:_set_thinking_preview(header_row, preview, self._thinking_accum.virt_id)
+    end
+    self:_update_status_extmark()
+    self:_maybe_scroll()
+end
+
+function History:_flush_stream_bash()
+    if not next(self._pending_bash) then
+        return
+    end
+    for id, chunks in pairs(self._pending_bash) do
+        local block = self._bash_blocks[id]
+        if block and not block.finished then
+            self._pending_bash[id] = nil
+            self:_apply_bash_output(block, table.concat(chunks))
+        elseif not self._bash_start_pending[id] then
+            -- Stray output for a block that never started (or is gone).
+            self._pending_bash[id] = nil
+        end
+        -- else: on_bash_start's scheduled callback has not run yet; keep queued.
+    end
+end
+
+function History:_flush_tool_updates()
+    if not next(self._pending_tool_updates) then
+        return
+    end
+    for id, msg in pairs(self._pending_tool_updates) do
+        if self._tool_blocks[id] then
+            self._pending_tool_updates[id] = nil
+            self:_apply_tool_update(id, msg)
+        elseif not self._tool_start_pending[id] then
+            -- Update for a tool that never started (or whose block is gone).
+            self._pending_tool_updates[id] = nil
+        end
+        -- else: on_tool_start's scheduled callback has not run yet; keep queued.
+    end
 end
 
 ---@param text string
@@ -1155,7 +1400,9 @@ end
 ---@param image_count? integer
 ---@param queue_type? "steer"|"follow_up"
 function History:add_user_message(msg, timestamp, image_count, queue_type)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1244,7 +1491,9 @@ end
 
 ---@param timestamp? number
 function History:on_agent_start(timestamp)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch() -- land stragglers from the previous turn in order
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1286,35 +1535,24 @@ end
 
 ---@param delta string
 function History:on_text_delta(delta)
-    vim.schedule(function()
-        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-            return
-        end
-        if self._first_delta then
-            self._first_delta = false
-            delta = delta:gsub("^\n+", "")
-            if delta == "" then
-                return
-            end
-        end
-        self._last_was_inline = false
-        -- After a tool block, prepend a newline so the blank footer line
-        -- becomes breathing room and text starts on a fresh line.
-        if self._needs_breathing_line then
-            self._needs_breathing_line = false
-            delta = "\n" .. delta
-        end
-        if self._agent_text_chunks then
-            self._agent_text_chunks[#self._agent_text_chunks + 1] = delta
-        end
-        self:_append_text(delta)
-    end)
+    -- Accumulate and coalesce (see the flush machinery above); ordering with
+    -- structural events is preserved by seal-at-dispatch / pop-in-callback.
+    local batches = self._text_batches
+    local open = batches[#batches]
+    if not open then
+        open = {}
+        batches[1] = open
+    end
+    open[#open + 1] = delta
+    self:_ensure_stream_timer()
 end
 
 ---@param done_verb? string
 ---@param opts? { force_completion?: boolean }
 function History:on_agent_end(done_verb, opts)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch() -- land the final streamed text before turn close
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1384,10 +1622,12 @@ end
 ---@param error_message string
 ---@param opts? pi.ChatErrorOpts
 function History:on_error(error_message, opts)
+    self:_seal_stream_text()
     vim.schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_pop_text_batch()
         local icon = Config.options.labels.error
         local error_lines = vim.split(error_message, "\n", { plain = true })
         local indent = string.rep(" ", vim.fn.strdisplaywidth(icon) + 1)
@@ -1871,7 +2111,9 @@ end
 ---@param summary string
 ---@param tokens_before integer
 function History:append_compaction_summary(summary, tokens_before)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch()
         self:_append_compaction_summary(summary, tokens_before)
     end)
 end
@@ -1908,10 +2150,12 @@ end
 ---@param error_message string
 ---@param opts? pi.ChatErrorOpts
 function History:on_system_error(error_message, opts)
+    self:_seal_stream_text()
     vim.schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_pop_text_batch()
         local timestamp = now_ms()
         if not self._has_conversation_content then
             self._startup_errors[#self._startup_errors + 1] = {
@@ -1957,10 +2201,12 @@ end
 --- Each line is an array of chunks: { {text, hl?}, ... }.
 ---@param block pi.CustomBlock
 function History:append_custom_block(block)
+    self:_seal_stream_text()
     vim.schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_pop_text_batch()
         if not block.content or #block.content == 0 then
             return
         end
@@ -1994,7 +2240,17 @@ end
 ---@param tool_call_id string
 ---@param tool_input? table
 function History:on_tool_start(tool_name, tool_call_id, tool_input)
+    if type(tool_call_id) == "string" then
+        -- Set synchronously so live updates for this tool accumulate before
+        -- this scheduled callback creates the block.
+        self._tool_start_pending[tool_call_id] = true
+    end
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch() -- land pending text before the block
+        if type(tool_call_id) == "string" then
+            self._tool_start_pending[tool_call_id] = nil
+        end
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -2104,6 +2360,8 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
                 expanded = true,
             }
         end
+        -- Live updates that arrived before the block existed land now.
+        self:_flush_tool_updates()
     end)
 end
 
@@ -2112,10 +2370,13 @@ end
 ---@param result? table
 ---@param is_error? boolean
 function History:on_tool_end(tool_name, tool_call_id, result, is_error)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch() -- land pending text before closing the block
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_flush_tool_updates() -- latest live update lands before teardown
 
         local should_scroll = self:_should_auto_scroll()
 
@@ -2594,65 +2855,74 @@ end
 ---@param tool_call_id string
 ---@param msg table
 function History:on_tool_update(tool_name, tool_call_id, msg)
-    vim.schedule(function()
-        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-            return
-        end
+    if type(tool_call_id) ~= "string" then
+        return
+    end
+    if not self._tool_blocks[tool_call_id] and not self._tool_start_pending[tool_call_id] then
+        return
+    end
+    -- Latest update wins: intermediate partial outputs are superseded.
+    self._pending_tool_updates[tool_call_id] = msg
+    self:_ensure_stream_timer()
+end
 
-        local block = tool_call_id and self._tool_blocks[tool_call_id]
-        if not block or block.finished or block.inline then
-            return
-        end
+--- Apply the latest coalesced live update for a tool block.
+---@param tool_call_id string
+---@param msg table
+function History:_apply_tool_update(tool_call_id, msg)
+    local block = self._tool_blocks[tool_call_id]
+    if not block or block.finished or block.inline then
+        return
+    end
 
-        local text = extract_tool_update_text(msg)
-        if not text then
-            return
-        end
+    local text = extract_tool_update_text(msg)
+    if not text then
+        return
+    end
 
-        local should_scroll = self:_should_auto_scroll()
-        local lines = build_tool_live_update_lines(text)
-        local start_row
-        local old_line_count = block.live_update_line_count
-        if block.live_update_extmark and old_line_count then
-            local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.live_update_extmark, {})
-            start_row = pos[1]
-            if start_row then
-                local end_row = start_row + old_line_count
-                if end_row > vim.api.nvim_buf_line_count(self._buf) then
-                    return
-                end
-                vim.api.nvim_buf_clear_namespace(self._buf, ns, start_row, end_row)
-                self:_with_modifiable(function()
-                    vim.api.nvim_buf_set_lines(self._buf, start_row, end_row, false, lines)
-                end)
-            else
-                block.live_update_extmark = nil
-                block.live_update_line_count = nil
-            end
-        end
-
-        if not start_row then
-            if not block.tail_extmark then
+    local should_scroll = self:_should_auto_scroll()
+    local lines = build_tool_live_update_lines(text)
+    local start_row
+    local old_line_count = block.live_update_line_count
+    if block.live_update_extmark and old_line_count then
+        local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.live_update_extmark, {})
+        start_row = pos[1]
+        if start_row then
+            local end_row = start_row + old_line_count
+            if end_row > vim.api.nvim_buf_line_count(self._buf) then
                 return
             end
-            local tail_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.tail_extmark, {})
-            if not tail_pos[1] then
-                return
-            end
-            start_row = tail_pos[1] + 1
+            vim.api.nvim_buf_clear_namespace(self._buf, ns, start_row, end_row)
             self:_with_modifiable(function()
-                vim.api.nvim_buf_set_lines(self._buf, start_row, start_row, false, lines)
+                vim.api.nvim_buf_set_lines(self._buf, start_row, end_row, false, lines)
             end)
+        else
+            block.live_update_extmark = nil
+            block.live_update_line_count = nil
         end
+    end
 
-        block.live_update_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, start_row, 0, {})
-        block.live_update_line_count = #lines
-        self:_apply_tool_live_update_extmarks(start_row, lines)
-        self:_update_status_extmark()
-        if should_scroll then
-            self:_scroll_to_bottom()
+    if not start_row then
+        if not block.tail_extmark then
+            return
         end
-    end)
+        local tail_pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, block.tail_extmark, {})
+        if not tail_pos[1] then
+            return
+        end
+        start_row = tail_pos[1] + 1
+        self:_with_modifiable(function()
+            vim.api.nvim_buf_set_lines(self._buf, start_row, start_row, false, lines)
+        end)
+    end
+
+    block.live_update_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, start_row, 0, {})
+    block.live_update_line_count = #lines
+    self:_apply_tool_live_update_extmarks(start_row, lines)
+    self:_update_status_extmark()
+    if should_scroll then
+        self:_scroll_to_bottom()
+    end
 end
 
 --- Mark all pending (unfinished) tool blocks as errored.
@@ -2749,8 +3019,16 @@ end
 ---@param command string
 ---@param exclude_from_context? boolean
 function History:on_bash_start(id, command, exclude_from_context)
+    -- Set synchronously so streamed output for this block accumulates before
+    -- this scheduled callback creates the block.
+    self._bash_start_pending[id] = true
+    self:_seal_stream_text()
     vim.schedule(function()
+        -- Land pending text before the block. Queued output survives: it
+        -- drains after the block exists (below), while the flag is still set.
+        self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            self._bash_start_pending[id] = nil
             return
         end
         self:_begin_conversation_content()
@@ -2818,78 +3096,92 @@ function History:on_bash_start(id, command, exclude_from_context)
             finished = false,
         }
 
+        -- Output that streamed in before the block existed lands now.
+        self:_flush_stream_bash()
+        self._bash_start_pending[id] = nil
         self:_update_status_extmark()
         self:_maybe_scroll()
     end)
 end
 
---- Append a streamed output chunk to a bash block. Chunks are split into
---- lines; an incomplete trailing line is kept as `partial` and rendered as a
---- live line until the next chunk completes it (TUI behavior).
+--- Append a streamed output chunk to a bash block. Chunks accumulate and
+--- are coalesced into one flush (see the stream flush machinery above); an
+--- incomplete trailing line is kept as `partial` and rendered as a live line
+--- until the next chunk completes it (TUI behavior).
 ---@param id string
 ---@param delta string
 function History:on_bash_output(id, delta)
-    vim.schedule(function()
-        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-            return
+    if delta == "" then
+        return
+    end
+    local block = self._bash_blocks[id]
+    if (not block or block.finished) and not self._bash_start_pending[id] then
+        return
+    end
+    local chunks = self._pending_bash[id]
+    if chunks then
+        chunks[#chunks + 1] = delta
+    else
+        self._pending_bash[id] = { delta }
+    end
+    self:_ensure_stream_timer()
+end
+
+--- Render a coalesced output chunk into a bash block.
+---@param block pi.BashBlock
+---@param delta string
+function History:_apply_bash_output(block, delta)
+    local clean = Tools.sanitize_text(delta):gsub("\r\n", "\n"):gsub("\r", "\n")
+    local chunk_lines = vim.split(clean, "\n", { plain = true })
+
+    -- Join the first piece onto the pending partial; the last piece is the
+    -- new partial. Everything in between is a completed line.
+    block.partial = block.partial .. chunk_lines[1]
+    local completed = {} ---@type string[]
+    if #chunk_lines > 1 then
+        completed[1] = block.partial
+        for i = 2, #chunk_lines - 1 do
+            completed[#completed + 1] = chunk_lines[i]
         end
-        local block = self._bash_blocks[id]
-        if not block or block.finished or delta == "" then
-            return
-        end
+        block.partial = chunk_lines[#chunk_lines]
+    end
 
-        local clean = Tools.sanitize_text(delta):gsub("\r\n", "\n"):gsub("\r", "\n")
-        local chunk_lines = vim.split(clean, "\n", { plain = true })
+    local should_scroll = self:_should_auto_scroll()
 
-        -- Join the first piece onto the pending partial; the last piece is the
-        -- new partial. Everything in between is a completed line.
-        block.partial = block.partial .. chunk_lines[1]
-        local completed = {} ---@type string[]
-        if #chunk_lines > 1 then
-            completed[1] = block.partial
-            for i = 2, #chunk_lines - 1 do
-                completed[#completed + 1] = chunk_lines[i]
-            end
-            block.partial = chunk_lines[#chunk_lines]
-        end
+    self:_bash_clear_partial(block)
 
-        local should_scroll = self:_should_auto_scroll()
-
-        self:_bash_clear_partial(block)
-
-        if #completed > 0 and not block.display_capped then
-            local room = BASH_DISPLAY_MAX - block.rendered_lines
-            if #completed > room then
-                if room > 0 then
-                    local head = {}
-                    for i = 1, room do
-                        head[i] = completed[i]
-                    end
-                    self:_bash_insert_output(block, head)
-                    block.rendered_lines = block.rendered_lines + room
+    if #completed > 0 and not block.display_capped then
+        local room = BASH_DISPLAY_MAX - block.rendered_lines
+        if #completed > room then
+            if room > 0 then
+                local head = {}
+                for i = 1, room do
+                    head[i] = completed[i]
                 end
-                block.display_capped = true
-                self:_bash_insert_output(
-                    block,
-                    { "… output truncated in chat (showing first " .. BASH_DISPLAY_MAX .. " lines)" },
-                    "PiWarning"
-                )
-            else
-                self:_bash_insert_output(block, completed)
-                block.rendered_lines = block.rendered_lines + #completed
+                self:_bash_insert_output(block, head)
+                block.rendered_lines = block.rendered_lines + room
             end
+            block.display_capped = true
+            self:_bash_insert_output(
+                block,
+                { "… output truncated in chat (showing first " .. BASH_DISPLAY_MAX .. " lines)" },
+                "PiWarning"
+            )
+        else
+            self:_bash_insert_output(block, completed)
+            block.rendered_lines = block.rendered_lines + #completed
         end
+    end
 
-        if block.partial ~= "" and not block.display_capped then
-            self:_bash_insert_output(block, { block.partial })
-            block.partial_rendered = true
-        end
+    if block.partial ~= "" and not block.display_capped then
+        self:_bash_insert_output(block, { block.partial })
+        block.partial_rendered = true
+    end
 
-        self:_update_status_extmark()
-        if should_scroll then
-            self:_scroll_to_bottom()
-        end
-    end)
+    self:_update_status_extmark()
+    if should_scroll then
+        self:_scroll_to_bottom()
+    end
 end
 
 --- Replace a bash block's output region with the final (backend-truncated)
@@ -2950,10 +3242,13 @@ end
 ---@param id string
 ---@param result table
 function History:on_bash_end(id, result)
+    self:_seal_stream_text()
     vim.schedule(function()
+        self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_flush_stream_bash() -- land pending output before finalizing
         local block = self._bash_blocks[id]
         if not block or block.finished then
             return
@@ -3037,7 +3332,14 @@ function History:on_bash_replay(msg)
 end
 
 function History:on_thinking_start()
+    -- Set synchronously so thinking deltas accumulate (and on_thinking_end's
+    -- fast path stays correct) before this scheduled callback runs.
+    self._thinking_requested = true
+    self:_seal_stream_text()
     vim.schedule(function()
+        self._thinking_requested = nil
+        -- Land pending text before anchoring the block relative to the last line.
+        self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -3093,6 +3395,8 @@ function History:on_thinking_start()
             self._thinking_accum.buf_lines = 2
             self._thinking_accum.header_text = header_text
         end
+        -- Deltas that arrived before the accumulator existed land now.
+        self:_flush_stream_thinking()
         self:_update_status_extmark()
         self:_maybe_scroll()
     end)
@@ -3100,45 +3404,37 @@ end
 
 ---@param delta string
 function History:on_thinking_delta(delta)
-    vim.schedule(function()
-        if not self._thinking_accum then
-            return
-        end
-        local parts = vim.split(delta, "\n", { plain = true })
-        self._thinking_accum.lines[#self._thinking_accum.lines] = self._thinking_accum.lines[#self._thinking_accum.lines]
-            .. parts[1]
-        for i = 2, #parts do
-            self._thinking_accum.lines[#self._thinking_accum.lines + 1] = parts[i]
-        end
-
-        if not self._show_thinking then
-            return
-        end
-        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-            return
-        end
-        -- Single-line: keep the header row fixed, roll the latest thinking
-        -- through its inline preview (tail window) so the block stays one line.
-        local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, self._thinking_accum.anchor, {})
-        local header_row = pos[1] and (pos[1] + 1) or nil
-        if header_row then
-            local flat = Text.thinking_flat(self._thinking_accum.lines)
-            local pw = self:_thinking_preview_width(self._thinking_accum.header_text or "")
-            local preview = Text.thinking_tail(flat, pw)
-            self._thinking_accum.virt_id = self:_set_thinking_preview(
-                header_row,
-                preview,
-                self._thinking_accum.virt_id
-            )
-        end
-        self:_update_status_extmark()
-        self:_maybe_scroll()
-    end)
+    -- Accumulate only when a thinking block exists or is about to be created
+    -- (mirrors the old early-return inside the scheduled callback).
+    if not self._thinking_accum and not self._thinking_requested then
+        return
+    end
+    local pending = self._pending_thinking
+    if pending then
+        pending[#pending + 1] = delta
+    else
+        self._pending_thinking = { delta }
+    end
+    self:_ensure_stream_timer()
 end
 
 function History:on_thinking_end()
+    -- Fast path: the session manager calls this before every text_delta;
+    -- stay synchronous (no vim.schedule) when no thinking block is active.
+    if not self._thinking_accum and not self._thinking_requested then
+        return
+    end
+    self:_seal_stream_text()
     vim.schedule(function()
-        if not self._thinking_accum or not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        -- Text sealed before thinking_end renders first; the block freeze
+        -- below rewrites only its own header row, preserving order.
+        self:_pop_text_batch()
+        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            return
+        end
+        -- Land queued thinking deltas before freezing the block.
+        self:_flush_stream_thinking()
+        if not self._thinking_accum then
             return
         end
         self._is_thinking = false
@@ -3469,6 +3765,20 @@ function History:clear()
         self._spinner_timer:close()
         self._spinner_timer = nil
     end
+    if self._stream_timer then
+        self._stream_timer:stop()
+        self._stream_timer:close()
+        self._stream_timer = nil
+    end
+    self._pending_stream_text = nil
+    self._pending_thinking = nil
+    self._pending_bash = {}
+    self._pending_tool_updates = {}
+    self._bash_start_pending = {}
+    self._tool_start_pending = {}
+    self._text_batches = {}
+    self._structural_inflight = 0
+    self._thinking_requested = nil
     self:_clear_status_virt_lines()
     self._status_text = nil
     self._status_extmark_id = nil
