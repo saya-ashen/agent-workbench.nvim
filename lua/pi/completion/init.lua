@@ -5,22 +5,60 @@ local CommandsCache = require("pi.cache.commands")
 
 local M = {}
 
---- Check if all characters of query appear in order in target (case-insensitive).
-function M.fuzzy_match(query, target)
+--- Stop the fuzzy pass after this many results. Completion menus page
+--- through far fewer than this; on huge repos an unbounded fuzzy scan is
+--- the dominant per-keystroke cost.
+local MAX_FUZZY_RESULTS = 100
+
+--- Subsequence check on already-lowercased strings.
+---@param lquery string lowercased query
+---@param ltarget string lowercased target
+---@return boolean
+local function fuzzy_match_lower(lquery, ltarget)
     local qi = 1
-    local ql = #query
-    query = query:lower()
-    target = target:lower()
-    for ti = 1, #target do
-        if target:byte(ti) == query:byte(qi) then
+    local ql = #lquery
+    for ti = 1, #ltarget do
+        if ltarget:byte(ti) == lquery:byte(qi) then
             qi = qi + 1
-            if qi > ql then return true end
+            if qi > ql then
+                return true
+            end
         end
     end
     return false
 end
 
---- Two-pass file matching: prefix matches (with directory collapsing) then fuzzy matches (full paths).
+--- Check if all characters of query appear in order in target (case-insensitive).
+---@param query string
+---@param target string
+---@return boolean
+function M.fuzzy_match(query, target)
+    return fuzzy_match_lower(query:lower(), target:lower())
+end
+
+--- Memoized parallel arrays of lowercased paths, keyed weakly by the files
+--- array's identity: FilesCache rebuilds its array on every refresh, so the
+--- lowered copy is computed once per cache generation and GC'd with the
+--- array it belongs to.
+---@type table<string[], string[]>
+local lowered_memo = setmetatable({}, { __mode = "k" })
+
+---@param files string[]
+---@return string[] parallel lowercased array
+local function lowered_paths(files)
+    local lower = lowered_memo[files]
+    if not lower then
+        lower = {}
+        for i, path in ipairs(files) do
+            lower[i] = path:lower()
+        end
+        lowered_memo[files] = lower
+    end
+    return lower
+end
+
+--- Two-pass file matching: prefix matches (with directory collapsing) then
+--- fuzzy matches (full paths, capped at MAX_FUZZY_RESULTS).
 --- Calls make_item(path_or_dir, kind, is_fuzzy) for each result.
 --- kind is "file" or "dir". Results are returned in priority order.
 ---@param prefix string typed text after @
@@ -32,14 +70,18 @@ function M.complete_files(prefix, make_item)
     local seen_dirs = {}
     local prefix_matched = {}
 
+    local plen = #prefix
+    local first_byte = plen > 0 and prefix:byte(1) or nil
+
     -- Pass 1: prefix matches with directory collapsing
     for _, path in ipairs(project_files) do
-        if prefix == "" or path:sub(1, #prefix) == prefix then
-            prefix_matched[path] = true
-            local rest = path:sub(#prefix + 1)
-            local slash = rest:find("/")
+        if plen == 0 or (path:byte(1) == first_byte and path:sub(1, plen) == prefix) then
+            if plen > 0 then
+                prefix_matched[path] = true
+            end
+            local slash = path:find("/", plen + 1)
             if slash then
-                local dir = prefix .. rest:sub(1, slash)
+                local dir = path:sub(1, slash)
                 if not seen_dirs[dir] then
                     seen_dirs[dir] = true
                     items[#items + 1] = make_item(dir, "dir", false)
@@ -50,11 +92,45 @@ function M.complete_files(prefix, make_item)
         end
     end
 
-    -- Pass 2: fuzzy matches on full path
-    if prefix ~= "" then
-        for _, path in ipairs(project_files) do
-            if not prefix_matched[path] and M.fuzzy_match(prefix, path) then
-                items[#items + 1] = make_item(path, "file", true)
+    -- Pass 2: fuzzy matches on full path (case-insensitive, capped). The
+    -- scan is inlined and anchored on a C-speed find() of the first query
+    -- character so no-match queries reject without a Lua byte loop; paths
+    -- are matched against memoized lowercase copies (one lower() per path
+    -- per cache generation instead of per keystroke).
+    if plen > 0 then
+        local lprefix = prefix:lower()
+        local lfirst = lprefix:sub(1, 1)
+        local lower = lowered_paths(project_files)
+        local fuzzy_count = 0
+        for i, path in ipairs(project_files) do
+            if not prefix_matched[path] then
+                local lt = lower[i]
+                -- Greedy subsequence scan anchored at the first occurrence
+                -- of the first query char (equivalent to a scan from
+                -- position 1: the earliest anchor is always optimal).
+                local start = lt:find(lfirst, 1, true)
+                if start then
+                    local matched = plen == 1
+                    if not matched then
+                        local qi = 2
+                        for ti = start + 1, #lt do
+                            if lt:byte(ti) == lprefix:byte(qi) then
+                                qi = qi + 1
+                                if qi > plen then
+                                    matched = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if matched then
+                        items[#items + 1] = make_item(path, "file", true)
+                        fuzzy_count = fuzzy_count + 1
+                        if fuzzy_count >= MAX_FUZZY_RESULTS then
+                            break
+                        end
+                    end
+                end
             end
         end
     end
@@ -112,7 +188,7 @@ function M.complete_commands(prefix, make_item)
         if not seen[cmd.name] then
             local lname = cmd.name:lower()
             local short = skill_short(cmd)
-            if M.fuzzy_match(lprefix, lname) or (short and M.fuzzy_match(lprefix, short)) then
+            if fuzzy_match_lower(lprefix, lname) or (short and fuzzy_match_lower(lprefix, short)) then
                 items[#items + 1] = make_item(cmd, true)
             end
         end
