@@ -2,6 +2,7 @@
 
 ## 2026-07-30
 
+- **CHANGED:** The history panel's `π` title no longer uses inverted colors (colored background with dark text). Both the side-layout winbar title (`PiChatHistoryWinbarTitle`) and the float-layout title (`PiChatHistoryFloatTitle`) now render as bold colored text on the normal background, matching the other panel titles. Override either group to restore the badge look.
 - **FIXED:** The first line of an assistant reply no longer renders above its response header (the icon + timestamp line). When a response starts with text, the header and the first streamed chunk are dispatched back-to-back; the stream coalescing could hand that first chunk to the header's render pass, so it landed one batch too early — above the header — while the rest streamed below. The batch queue now always keeps an open tail batch, restoring the seal/pop ordering guarantee; streamed text, thinking blocks, and tool blocks still land in exact RPC dispatch order.
 - **FIXED:** Chat colors now refresh when you change the Neovim colorscheme. The `Pi*` highlight groups are derived from the active theme but were installed with `default = true`, which never overrides an existing group; legacy colorschemes call `:highlight clear` and masked the problem, but modern ones (tokyonight, catppuccin, …) do not, so the groups stayed frozen at the first theme on `:colorscheme`. π now clears its own default-defined `Pi*` groups before re-deriving them on each `ColorScheme` event. Explicitly user-defined `Pi*` groups are left untouched and keep priority.
 

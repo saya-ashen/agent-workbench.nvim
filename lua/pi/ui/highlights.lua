@@ -109,7 +109,7 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiAttachmentIcon", { default = true, fg = comment.fg })
 
     vim.api.nvim_set_hl(0, "PiChatHistoryWinbar", { default = true, bg = normal.bg })
-    vim.api.nvim_set_hl(0, "PiChatHistoryWinbarTitle", { default = true, fg = normal.bg, bg = user.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiChatHistoryWinbarTitle", { default = true, fg = user.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiChatPromptWinbar", { default = true, bg = normal.bg })
     vim.api.nvim_set_hl(0, "PiChatPromptWinbarTitle", { default = true, fg = comment.fg, bg = normal.bg, bold = true })
     vim.api.nvim_set_hl(
@@ -128,7 +128,7 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiFloat", { default = true, bg = normal.bg })
     vim.api.nvim_set_hl(0, "PiFloatBorder", { default = true, fg = comment.fg, bg = normal.bg })
     vim.api.nvim_set_hl(0, "PiDialogTitle", { default = true, fg = title.fg, bold = true })
-    vim.api.nvim_set_hl(0, "PiChatHistoryFloatTitle", { default = true, fg = normal.bg, bg = user.fg })
+    vim.api.nvim_set_hl(0, "PiChatHistoryFloatTitle", { default = true, fg = user.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiChatPromptFloatTitle", { default = true, fg = comment.fg, bg = normal.bg })
     vim.api.nvim_set_hl(
         0,
