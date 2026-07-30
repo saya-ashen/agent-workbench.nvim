@@ -9,7 +9,27 @@ M.CHAT_PROMPT_BASH_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder
 M.CHAT_ATTACHMENTS_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiChatAttachmentsFloatTitle"
 M.DIFF_WINHIGHLIGHT = "WinBar:PiDiffWinbar,WinBarNC:PiDiffWinbar"
 
+--- Clear the Pi* groups we previously installed as defaults.
+---
+--- Every group below is created with `default = true`, which by design never
+--- overrides an existing definition (so a user's own `Pi*` highlight wins). The
+--- flip side: on a later `:colorscheme`, `default = true` alone is a no-op for
+--- groups that already exist. Legacy colorschemes call `:highlight clear` and
+--- wipe them for us, but many modern ones (tokyonight, catppuccin, ...) do not,
+--- so the colors would stay frozen at the first theme. Clearing our own
+--- default-defined groups here lets the `default = true` calls below re-apply
+--- against the new theme, while explicit (non-default) user definitions are
+--- left untouched and keep priority.
+local function clear_default_groups()
+    for name, def in pairs(vim.api.nvim_get_hl(0, { link = false })) do
+        if name:sub(1, 2) == "Pi" and def.default then
+            vim.api.nvim_set_hl(0, name, {})
+        end
+    end
+end
+
 local function set_defaults()
+    clear_default_groups()
     local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
     local title = vim.api.nvim_get_hl(0, { name = "Title", link = false })
     local func = vim.api.nvim_get_hl(0, { name = "Function", link = false })

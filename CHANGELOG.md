@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-30
+
+- **FIXED:** Chat colors now refresh when you change the Neovim colorscheme. The `Pi*` highlight groups are derived from the active theme but were installed with `default = true`, which never overrides an existing group; legacy colorschemes call `:highlight clear` and masked the problem, but modern ones (tokyonight, catppuccin, …) do not, so the groups stayed frozen at the first theme on `:colorscheme`. π now clears its own default-defined `Pi*` groups before re-deriving them on each `ColorScheme` event. Explicitly user-defined `Pi*` groups are left untouched and keep priority.
+
 ## 2026-07-29
 
 - **FIXED:** Typing in the prompt no longer stalls periodically in large projects. The shared project-file cache (used by `@`-mention completion and prompt decorators) refreshed by running `git ls-files` *synchronously* whenever its 5s TTL expired, blocking the main loop for ~28ms in a 20k-file repo (and hundreds of ms in huge ones) — once per expiry, mid-keystroke. The cache is now stale-while-revalidate: an expired cache is returned immediately and refreshed asynchronously in the background (single-flight, result dropped if the cwd changes), so the expired-path cost drops from ~28ms to ~0.05ms. Only the very first listing per cwd still fetches synchronously, and `exists()` never blocks at all (cold cache falls back to an on-disk check while the refresh runs).
