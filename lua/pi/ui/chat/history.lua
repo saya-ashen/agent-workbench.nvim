@@ -497,7 +497,7 @@ function History.new(tab)
     self._agent_text_start_row = nil
     self._current_turn_first_agent_response_extmark_id = nil
     self._current_turn_last_agent_response_extmark_id = nil
-    self._text_batches = {}
+    self._text_batches = { {} } -- invariant: always ends with one open batch
     self._structural_inflight = 0
     self._pending_thinking = nil
     self._pending_bash = {}
@@ -832,6 +832,14 @@ end
 -- share one FIFO timeline); every structural *callback* pops and renders
 -- exactly the batch sealed at its dispatch before mutating the buffer. The
 -- timer flush only drains text while no structural callback is in flight.
+--
+-- Invariant: `_text_batches` always ends with one open batch. The pop in a
+-- structural callback targets the batch that was open *before* its dispatch's
+-- seal; if the list could be empty at seal time, the freshly pushed batch
+-- itself would be popped — and any delta dispatched right after the seal
+-- (e.g. the lazy assistant-block open, where on_agent_start and the first
+-- on_text_delta dispatch back-to-back) would render *before* the structural
+-- block (the first text chunk landed above the agent label).
 -- ---------------------------------------------------------------------------
 
 --- Append a coalesced text batch to the buffer, applying the stream-position
@@ -894,14 +902,17 @@ function History:_flush_stream_text()
     if #batches == 0 then
         return
     end
-    self._text_batches = {}
-    if #batches == 1 then
-        self:_render_text_deltas(table.concat(batches[1]))
-        return
+    -- Keep the always-open tail batch invariant (see above).
+    self._text_batches = { {} }
+    local flat = batches[1]
+    if #batches > 1 then
+        flat = {}
+        for _, batch in ipairs(batches) do
+            vim.list_extend(flat, batch)
+        end
     end
-    local flat = {}
-    for _, batch in ipairs(batches) do
-        vim.list_extend(flat, batch)
+    if #flat == 0 then
+        return
     end
     self:_render_text_deltas(table.concat(flat))
 end
@@ -954,7 +965,7 @@ end
 --- _pop_text_batch instead, keeping FIFO alignment).
 function History:_flush_stream()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-        self._text_batches = {}
+        self._text_batches = { {} }
         self._pending_thinking = nil
         self._pending_bash = {}
         self._pending_tool_updates = {}
@@ -3776,7 +3787,7 @@ function History:clear()
     self._pending_tool_updates = {}
     self._bash_start_pending = {}
     self._tool_start_pending = {}
-    self._text_batches = {}
+    self._text_batches = { {} } -- invariant: always ends with one open batch
     self._structural_inflight = 0
     self._thinking_requested = nil
     self:_clear_status_virt_lines()

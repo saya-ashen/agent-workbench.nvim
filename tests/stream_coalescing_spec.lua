@@ -46,6 +46,26 @@ describe("stream coalescing", function()
     History._stream_flush_ms = saved_flush_ms
   end)
 
+  it("keeps the agent label above the first text when the block opens lazily", function()
+    -- Chat opens the assistant block lazily: the first non-whitespace
+    -- text_delta calls History:on_agent_start and History:on_text_delta
+    -- back-to-back in one dispatch, before any scheduled callback ran. The
+    -- first delta must still land *below* the label line.
+    local h = History.new(TAB)
+    h:on_agent_start(nil)
+    h:on_text_delta("first chunk ")
+    pump(80)
+    h:on_text_delta("second chunk")
+    pump(80)
+    local buf = h:buf()
+    local icon = Config.options.labels.agent_response
+    local label = rows_with(buf, icon)
+    local first = rows_with(buf, "first chunk")
+    assert.are.equal(1, #label, "label rendered")
+    assert.are.equal(1, #first, "first chunk rendered")
+    assert.is_true(label[1] < first[1], "label precedes first streamed text")
+  end)
+
   it("renders many rapid text deltas completely and in order", function()
     local h = History.new(TAB)
     h:on_agent_start(nil)
@@ -233,7 +253,7 @@ describe("stream coalescing", function()
     h:on_tool_update("bash", "t9", { partialResult = { content = { { type = "text", text = "x" } } } })
     h:clear()
     assert.is_nil(h._stream_timer)
-    assert.are.equal(0, #h._text_batches)
+    assert.are.equal(1, #h._text_batches) -- one empty open batch (invariant)
     assert.are.equal(0, h._structural_inflight)
     assert.is_nil(h._pending_thinking)
     assert.are.equal(0, #vim.tbl_keys(h._pending_bash))
