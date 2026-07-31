@@ -7,6 +7,130 @@ local M = {}
 
 local Notify = require("pi.notify")
 
+-- Optional: reuse the chat's per-tool nerd-font icons as a lightweight marker so
+-- a tool-only turn reads as "the agent called <tool>", not as an empty line or
+-- as prose. pcall because the picker must still work if the chat UI module is
+-- unavailable; the fallback below prints the tool name instead.
+local ok_tools, Tools = pcall(require, "pi.ui.chat.tools")
+if not ok_tools then
+    Tools = nil
+end
+
+--- Max characters of a tool argument shown in the preview, and max tools listed
+--- before the rest collapse into a "(+N)" suffix.
+local MAX_FRAG = 40
+local MAX_TOOLS = 2
+
+--- Argument key names that carry the most useful one-line hint per tool, kept in
+--- sync with the chat tool renderers (lua/pi/ui/chat/tools.lua). The first key
+--- that holds a non-empty string wins.
+---@type table<string, string[]>
+local TOOL_ARG_KEYS = {
+    bash = { "command", "cmd" },
+    read = { "path", "file_path" },
+    edit = { "path", "file_path" },
+    write = { "path", "file_path" },
+    grep = { "pattern", "regex", "path" },
+    glob = { "pattern", "path" },
+    web_fetch = { "url" },
+    web_search = { "query", "pattern" },
+}
+
+--- Coerce a tool-call arguments value into a table. Stored entries already carry
+--- a table; streaming/custom payloads may carry a JSON string instead.
+---@param args any
+---@return table?
+local function args_table(args)
+    if type(args) == "table" then
+        return args
+    end
+    if type(args) == "string" and args ~= "" then
+        local ok, decoded = pcall(vim.json.decode, args)
+        if ok and type(decoded) == "table" then
+            return decoded
+        end
+    end
+    return nil
+end
+
+--- Collapse a string to a single trimmed line, truncated to MAX_FRAG.
+---@param s string
+---@return string
+local function one_line(s)
+    local flat = vim.trim((s or ""):gsub("%s+", " "))
+    if #flat > MAX_FRAG then
+        return flat:sub(1, MAX_FRAG) .. "…"
+    end
+    return flat
+end
+
+--- The most useful argument hint for a tool call, or nil when none is available.
+---@param name string
+---@param args table?
+---@return string?
+local function tool_fragment(name, args)
+    if not args then
+        return nil
+    end
+    for _, key in ipairs(TOOL_ARG_KEYS[name] or {}) do
+        local v = args[key]
+        if type(v) == "string" and vim.trim(v) ~= "" then
+            return one_line(v:match("^[^\n]*"))
+        end
+    end
+    -- fallback: first non-empty string argument
+    for _, v in pairs(args) do
+        if type(v) == "string" and vim.trim(v) ~= "" then
+            return one_line(v:match("^[^\n]*"))
+        end
+    end
+    return nil
+end
+
+--- Collect the tool calls of a message content field, in order.
+---@param content any
+---@return { name: string, args: table? }[]
+local function collect_tool_calls(content)
+    local tools = {}
+    if type(content) ~= "table" then
+        return tools
+    end
+    for _, part in ipairs(content) do
+        if type(part) == "table" and part.type == "toolCall" then
+            tools[#tools + 1] = {
+                name = part.toolName or part.name or "tool",
+                args = args_table(part.arguments or part.args or part.input),
+            }
+        end
+    end
+    return tools
+end
+
+--- One-line summary of a non-empty list of tool calls, e.g.
+--- " cd ~/.local…,  /lua/pi/tree.lua (+1)". Each tool is prefixed by its chat
+--- icon when available (the lightweight marker), otherwise by "name: ".
+---@param tools { name: string, args: table? }[]
+---@return string
+local function format_tool_calls(tools)
+    local cells = {}
+    for i = 1, math.min(#tools, MAX_TOOLS) do
+        local t = tools[i]
+        local frag = tool_fragment(t.name, t.args)
+        if Tools then
+            local icon = Tools.get_tool_icon(t.name)
+            cells[#cells + 1] = frag and (icon .. " " .. frag) or icon
+        else
+            cells[#cells + 1] = frag and (t.name .. ": " .. frag) or t.name
+        end
+    end
+    local text = table.concat(cells, ", ")
+    local extra = #tools - MAX_TOOLS
+    if extra > 0 then
+        text = text .. " (+" .. extra .. ")"
+    end
+    return text
+end
+
 ---@class pi.TreeRpcNode
 ---@field entry table SessionEntry from the RPC get_tree response
 ---@field children pi.TreeRpcNode[]
@@ -23,6 +147,9 @@ local Notify = require("pi.notify")
 ---@field label? string resolved branch label
 ---@field is_leaf boolean whether this entry is the current session leaf
 ---@field editor_text? string text to prefill into the prompt after navigating here
+---@field preview_kind "text"|"tools"|"status"|"empty" what the preview text is:
+---  real message text, a tool-call summary, an aborted/error status marker, or an
+---  empty placeholder (never the old "(no text)")
 
 --- Map a session entry to a picker kind, or nil when the entry should be
 --- hidden (its children are still traversed).
@@ -83,12 +210,39 @@ function M.entry_full_text(entry)
     return ""
 end
 
---- Single-line preview of an entry's text.
+--- Single-line preview of an entry plus the kind of that preview. The preview is
+--- never empty: a text-less assistant turn falls back to a tool-call summary
+--- ("tools"), an aborted/errored turn to a status marker ("status"), and anything
+--- else to "(empty)". This replaces the old "(no text)" placeholder that made
+--- long, tool-heavy sessions unreadable in the picker.
 ---@param entry table
----@return string
+---@return string text, "text"|"tools"|"status"|"empty" kind
 function M.entry_preview(entry)
-    local text = M.entry_full_text(entry):gsub("%s+", " ")
-    return vim.trim(text)
+    local text = vim.trim(M.entry_full_text(entry):gsub("%s+", " "))
+    if text ~= "" then
+        return text, "text"
+    end
+    local content = entry.type == "message" and entry.message and entry.message.content or nil
+    local tools = collect_tool_calls(content)
+    if #tools > 0 then
+        return format_tool_calls(tools), "tools"
+    end
+    local message = entry.type == "message" and entry.message or nil
+    local stop = message and message.stopReason
+    if stop == "aborted" then
+        return "(aborted)", "status"
+    end
+    if stop == "error" then
+        local em = message and message.errorMessage
+        if type(em) == "string" then
+            local frag = one_line(em:match("^[^\n]*"))
+            if frag ~= "" then
+                return "(error: " .. frag .. ")", "status"
+            end
+        end
+        return "(error)", "status"
+    end
+    return "(empty)", "empty"
 end
 
 --- Text to prefill into the prompt after navigating to an entry, mirroring
@@ -133,11 +287,13 @@ function M.flatten(nodes, leaf_id)
         local entry = node.entry or {}
         local kind = M.entry_kind(entry)
         if kind then
+            local text, preview_kind = M.entry_preview(entry)
             items[#items + 1] = {
                 id = entry.id,
                 depth = depth,
                 kind = kind,
-                text = M.entry_preview(entry),
+                text = text,
+                preview_kind = preview_kind,
                 label = node.label,
                 is_leaf = entry.id ~= nil and entry.id == leaf_id,
                 editor_text = M.editor_text(entry),
@@ -179,7 +335,7 @@ function M.format_item(item)
     local indent = string.rep("  ", item.depth or 0)
     local leaf = item.is_leaf and "● " or "  "
     local label = item.label and ("⚑ " .. item.label .. " ") or ""
-    local text = item.text ~= "" and item.text or "(no text)"
+    local text = item.text ~= "" and item.text or "(empty)"
     return string.format("%s%s[%s] %s%s", indent, leaf, item.kind, label, text)
 end
 

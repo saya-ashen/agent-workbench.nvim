@@ -41,7 +41,9 @@ describe("pi.tree", function()
 
     describe("entry_preview", function()
         it("extracts text from string content", function()
-            assert.are.equal("hello", Tree.entry_preview(msg("a", "user", "hello")))
+            local text, kind = Tree.entry_preview(msg("a", "user", "hello"))
+            assert.are.equal("hello", text)
+            assert.are.equal("text", kind)
         end)
 
         it("concatenates text parts of array content", function()
@@ -50,16 +52,76 @@ describe("pi.tree", function()
                 { type = "image" },
                 { type = "text", text = "world" },
             })
-            assert.are.equal("hello world", Tree.entry_preview(e))
+            local text, kind = Tree.entry_preview(e)
+            assert.are.equal("hello world", text)
+            assert.are.equal("text", kind)
         end)
 
         it("collapses whitespace to a single line", function()
-            assert.are.equal("a b c", Tree.entry_preview(msg("a", "user", "a\n  b\tc")))
+            local text = Tree.entry_preview(msg("a", "user", "a\n  b\tc"))
+            assert.are.equal("a b c", text)
         end)
 
         it("uses summary text for summaries and compaction", function()
             assert.are.equal("sum", Tree.entry_preview({ type = "branch_summary", summary = "sum" }))
             assert.are.equal("cmp", Tree.entry_preview({ type = "compaction", summary = "cmp" }))
+        end)
+
+        it("summarizes a tool-only assistant turn with a first-arg fragment", function()
+            local e = msg("a", "assistant", {
+                { type = "toolCall", name = "bash", arguments = { command = "cd ~/x && ls -la\nsecond line" } },
+            })
+            local text, kind = Tree.entry_preview(e)
+            assert.are.equal("tools", kind)
+            assert.are.not_equal("", text)
+            -- first line of the command only, never the old placeholder
+            assert.is_truthy(text:find("cd ~/x && ls -la", 1, true))
+            assert.is_nil(text:find("second line", 1, true))
+            assert.is_nil(text:find("(no text)", 1, true))
+        end)
+
+        it("lists two tools and folds the rest with (+N)", function()
+            local e = msg("a", "assistant", {
+                { type = "toolCall", name = "bash", arguments = { command = "one" } },
+                { type = "toolCall", name = "edit", arguments = { path = "/lua/pi/tree.lua" } },
+                { type = "toolCall", name = "read", arguments = { path = "/lua/pi/rpc.lua" } },
+            })
+            local text, kind = Tree.entry_preview(e)
+            assert.are.equal("tools", kind)
+            assert.is_truthy(text:find("(+1)", 1, true))
+        end)
+
+        it("marks an aborted turn", function()
+            local e = {
+                type = "message",
+                id = "a",
+                message = { role = "assistant", content = {}, stopReason = "aborted" },
+            }
+            local text, kind = Tree.entry_preview(e)
+            assert.are.equal("(aborted)", text)
+            assert.are.equal("status", kind)
+        end)
+
+        it("marks an errored turn with its message", function()
+            local e = {
+                type = "message",
+                id = "a",
+                message = {
+                    role = "assistant",
+                    content = {},
+                    stopReason = "error",
+                    errorMessage = "The operation timed out.",
+                },
+            }
+            local text, kind = Tree.entry_preview(e)
+            assert.are.equal("(error: The operation timed out.)", text)
+            assert.are.equal("status", kind)
+        end)
+
+        it("falls back to (empty) for a text-less turn with no tools or status", function()
+            local text, kind = Tree.entry_preview(msg("a", "assistant", {}))
+            assert.are.equal("(empty)", text)
+            assert.are.equal("empty", kind)
         end)
     end)
 
@@ -114,6 +176,8 @@ describe("pi.tree", function()
             assert.is_true(items[3].is_leaf)
             assert.are.equal("first", items[1].editor_text)
             assert.is_nil(items[2].editor_text)
+            -- text-bearing entries carry preview_kind = "text"
+            assert.are.equal("text", items[1].preview_kind)
         end)
 
         it("indents genuine branches but not their linear continuations", function()
@@ -138,6 +202,34 @@ describe("pi.tree", function()
             -- u1 is the root (0); its two children are a fork (1); u2 is the
             -- single-child continuation of a2, so it stays at 1, not 2.
             assert.are.same({ 0, 1, 1, 1 }, { items[1].depth, items[2].depth, items[3].depth, items[4].depth })
+        end)
+
+        it("flattens a tool-only entry with a non-empty tool summary", function()
+            local tree = {
+                {
+                    entry = msg("u1", "user", "do it"),
+                    children = {
+                        {
+                            entry = {
+                                type = "message",
+                                id = "a1",
+                                message = {
+                                    role = "assistant",
+                                    content = {
+                                        { type = "toolCall", name = "bash", arguments = { command = "ls" } },
+                                    },
+                                },
+                            },
+                            children = {},
+                        },
+                    },
+                },
+            }
+            local items = Tree.flatten(tree, "a1")
+            assert.are.equal(2, #items)
+            assert.are.equal("tools", items[2].preview_kind)
+            assert.are.not_equal("", items[2].text)
+            assert.is_nil(items[2].text:find("(no text)", 1, true))
         end)
 
         it("keeps branch labels and handles multiple roots", function()
@@ -189,9 +281,9 @@ describe("pi.tree", function()
             assert.are.equal("    ● [user] ⚑ branch hello", s)
         end)
 
-        it("renders a placeholder for empty text", function()
+        it("renders an (empty) placeholder when text is missing", function()
             local s = Tree.format_item({ id = "x", depth = 0, kind = "compaction", text = "", is_leaf = false })
-            assert.are.equal("  [compaction] (no text)", s)
+            assert.are.equal("  [compaction] (empty)", s)
         end)
     end)
 end)
