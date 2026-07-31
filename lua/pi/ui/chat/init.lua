@@ -879,6 +879,14 @@ function Chat:_send_message(queue_type)
         end
     end
 
+    -- A bare "/tree" opens the session-tree navigator locally instead of
+    -- being sent as a prompt (mirrors the TUI's built-in /tree command).
+    if text == "/tree" then
+        self._prompt:clear_text()
+        require("pi.tree").open()
+        return
+    end
+
     if text == "" and self._attachments:count() == 0 then
         return
     end

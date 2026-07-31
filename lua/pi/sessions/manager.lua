@@ -750,6 +750,49 @@ rebuild_after_compaction = function(session, _result, will_retry)
     end
 end
 
+--- Reload the current session's messages into the chat: clear -> get_messages
+--- -> replay. Used after in-place session-tree navigation (:PiTree), where the
+--- backend moved the leaf and the active branch's context changed.
+---@param session pi.Session
+function M.reload_messages(session)
+    vim.schedule(function()
+        session.changed_files = {}
+        session._pending_file_change_args = nil
+        session.chat:clear()
+        session.chat:show_loading()
+    end)
+
+    local sent = session.rpc:send({ type = "get_messages" }, function(res)
+        vim.schedule(function()
+            session.chat:clear_placeholder()
+            if not res.success then
+                local err = res.error or "Failed to load session messages"
+                Notify.error(err)
+                session.chat:on_error(err, { pad_top = true, pad_bottom = true })
+                session.chat:ensure_shown_and_focus_prompt()
+                return
+            end
+
+            local messages = (res.data or {}).messages or {}
+            -- Fetch commands, show startup block, then replay.
+            CommandsCache.fetch(session.rpc, function(commands)
+                show_startup_block(session, commands)
+                replay_messages(session, messages)
+                M.refresh_state(session)
+                session.chat:ensure_shown_and_focus_prompt()
+            end)
+        end)
+    end)
+    if not sent then
+        vim.schedule(function()
+            session.chat:clear()
+            Notify.error("Failed to load session messages")
+            session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
+            session.chat:ensure_shown_and_focus_prompt()
+        end)
+    end
+end
+
 --- Load a session by path: switch_session -> clear chat -> get_messages -> replay.
 ---@param session pi.Session
 ---@param session_path string

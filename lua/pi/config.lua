@@ -168,6 +168,9 @@
 ---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
 ---@field message? string Hint echoed on the first <Esc>, after the "π │ " prefix (default: "Press <Esc> again to abort")
 
+---@class pi.TreeConfig
+---@field enabled? boolean Enable :PiTree session-tree navigation (default: true). Injects the bundled pi extension (extensions/tree.ts) into every RPC process; requires a pi version whose extension API exposes ctx.navigateTree.
+
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
 ---@field cancel? pi.KeySpecs
@@ -234,6 +237,7 @@
 ---@field reload pi.ReloadConfig
 ---@field quickfix pi.QuickfixConfig
 ---@field abort pi.AbortConfig
+---@field tree pi.TreeConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
 ---@field render pi.RenderConfig
@@ -357,6 +361,9 @@ local defaults = {
         enabled = true,
         timeout = 1500,
         message = "Press <Esc> again to abort",
+    },
+    tree = {
+        enabled = true,
     },
     dialog = {
         border = "rounded",

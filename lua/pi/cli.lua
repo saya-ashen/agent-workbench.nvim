@@ -88,10 +88,37 @@ function M.args()
     return M.filter_args(cli.args)
 end
 
+--- Absolute path to the plugin root (the directory containing lua/).
+---@return string
+local function plugin_root()
+    local source = debug.getinfo(1, "S").source
+    if source:sub(1, 1) == "@" then
+        source = source:sub(2)
+    end
+    return vim.fn.fnamemodify(source, ":h:h:h")
+end
+
+--- Absolute path to the bundled pi extension backing :PiTree.
+---@return string
+function M.tree_extension_path()
+    return plugin_root() .. "/extensions/tree.ts"
+end
+
 ---@return string[]
 function M.command()
     local cmd = { M.bin() }
     vim.list_extend(cmd, M.args())
+    -- Inject the bundled extension that bridges session-tree navigation
+    -- (:PiTree) into RPC mode; explicit -e paths work even if the user
+    -- passed --no-extensions in cli.args.
+    local tree = Config.options.tree or {}
+    if tree.enabled ~= false then
+        local ext = M.tree_extension_path()
+        if vim.fn.filereadable(ext) == 1 then
+            cmd[#cmd + 1] = "--extension"
+            cmd[#cmd + 1] = ext
+        end
+    end
     cmd[#cmd + 1] = "--mode"
     cmd[#cmd + 1] = "rpc"
     return cmd

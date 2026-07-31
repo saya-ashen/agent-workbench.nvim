@@ -198,6 +198,12 @@ function M.new_session()
     require("pi.sessions.manager").new_session()
 end
 
+--- Navigate the session tree (:PiTree): pick a past conversation point and
+--- move the session leaf to it, optionally summarizing the abandoned branch.
+function M.tree()
+    require("pi.tree").open()
+end
+
 --- Toggle thinking block visibility.
 function M.toggle_thinking()
     local session = require("pi.sessions.manager").get()
