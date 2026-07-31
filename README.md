@@ -66,6 +66,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 - **Readline-style prompt history.** Recall previously submitted prompts with `<C-p>` / `<C-n>` (and `<Up>` / `<Down>` in insert mode), persisted to disk. Config: `prompt.history`.
 - **Unsent-draft persistence.** The prompt text survives restarts (debounced save, restored once per process). Config: `prompt.draft`.
 - **Auto-attach clipboard images on paste.** π wraps the global `vim.paste` handler, but only acts inside the π prompt — pasting there while the clipboard holds an image attaches it instead of inserting text. Everywhere else the wrapper is a pure pass-through, so paste in the rest of your editor is untouched. Config: `prompt.paste_image` (requires `img-clip.nvim`).
+- **Image compression for attachments.** Attached images can be downscaled/re-encoded before sending (longest side 1568px by default) to keep RPC payloads and image tokens small — a Retina screenshot otherwise ships as a multi-MB PNG. Uses macOS `sips`, ImageMagick `magick`, or `ffmpeg` (auto-probed); without a tool the original is attached silently. Config: `prompt.image_compress`.
 
 **Agent control**
 
@@ -483,6 +484,25 @@ require("pi").setup({
         -- image, attach it (like :PiPasteImage) instead of inserting text.
         -- Requires img-clip.nvim; plain-text pastes are never affected.
         paste_image = true,
+        -- Compress image attachments before sending (external tool required:
+        -- sips on macOS, ImageMagick magick, or ffmpeg; without one the
+        -- original image is attached silently).
+        image_compress = {
+            -- Master switch.
+            enable = true,
+            -- Longest side in pixels; larger images are downscaled. 0 = no resize.
+            max_dimension = 1568,
+            -- jpeg/webp quality 0-100 (PNG is lossless and ignores this).
+            quality = 80,
+            -- "keep" (input format), "jpeg", "png", or "webp" (webp degrades
+            -- to "keep" when only sips is available).
+            format = "keep",
+            -- "auto" (probe sips → magick → ffmpeg) or a tool name.
+            tool = "auto",
+            -- "all" = also compress dropped/attached files; "clipboard" = only
+            -- clipboard pastes. svg and gif are never touched.
+            scope = "all",
+        },
     },
 
     -- Markdown rendering of the chat history.
@@ -962,7 +982,7 @@ require("pi").setup({
 
 ### Attachments
 
-π supports image attachments. Anything you attach is queued in the dedicated **attachments panel** (`pi-chat-attachments`) below the prompt and sent along with your next message as base64-encoded image data.
+π supports image attachments. Anything you attach is queued in the dedicated **attachments panel** (`pi-chat-attachments`) below the prompt and sent along with your next message as base64-encoded image data. Each entry shows the image's byte size (e.g. `󰫮 shot.png (1.2 MB)`) — the size of the data that will actually be sent.
 
 Supported formats: `png`, `jpg`/`jpeg`, `gif`, `webp`, `svg`.
 
@@ -987,6 +1007,12 @@ This requires [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-c
 You normally don't need the command: with `prompt.paste_image = true` (the default), π wraps Neovim's global paste handler (`vim.paste`) and inspects anything pasted into the prompt. If the clipboard holds an image, it is attached automatically and the text paste is cancelled; any other paste is inserted as usual. This works for GUI paste (`nvim_paste`, e.g. `<D-v>`/`<C-v>` in Neovide). In a plain terminal the system paste shortcut is handled by the terminal itself and only delivers text, so an image-only clipboard may not trigger it — there, use `:PiPasteImage` (or map a key to `pi.paste_image()`) explicitly. Set `prompt.paste_image = false` to disable the interception entirely.
 
 **3. By drag-and-drop**, by dragging an image file into the π prompt buffer from your OS file manager. π intercepts the drop, recognizes it as a file path with a supported image extension, and adds it as an attachment instead of pasting the path as text. Plain-text pastes are not affected.
+
+#### Image compression
+
+With `prompt.image_compress.enable = true` (the default), attachable images (`png`/`jpeg`/`webp` — `svg` and `gif` are never touched) are compressed asynchronously before they are queued: downscaled to `max_dimension` on the longest side (default 1568px, matching common provider recommendations) and, optionally, re-encoded (`format`) at a given `quality`. The size shown in the attachments panel is the post-compression size — what will actually be sent. Compression never makes things worse: if the result would not be smaller than the input, the original is attached instead.
+
+The work is done by an external tool, probed in order `sips` (built into macOS) → `magick` (ImageMagick) → `ffmpeg`. With none of them available the original image is attached silently; a failed compression attaches the original with a warning. By default dropped/attached files are compressed too — set `scope = "clipboard"` to only compress clipboard pastes.
 
 Once attached, items appear in the attachments panel as `󰂾 filename.png`. To remove an entry, focus the attachments panel, put the cursor on the line you want to drop, and press `dd` or `x`. Both buffer-local mappings remove the item under the cursor.
 
@@ -2180,6 +2206,7 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | --- | --- |
 | `PiAttachmentIcon` | Icon prefix in the attachments buffer |
 | `PiAttachmentFilename` | Filename text in the attachments buffer |
+| `PiAttachmentSize` | File size suffix in the attachments buffer |
 
 ### Panels and layout
 

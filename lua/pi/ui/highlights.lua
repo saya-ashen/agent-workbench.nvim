@@ -107,6 +107,7 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiCommand", { default = true, fg = func.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiAttachmentFilename", { default = true, fg = normal.fg })
     vim.api.nvim_set_hl(0, "PiAttachmentIcon", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(0, "PiAttachmentSize", { default = true, link = "Comment" })
 
     vim.api.nvim_set_hl(0, "PiChatHistoryWinbar", { default = true, bg = normal.bg })
     vim.api.nvim_set_hl(0, "PiChatHistoryWinbarTitle", { default = true, fg = user.fg, bold = true })

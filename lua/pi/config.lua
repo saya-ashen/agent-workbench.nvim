@@ -52,6 +52,15 @@
 ---@field history pi.PromptHistoryConfig
 ---@field draft pi.PromptDraftConfig
 ---@field paste_image? boolean Intercept paste in the prompt: when the clipboard holds an image, attach it instead of inserting text (default: true, requires img-clip.nvim)
+---@field image_compress pi.ImageCompressConfig
+
+---@class pi.ImageCompressConfig
+---@field enable? boolean Compress image attachments before sending (default: true; silently falls back to the original when no tool is available)
+---@field max_dimension? integer Longest side in pixels; images larger than this are downscaled (default: 1568, 0 = no resize)
+---@field quality? integer jpeg/webp quality 0-100 (default: 80; PNG is lossless and ignores this)
+---@field format? "keep"|"jpeg"|"png"|"webp" Output format (default: "keep"; "webp" degrades to "keep" when only sips is available)
+---@field tool? "auto"|"sips"|"magick"|"ffmpeg" Compression tool (default: "auto", probes sips → magick → ffmpeg)
+---@field scope? "clipboard"|"all" Which attachments to compress: only clipboard pastes, or also dropped/attached files (default: "all")
 
 ---@class pi.PromptDraftConfig
 ---@field enabled? boolean Persist the unsent prompt and restore it once after a restart (default: true)
@@ -394,6 +403,14 @@ local defaults = {
             enabled = true,
         },
         paste_image = true,
+        image_compress = {
+            enable = true,
+            max_dimension = 1568,
+            quality = 80,
+            format = "keep",
+            tool = "auto",
+            scope = "all",
+        },
     },
     render = {
         engine = "builtin",
