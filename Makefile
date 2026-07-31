@@ -27,7 +27,13 @@ smoke:
 # NOTE: stylua's built-in default indent is Tabs; .stylua.toml pins the 4-space
 # convention used here, so always format through this target (or `stylua .` with
 # the config present), never a bare `stylua` invocation that ignores the config.
+#
+# Runs stylua twice: 2.5.2 is not single-pass idempotent on some constructs
+# (e.g. `require "x"` -> `require("x")` changes line width and triggers a
+# re-wrap), so a second pass is needed to reach the stable fixed point that
+# `make style` checks against.
 format:
+	$(STYLUA_BIN) .
 	$(STYLUA_BIN) .
 
 style:
