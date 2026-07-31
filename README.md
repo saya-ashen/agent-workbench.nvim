@@ -197,6 +197,7 @@ Optional but useful:
 - `nvim-treesitter` markdown parser for nicer chat history highlighting
 - [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:PiPasteImage`
 - `blink.cmp` if you want popup completion in the π prompt buffer
+- [`MeanderingProgrammer/render-markdown.nvim`](https://github.com/MeanderingProgrammer/render-markdown.nvim) for `render.engine = "render-markdown"`
 
 Run `:checkhealth pi` to verify.
 
