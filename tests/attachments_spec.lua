@@ -3,6 +3,8 @@
 
 local Config = require "pi.config"
 
+local Compress = require "pi.image_compress"
+
 --- Install a fake `img-clip.clipboard` module returning `b64` as the image.
 ---@param b64 string|nil nil => module absent
 local function stub_img_clip(b64)
@@ -41,14 +43,30 @@ describe("pi.ChatAttachments", function()
 
   local att
   local tmp_files
+  local orig_compress
+  local orig_executable
+  local orig_system
 
   before_each(function()
     att = Attachments.new()
     tmp_files = {}
+    -- Swap in a fresh image_compress copy with compression disabled so the
+    -- plain add/remove tests stay synchronous and host-tool independent;
+    -- restore the original table reference afterwards (no field leakage).
+    orig_compress = Config.options.prompt.image_compress
+    Config.options.prompt.image_compress =
+      vim.tbl_deep_extend("force", {}, orig_compress, { enable = false })
+    orig_executable = Compress._is_executable
+    orig_system = vim.system
+    Compress._reset()
   end)
 
   after_each(function()
     stub_img_clip(nil)
+    Config.options.prompt.image_compress = orig_compress
+    Compress._is_executable = orig_executable
+    vim.system = orig_system
+    Compress._reset()
     for _, path in ipairs(tmp_files) do
       os.remove(path)
     end
@@ -154,6 +172,104 @@ describe("pi.ChatAttachments", function()
       att:clear()
       assert.are_equal(0, att:count())
       assert.are_same({ "" }, buf_lines())
+    end)
+  end)
+
+  describe("compression integration", function()
+    --- Stub the compressor to "convert" any input into a fresh `out_bytes`
+    --- file at the output path (last argv element), reporting `code`.
+    local function stub_system(out_bytes, code)
+      vim.system = function(cmd, _opts, cb)
+        local out = cmd[#cmd]
+        local f = assert(io.open(out, "wb"))
+        f:write(string.rep("\1", out_bytes))
+        f:close()
+        cb({ code = code, stderr = code == 0 and "" or "boom" })
+      end
+    end
+
+    local function enable_compress(over)
+      Config.options.prompt.image_compress = vim.tbl_deep_extend("force", {
+        enable = true,
+        max_dimension = 1568,
+        quality = 80,
+        format = "jpeg",
+        tool = "auto",
+        scope = "all",
+      }, over or {})
+      Compress._is_executable = function(tool)
+        return tool == "sips"
+      end
+      Compress._reset()
+    end
+
+    local function wait_items(n)
+      assert.is_true(vim.wait(500, function()
+        return att:count() == n
+      end))
+    end
+
+    it("compresses clipboard images and renames by output format", function()
+      enable_compress()
+      stub_system(10, 0)
+      stub_img_clip(("QUJD"):rep(25)) -- 100 base64 chars → 75 bytes decoded
+      assert.is_true(att:add_from_clipboard())
+      wait_items(1)
+      local item = att._items[1]
+      assert.are_equal("cb-image-1.jpg", item.name)
+      assert.are_equal("image/jpeg", item.mime)
+      assert.are_equal(10, item.size)
+      assert.are_equal("(10 B)", buf_lines()[1]:match("%b()$"))
+    end)
+
+    it("falls back to the original on compression failure", function()
+      enable_compress()
+      stub_system(0, 1)
+      stub_img_clip "YWJj" -- "abc"
+      assert.is_true(att:add_from_clipboard())
+      wait_items(1)
+      local item = att._items[1]
+      assert.are_equal("cb-image-1.png", item.name)
+      assert.are_equal("image/png", item.mime)
+      assert.are_equal(3, item.size)
+    end)
+
+    it("compresses attached files when scope = all", function()
+      enable_compress()
+      stub_system(10, 0)
+      local path = make_image_file(100)
+      tmp_files[#tmp_files + 1] = path
+      assert.is_true(att:add_file(path))
+      wait_items(1)
+      local item = att._items[1]
+      assert.are_equal((vim.fn.fnamemodify(path, ":t:r")) .. ".jpg", item.name)
+      assert.are_equal("image/jpeg", item.mime)
+      assert.are_equal(10, item.size)
+    end)
+
+    it("attaches files synchronously when scope = clipboard", function()
+      enable_compress { scope = "clipboard" }
+      stub_system(10, 0)
+      local path = make_image_file(100)
+      tmp_files[#tmp_files + 1] = path
+      assert.is_true(att:add_file(path))
+      assert.are_equal(1, att:count()) -- synchronous, no wait
+      assert.are_equal(100, att._items[1].size)
+    end)
+
+    it("never touches svg even when compression is enabled", function()
+      enable_compress()
+      vim.system = function()
+        error "vim.system must not run for svg"
+      end
+      local path = vim.fn.tempname() .. ".svg"
+      tmp_files[#tmp_files + 1] = path
+      local f = assert(io.open(path, "wb"))
+      f:write(string.rep("x", 42))
+      f:close()
+      assert.is_true(att:add_file(path))
+      assert.are_equal(1, att:count())
+      assert.are_equal(42, att._items[1].size)
     end)
   end)
 end)

@@ -16,6 +16,7 @@ Attachments.__index = Attachments
 local Ft = require("pi.filetypes")
 local Config = require("pi.config")
 local Notify = require("pi.notify")
+local Compress = require("pi.image_compress")
 
 local ns = vim.api.nvim_create_namespace("pi-attachments")
 
@@ -68,6 +69,32 @@ local function read_and_encode(path)
     local data = file:read("*a")
     file:close()
     return vim.base64.encode(data)
+end
+
+--- Write raw bytes to a file.
+---@param path string
+---@param data string raw bytes
+---@return boolean ok
+local function write_bytes(path, data)
+    local file = io.open(path, "wb")
+    if not file then
+        return false
+    end
+    file:write(data)
+    file:close()
+    return true
+end
+
+--- Replace the extension of `name` with the one matching `mime`.
+---@param name string
+---@param mime string
+---@return string
+local function name_with_mime_ext(name, mime)
+    local ext = ({ ["image/jpeg"] = ".jpg", ["image/png"] = ".png", ["image/webp"] = ".webp" })[mime]
+    if not ext then
+        return name
+    end
+    return (name:gsub("%.%w+$", "")) .. ext
 end
 
 ---@return pi.ChatAttachments
@@ -149,6 +176,47 @@ function Attachments:_rerender()
     self._rerendering = false
 end
 
+---@param name string
+---@param data string base64
+---@param mime string
+---@param size integer decoded byte size
+function Attachments:_add_item(name, data, mime, size)
+    self._items[#self._items + 1] = { name = name, data = data, mime = mime, size = size }
+    self:_rerender()
+end
+
+--- Attach the image file at `path`, running it through the compression
+--- pipeline when enabled. The item is inserted asynchronously once the
+--- (skipped or finished) compression resolves; on any failure the original
+--- file is attached.
+---@param path string must exist and be a regular file
+---@param mime string
+function Attachments:_add_file_maybe_compressed(path, mime)
+    local cfg = Config.options.prompt.image_compress
+    Compress.compress_async(path, mime, cfg, function(out_path, out_mime, err)
+        local final_path, final_mime = path, mime
+        if out_path then
+            final_path, final_mime = out_path, out_mime
+        elseif err then
+            Notify.warn("Image compression failed, attaching the original: " .. err)
+        end
+        local data = read_and_encode(final_path)
+        local stat = vim.uv.fs_stat(final_path)
+        if out_path then
+            vim.uv.fs_unlink(out_path)
+        end
+        if not data or not stat then
+            Notify.error("Could not read file: " .. path)
+            return
+        end
+        local name = vim.fn.fnamemodify(path, ":t")
+        if final_mime ~= mime then
+            name = name_with_mime_ext(name, final_mime)
+        end
+        self:_add_item(name, data, final_mime, stat.size)
+    end)
+end
+
 ---@param path string
 ---@return boolean
 function Attachments:add_file(path)
@@ -158,9 +226,15 @@ function Attachments:add_file(path)
         return false
     end
     local stat = vim.uv.fs_stat(path)
-    if not stat then
+    if not stat or stat.type ~= "file" then
         Notify.error("Could not read file: " .. path)
         return false
+    end
+    local cfg = Config.options.prompt.image_compress
+    if cfg.enable and cfg.scope == "all" and Compress.supported(mime) then
+        -- Inserted asynchronously once compression resolves (or is skipped).
+        self:_add_file_maybe_compressed(path, mime)
+        return true
     end
     local data = read_and_encode(path)
     if not data then
@@ -168,8 +242,7 @@ function Attachments:add_file(path)
         return false
     end
     local name = vim.fn.fnamemodify(path, ":t")
-    self._items[#self._items + 1] = { name = name, data = data, mime = mime, size = stat.size }
-    self:_rerender()
+    self:_add_item(name, data, mime, stat.size)
     return true
 end
 
@@ -201,8 +274,33 @@ function Attachments:add_from_clipboard()
 
     self._clipboard_counter = self._clipboard_counter + 1
     local name = "cb-image-" .. self._clipboard_counter .. ".png"
-    self._items[#self._items + 1] = { name = name, data = data, mime = "image/png", size = base64_size(data) }
-    self:_rerender()
+
+    local cfg = Config.options.prompt.image_compress
+    if cfg.enable then
+        -- The clipboard image is always PNG; external tools need a real file.
+        local tmp = vim.fn.tempname() .. ".png"
+        if write_bytes(tmp, vim.base64.decode(data)) then
+            Compress.compress_async(tmp, "image/png", cfg, function(out_path, out_mime, err)
+                vim.uv.fs_unlink(tmp)
+                if out_path then
+                    local out_stat = vim.uv.fs_stat(out_path)
+                    local out_data = read_and_encode(out_path)
+                    vim.uv.fs_unlink(out_path)
+                    if out_data and out_stat then
+                        self:_add_item(name_with_mime_ext(name, out_mime), out_data, out_mime, out_stat.size)
+                        return
+                    end
+                elseif err then
+                    Notify.warn("Image compression failed, attaching the original: " .. err)
+                end
+                self:_add_item(name, data, "image/png", base64_size(data))
+            end)
+            return true
+        end
+        vim.uv.fs_unlink(tmp)
+    end
+
+    self:_add_item(name, data, "image/png", base64_size(data))
     return true
 end
 
