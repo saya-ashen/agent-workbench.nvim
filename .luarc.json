@@ -1,0 +1,23 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime": {
+        "version": "LuaJIT"
+    },
+    "workspace": {
+        "checkThirdParty": false,
+        "ignoreSubmodules": true,
+        "ignoreDir": [".git", ".github", ".gitea"],
+        "library": ["${3rd}/luv/library"]
+    },
+    "diagnostics": {
+        "globals": ["vim"],
+        "disable": [
+            "duplicate-set-field",
+            "inject-field",
+            "undefined-doc-name"
+        ]
+    },
+    "telemetry": {
+        "enable": false
+    }
+}

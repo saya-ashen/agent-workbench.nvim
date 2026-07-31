@@ -1,0 +1,50 @@
+# Formatting + static-analysis gate.
+#
+# Lives under .github/workflows/ so it runs on GitHub Actions and is also picked
+# up by Gitea Actions (which reads .github/workflows/ by default) on the
+# canonical Gitea mirror. Tools are installed by direct binary download so the
+# workflow is self-contained (no third-party actions, no Neovim required).
+#
+# Mirrors `make style` and `make lint`; both must pass to merge.
+
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  style:
+    name: stylua (make style)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stylua
+        run: |
+          set -euo pipefail
+          version=2.5.2
+          curl -fsSL -o /tmp/stylua.zip \
+            "https://github.com/JohnnyMorganz/StyLua/releases/download/v${version}/stylua-linux-x86_64.zip"
+          unzip -o /tmp/stylua.zip -d /tmp/stylua-bin
+          install -m 0755 /tmp/stylua-bin/stylua /usr/local/bin/stylua
+          stylua --version
+      - name: Check formatting
+        run: make style
+
+  lint:
+    name: lua-language-server (make lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install lua-language-server
+        run: |
+          set -euo pipefail
+          version=3.18.2
+          curl -fsSL -o /tmp/lls.tar.gz \
+            "https://github.com/LuaLS/lua-language-server/releases/download/${version}/lua-language-server-${version}-linux-x64.tar.gz"
+          mkdir -p /opt/lls
+          tar -xzf /tmp/lls.tar.gz -C /opt/lls
+          echo "/opt/lls/bin" >> "$GITHUB_PATH"
+      - name: Lint
+        run: make lint
