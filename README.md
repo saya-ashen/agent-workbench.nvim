@@ -108,6 +108,12 @@ https://github.com/user-attachments/assets/55080963-3066-44c2-9017-a81828033ef7
     <sub> Workflow demo </sub>
 </p>
 
+![pi2.nvim demo](assets/demo.gif)
+
+<p align="center">
+    <sub> pi2.nvim in action — agent reads, edits, and verifies a file with live streaming and <code>:PiTree</code> session navigation </sub>
+</p>
+
 <details>
 <summary>Chat with an agent in a side panel or a floating window</summary>
 
