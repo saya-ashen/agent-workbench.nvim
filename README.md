@@ -2170,7 +2170,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiMessageAttachments` | Attachment summary under a message |
 | `PiPendingQueueLabel` | Label/icon for pending queued messages (history preview rows and statusline `queue` count) |
 | `PiPendingQueueText` | Text of pending queued messages |
-| `PiThinking` | Thinking block body |
+| `PiThinking` | Thinking block header label (and expanded body) |
+| `PiThinkingPreview` | Thinking content preview on the collapsed single-line header (subdued, italic) |
 | `PiMention` | Highlighted `@mention` in the prompt and history |
 | `PiCommand` | Highlighted `/command` on the first line of the prompt |
 | `PiWelcome` | Welcome text on an empty chat |
@@ -2188,10 +2189,11 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | Group | Role |
 | --- | --- |
 | `PiToolBorder` | Tool block indent / fold glyphs |
+| `PiToolBody` | Shared background painting a tool / bash block as one continuous container (header → footer) |
 | `PiToolRunning` | Spinner on a running tool's header row |
 | `PiToolHeader` | Tool block header row (tool name) |
-| `PiToolCall` | Tool input / call summary |
-| `PiToolOutput` | Tool output body |
+| `PiToolCall` | Tool input / call summary (main body level, normal text color) |
+| `PiToolOutput` | Tool output body (receded, italic) |
 | `PiToolStatus` | Tool status line (completed / rejected / aborted) |
 | `PiToolCollapsed` | `+N lines` / `…N lines` markers on collapsed blocks |
 | `PiToolError` | Tool error output |
@@ -2200,6 +2202,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiDiffAdd` | Added lines inside inline tool diffs (links to `DiffAdd`) |
 | `PiDiffDelete` | Removed lines inside inline tool diffs (links to `DiffDelete`) |
 | `PiDiffLineNr` | Line numbers inside inline tool diffs |
+| `PiDiffAddSign` | The `+` sign on added diff lines (semantic color from `DiffAdd`) |
+| `PiDiffDeleteSign` | The `-` sign on removed diff lines (semantic color from `DiffDelete`) |
 
 ### Attachments
 

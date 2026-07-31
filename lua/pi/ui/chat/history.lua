@@ -239,6 +239,7 @@ local function reanchor_end_extmark(history, block, footer_row)
         id = block.end_extmark,
         end_col = #line,
         hl_group = block.end_hl_group,
+        line_hl_group = "PiToolBody",
     })
 end
 
@@ -1143,7 +1144,7 @@ function History:_set_thinking_preview(row, text, virt_id)
     end
     local line = vim.api.nvim_buf_get_lines(self._buf, row, row + 1, false)[1] or ""
     local opts = {
-        virt_text = { { "  " .. text, "PiThinking" } },
+        virt_text = { { "  " .. text, "PiThinkingPreview" } },
         virt_text_pos = "eol",
     }
     if virt_id then
@@ -1529,9 +1530,22 @@ function History:on_agent_start(timestamp)
         local time_sep = " "
         local label_line = icon .. time_sep .. time_str
         local turn_gap = (had_content and Config.options.turn_separator) and "" or nil
+        -- If the buffer already ends with a blank line (e.g. a thinking block's
+        -- trailing margin, or a tool block's footer), skip one leading blank so
+        -- we don't double up (#48).  tool_start / bash_start do the same check.
+        local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
+        local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
+        local ends_blank = last_text == ""
         -- Two trailing blanks: one becomes the breathing line, one is consumed by _append_text
-        local start = self:_append_lines(turn_gap and { "", "", label_line, "", "" } or { "", label_line, "", "" })
-        local label_row = start + (turn_gap and 2 or 1)
+        local lines
+        if turn_gap then
+            lines = ends_blank and { "", label_line, "", "" } or { "", "", label_line, "", "" }
+        else
+            lines = ends_blank and { label_line, "", "" } or { "", label_line, "", "" }
+        end
+        local start = self:_append_lines(lines)
+        local label_offset = turn_gap and (ends_blank and 1 or 2) or (ends_blank and 0 or 1)
+        local label_row = start + label_offset
         local response_extmark_id = vim.api.nvim_buf_set_extmark(self._buf, ns, label_row, 0, {})
         if not self._current_turn_first_agent_response_extmark_id then
             self._current_turn_first_agent_response_extmark_id = response_extmark_id
@@ -2339,6 +2353,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         local lines = cur == "" and { header } or { "", header }
         local start = self:_append_lines(lines)
         local header_row = lines[1] == "" and start + 1 or start
+        Tools.set_line_bg(self, header_row)
 
         local icon_start = #fold
         -- Fold indicator highlight
@@ -2518,6 +2533,7 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         local footer_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, start, 0, {
             end_col = #footer,
             hl_group = footer_hl,
+            line_hl_group = "PiToolBody",
         })
 
         if block then
@@ -3084,13 +3100,16 @@ function History:on_bash_start(id, command, exclude_from_context)
         local lines = cur == "" and { header } or { "", header }
         local start = self:_append_lines(lines)
         local header_row = lines[1] == "" and start + 1 or start
+        Tools.set_line_bg(self, header_row)
 
         vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {
             end_col = #fold,
             hl_group = "PiToolBorder",
         })
-        -- Excluded-from-context commands (!!) render dim, like the TUI's dim border.
-        local header_hl = exclude_from_context and "PiToolCall" or "PiBashHeader"
+        -- Excluded-from-context commands (!!) render dim, like the TUI's dim
+        -- border. PiToolCall is the main body level now (normal text color), so
+        -- the dim header borrows the border group instead to stay receded.
+        local header_hl = exclude_from_context and "PiToolBorder" or "PiBashHeader"
         vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #fold, {
             end_col = #header,
             hl_group = header_hl,
@@ -3126,7 +3145,13 @@ function History:on_bash_start(id, command, exclude_from_context)
             header_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {}),
             inner_offset = #cmd_lines,
             spinner_extmark = spinner_virt,
-            end_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, footer_row, 0, { right_gravity = true }),
+            end_extmark = vim.api.nvim_buf_set_extmark(
+                self._buf,
+                ns,
+                footer_row,
+                0,
+                { right_gravity = true, line_hl_group = "PiToolBody" }
+            ),
             partial = "",
             partial_rendered = false,
             rendered_lines = 0,
@@ -3412,16 +3437,18 @@ function History:on_thinking_start()
             local header_text = label .. " Thinking…"
             local pos = vim.api.nvim_buf_get_extmark_by_id(self._buf, ns, anchor, {})
             local row = pos[1]
-            -- Trailing margin lines after the header: two blank lines, so
-            -- that when the next text delta reuses the final breathing blank
-            -- (_append_text writes into the buffer's last line), exactly one
-            -- blank line of separation remains between the header and the
-            -- following content. When the buffer already ended in a breathing
-            -- blank, that blank becomes the second margin line (insert one);
-            -- after an inline tool (buffer ends with real content) we insert
-            -- both. The spinner no longer renders below the buffer, so no
-            -- additional margin is needed beyond this convention.
-            local margin = last_text == "" and 1 or 2
+            -- Trailing margin: leave exactly one blank line after the header
+            -- and set the breathing-line flag, mirroring how a tool block ends
+            -- (blank footer + _needs_breathing_line). The next text delta then
+            -- prepends a newline (_render_text_deltas) so exactly one blank of
+            -- separation remains, while a following tool/bash block sees the
+            -- blank last line and adds none of its own. Previously the block
+            -- left two blanks and relied on the next text delta reusing one; a
+            -- following tool block reused none, leaving a two-line gap (#48).
+            -- When the buffer already ended in a breathing blank, that blank is
+            -- the one trailing line (insert none); after real content (e.g. an
+            -- inline tool) we insert it.
+            local margin = last_text == "" and 0 or 1
             local block = { "", header_text }
             for _ = 1, margin do
                 block[#block + 1] = ""
@@ -3430,6 +3457,7 @@ function History:on_thinking_start()
                 vim.api.nvim_buf_set_lines(self._buf, row, row, false, block)
             end)
             self:_apply_thinking_hl(row + 1, 1)
+            self._needs_breathing_line = true
             self._thinking_accum.buf_lines = 2
             self._thinking_accum.header_text = header_text
         end

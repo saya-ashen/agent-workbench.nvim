@@ -148,6 +148,19 @@ function M.set_border(history, row, glyph)
     })
 end
 
+--- Paint a line with the tool-container background (no indent glyph).
+---
+--- Body lines get their background from set_border(); the header and footer
+--- lines carry no indent glyph but must share the same background so a block
+--- reads as one continuous container from header top to footer bottom.
+---@param history pi.ChatHistory
+---@param row integer 0-indexed
+function M.set_line_bg(history, row)
+    vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), row, 0, {
+        line_hl_group = "PiToolBody",
+    })
+end
+
 ---@param history pi.ChatHistory
 ---@param text string
 ---@param hl_group? string
@@ -370,7 +383,7 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
     end
 
     -- Parse unified diff: collect content lines with line numbers, highlight type, and source mapping
-    ---@type { text: string, hl: string?, src_kind: "old"|"new", src_line: integer, prefix_len: integer }[]
+    ---@type { text: string, hl: string?, sign: ("+"|"-")?, src_kind: "old"|"new", src_line: integer, prefix_len: integer }[]
     local rendered = {}
     local old_ln, new_ln
     local old_idx, new_idx -- 0-based indices into old_text/new_text
@@ -387,6 +400,7 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
             rendered[#rendered + 1] = {
                 text = prefix .. line:sub(2),
                 hl = "PiDiffDelete",
+                sign = "-",
                 src_kind = "old",
                 src_line = old_idx,
                 prefix_len = #prefix,
@@ -398,6 +412,7 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
             rendered[#rendered + 1] = {
                 text = prefix .. line:sub(2),
                 hl = "PiDiffAdd",
+                sign = "+",
                 src_kind = "new",
                 src_line = new_idx,
                 prefix_len = #prefix,
@@ -463,6 +478,18 @@ local function render_diff(history, old_text, new_text, line_offset, path, inser
             hl_group = "PiDiffLineNr",
             priority = 300,
         })
+        -- The +/- sign itself carries the diff semantic color so additions and
+        -- deletions can be located by hue at a glance. The sign is always the
+        -- char two before the prefix end (format "%4d X "), independent of the
+        -- line-number width.
+        if r.sign then
+            local sign_col = r.prefix_len - 2
+            vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), row, sign_col, {
+                end_col = sign_col + 1,
+                hl_group = r.sign == "+" and "PiDiffAddSign" or "PiDiffDeleteSign",
+                priority = 310,
+            })
+        end
     end
 
     -- Apply treesitter syntax highlights

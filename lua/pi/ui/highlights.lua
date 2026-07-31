@@ -38,9 +38,24 @@ local function set_defaults()
     local warning = vim.api.nvim_get_hl(0, { name = "WarningMsg", link = false })
     local diagnostic_error = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
     local cursorline = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
+    local diff_add = vim.api.nvim_get_hl(0, { name = "DiffAdd", link = false })
+    local diff_delete = vim.api.nvim_get_hl(0, { name = "DiffDelete", link = false })
+    local diff_added = vim.api.nvim_get_hl(0, { name = "diffAdded", link = false })
+    local diff_removed = vim.api.nvim_get_hl(0, { name = "diffRemoved", link = false })
+    local gitsigns_add = vim.api.nvim_get_hl(0, { name = "GitSignsAdd", link = false })
+    local gitsigns_delete = vim.api.nvim_get_hl(0, { name = "GitSignsDelete", link = false })
 
     local user = title
     local agent = func
+
+    -- Themes store the "added/removed" hue in different places: default vim
+    -- paints it as the DiffAdd/DiffDelete background, tokyonight exposes it on
+    -- diffAdded/GitSignsAdd. Prefer an explicit foreground, then the gitsigns
+    -- semantic hue, then the diff background as a last resort, so a diff +/-
+    -- sign always reads in the diff's semantic color regardless of theme.
+    local function diff_sign_fg(diff, named, gitsign)
+        return diff.fg or named.fg or gitsign.fg or diff.bg or comment.fg
+    end
 
     if user.fg then
         vim.api.nvim_set_hl(0, "PiUserMessageLabel", { default = true, fg = user.fg, bold = true })
@@ -74,6 +89,7 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiSystemErrorIcon", { default = true, fg = diagnostic_error.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiToolInlineDone", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiThinking", { default = true, fg = special.fg, italic = true })
+    vim.api.nvim_set_hl(0, "PiThinkingPreview", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolBorder", { default = true, fg = comment.fg })
     -- Subtle background for tool body lines (only when terminal has opaque bg)
     local tool_bg = cursorline.bg
@@ -83,7 +99,9 @@ local function set_defaults()
         vim.api.nvim_set_hl(0, "PiToolBody", { default = true })
     end
     vim.api.nvim_set_hl(0, "PiToolHeader", { default = true, fg = func.fg, bold = true })
-    vim.api.nvim_set_hl(0, "PiToolCall", { default = true, fg = comment.fg })
+    -- Tool input is the agent's "action" — the main body level, so it reads in
+    -- normal text color; output/summary/metadata stay Comment to recede.
+    vim.api.nvim_set_hl(0, "PiToolCall", { default = true, fg = normal.fg })
     vim.api.nvim_set_hl(0, "PiToolOutput", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolStatus", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiToolCollapsed", { default = true, fg = comment.fg, italic = true })
@@ -95,6 +113,16 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiDiffAdd", { default = true, link = "DiffAdd" })
     vim.api.nvim_set_hl(0, "PiDiffDelete", { default = true, link = "DiffDelete" })
     vim.api.nvim_set_hl(0, "PiDiffLineNr", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(
+        0,
+        "PiDiffAddSign",
+        { default = true, fg = diff_sign_fg(diff_add, diff_added, gitsigns_add), bold = true }
+    )
+    vim.api.nvim_set_hl(
+        0,
+        "PiDiffDeleteSign",
+        { default = true, fg = diff_sign_fg(diff_delete, diff_removed, gitsigns_delete), bold = true }
+    )
     vim.api.nvim_set_hl(0, "PiDebug", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiError", { default = true, fg = diagnostic_error.fg })
     vim.api.nvim_set_hl(0, "PiWelcome", { default = true, fg = agent.fg })
