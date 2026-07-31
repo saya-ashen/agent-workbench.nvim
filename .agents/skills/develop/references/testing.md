@@ -79,15 +79,15 @@ Same topology, same RPC ground truth, same isolation recipe (G17) and verificati
 
 | purpose | Linux (X11) | macOS |
 |---|---|---|
-| send keys | `xdotool key --window` | AppleScript System Events `key code`/`keystroke` — **frontmost app only**, `ensure_focus` before every send (G28) |
-| window discovery | `wmctrl -l` | `pgrep -f "wezterm-gui.*$SOCK"` for the pid (G29); CGWindowID via JXA `CGWindowListCopyWindowInfo` by owner pid |
-| screenshot | `maim -i WID` | `screencapture -x -o -l <CGWindowID>` — renders occluded/unfocused windows; needs **Screen Recording** (G27) |
-| workspace isolation | `i3-msg workspace` | **not needed** — per-window capture doesn't care about occlusion; window is sized via `wezterm --config initial_cols/rows` |
-| launch / cleanup / RPC | identical (`wezterm start --always-new-process`, pgrep-by-socket kill, `nvim --server`) | |
+| send keys | `xdotool key --window` | `wezterm cli send-text --pane-id <N> --no-paste` over the instance's own mux socket (`WEZTERM_UNIX_SOCKET=~/.local/share/wezterm/gui-sock-<pid>`) — injects the byte stream a keypress produces; focus-independent, no Accessibility (G28). `type_text` focuses the prompt + `startinsert` via RPC first (byte injection fires no OS focus events) |
+| window discovery | `wmctrl -l` | `pgrep -f "wezterm-gui.*$SOCK"` for the pid (G29); CGWindowID via an embedded Swift helper calling `CGWindowListCopyWindowInfo` by owner pid over ALL windows, largest area wins (G27) |
+| screenshot | `maim -i WID` | `screencapture -x -o -l <CGWindowID>`; needs **Screen Recording** (G27) — and the window on the ACTIVE Space, which no background CLI can arrange, so the test instance **self-fullscreens at launch** (G30) |
+| workspace isolation | `i3-msg workspace` | the generated `--config-file` fullscreens the test window onto its own Space (`gui-startup` + delayed `toggle_fullscreen`); cleanup kills the GUI and the Space vanishes |
+| launch / cleanup / RPC | `wezterm start --always-new-process`, pgrep-by-socket kill, `nvim --server` — identical | |
 
-**Permissions checklist (the macOS-specific part, G27/G28).** Both are granted to the *host terminal app* (the app owning your shell) and take effect only after that app **restarts**:
-- **Accessibility** — required for `send`/`type_text`/focus. Probe: `osascript -e 'tell application "System Events" to count processes'` (errors `-1719` when denied).
+**Permissions checklist (the macOS-specific part, G27).** Granted to the *host terminal app* (the app owning your shell) and takes effect only after that app **restarts**:
 - **Screen Recording** — required for `shot` *and* for the CGWindowID lookup. Probe: `screencapture -x -R0,0,50,50 /tmp/probe.png` (errors when denied; the window list silently hides other apps' windows when denied).
+- Accessibility is **not** needed: input goes through the mux socket, not System Events (G28).
 
 Degradation is deliberate and loud: without Screen Recording everything except `shot` still works — launch prints the remedy, `shot` SKIP/FAILs, and a tiny-file check rejects blank PNGs. Screenshots are also 2x pixels on Retina displays.
 

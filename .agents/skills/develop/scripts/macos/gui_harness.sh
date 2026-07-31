@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 # GUI automation harness for pi.nvim, macOS variant. `source` it from your run
-# script. Drives a real WezTerm+nvim window (started by gui_launch.sh) with the
-# user's actual keybindings via AppleScript System Events, queries state over
-# the nvim RPC socket as ground truth, and screenshots with screencapture.
+# script. Drives a real WezTerm+nvim window (started by gui_launch.sh) by
+# injecting input as TERMINAL BYTES via `wezterm cli send-text`, queries state
+# over the nvim RPC socket as ground truth, and screenshots with screencapture.
 #
 # The RPC side (q/qlua/runlua/find_buf/check/wait_for/normal/...) is identical
 # to the Linux harness — only input (send/type_text) and output (shot) differ:
 #
-#   * send/type_text use System Events `key code`/`keystroke`, which reach ONLY
-#     the frontmost app (there is no per-window key targeting like
-#     `xdotool --window`). `ensure_focus` re-activates the test wezterm-gui by
-#     its recorded pid before every send (G28).
+#   * send/type_text write the same byte stream a real keypress would produce
+#     (Esc=\x1b, Up=\x1b[A, ctrl+g=\x07) straight into the test pane's pty via
+#     the instance's own mux socket (WEZTERM_UNIX_SOCKET=gui-sock-<pid>). For
+#     nvim — which consumes bytes, not OS key events — this exercises the same
+#     real keybindings, but is IMMUNE to macOS focus problems (fullscreen-Space
+#     bounce, G28) and needs NO Accessibility permission. What it deliberately
+#     does NOT cover is WezTerm's key→byte translation, which is not our code.
+#     --no-paste is mandatory: nvim enables bracketed paste, and a paste-wrapped
+#     leader sequence would insert as text instead of firing mappings.
 #   * shot uses `screencapture -x -o -l <CGWindowID>`: renders the window even
-#     occluded/unfocused, but REQUIRES the Screen Recording permission for the
-#     terminal running the script. Denied => launch found no CGWindowID and
-#     shot SKIPs with a loud message instead of silently passing (G27).
+#     occluded/unfocused/on another Space, but REQUIRES the Screen Recording
+#     permission for the terminal running the script. Denied => launch found
+#     no CGWindowID and shot SKIPs with a loud message instead of silently
+#     passing (G27).
 #
 # All paths derive from $RUN so one variable wires everything:
 #   RUN=/tmp/my_run bash run.sh
-# Defaults to /tmp/pi_dev_test. Override SOCK / WTPID / WIN / SHOTDIR as needed.
+# Override WIN/PANE/WSOCK/SOCK/SHOTDIR via environment when not using the
+# standard gui_launch.sh state files.
 #
 # WHY each helper looks the way it does (see references/gotchas.md / testing.md):
 #   * Lua is executed by writing it to a file and :luafile-ing it over RPC
@@ -26,18 +33,26 @@
 #     one-liner convenience (single-quote the expr).
 #   * `normal` sends Esc until mode is normal/visual: the prompt auto-enters
 #     insert mode, so any leader/normal key needs this first (G12).
+#   * `type_text` first focuses the prompt and enters insert via RPC: byte
+#     injection produces no OS focus events, so the layout's focus autocmds
+#     never fire and the prompt would stay in normal mode.
 #   * This file's own cmdline is clean (no test feature string), so sourcing it
 #     is safe; keep cleanup/observation in files too (G16).
 
+# WTPID / WIN / PANE / WSOCK are read LAZILY at use time (with an exported
+# override winning), never cached at source time: a run script that sources
+# this harness BEFORE gui_launch.sh must still see the files launch creates.
 RUN=${RUN:-/tmp/pi_dev_test}
 SOCK=${SOCK:-$RUN.sock}
-WTPID=${WTPID:-$(cat "$RUN.WTPID" 2>/dev/null)}
-WIN=${WIN:-$(cat "$RUN.WIN" 2>/dev/null)}
 SHOTDIR=${SHOTDIR:-$RUN/shots}
 CMD=${RUN}.cmd.lua
 OUT=${RUN}.out
 mkdir -p "$SHOTDIR"
 PASS=0; FAIL=0
+
+# _state VARNAME BASENAME: exported VARNAME if non-empty, else the launch file.
+# `${!1:-}`: indirect expansion with a default, safe under the caller's `set -u`.
+_state() { local v="${!1:-}"; [ -n "$v" ] && printf '%s' "$v" || cat "$RUN.$2" 2>/dev/null; }
 
 _exec() { nvim --server "$SOCK" --remote-expr 'execute("luafile '"$CMD"'")' >/dev/null 2>&1; }
 
@@ -71,82 +86,78 @@ LUA
   _exec; cat "$OUT" 2>/dev/null
 }
 
-# --- macOS input -----------------------------------------------------------
+# --- macOS input: terminal bytes via wezterm cli ---------------------------
 
-# Keystrokes only reach the frontmost app (G28). Re-activate the test
-# wezterm-gui (by pid — never by name, all wezterm instances share one bundle
-# id) if the user's focus wandered mid-run.
-ensure_focus() {
-  [ -z "$WTPID" ] && return 0
-  osascript >/dev/null 2>&1 <<AS
-tell application "System Events"
-  set fp to unix id of first process whose frontmost is true
-  if fp is not $WTPID then set frontmost of (first process whose unix id is $WTPID) to true
-end tell
-AS
+_send_bytes() {
+  local wsock pane
+  wsock=$(_state WSOCK WSOCK); pane=$(_state PANE PANE)
+  WEZTERM_UNIX_SOCKET=$wsock wezterm cli send-text --pane-id "$pane" --no-paste -- "$1"
 }
 
-# One key. Accepts: named keys (Escape/Return/Tab/Space/BSpace/Delete/Up/Down/
-# Left/Right), punctuation aliases (comma/period/slash), a single character, or
-# `mod+key` with ctrl/shift/alt/cmd (e.g. "ctrl+g", "ctrl+shift+Left").
-_send_one() {
-  local k="$1" spec
+# The byte stream a real keypress produces. Accepts: named keys (Escape/
+# Return/Tab/Space/BSpace/Delete/Up/Down/Left/Right), punctuation aliases
+# (comma/period/slash), a single character, or `ctrl+<letter>` / `ctrl+<arrow>`.
+_key_bytes() {
+  local k="$1"
   case "$k" in
-    Escape|Esc) spec='key code 53' ;;
-    Return|Enter) spec='key code 36' ;;
-    Tab) spec='key code 48' ;;
-    Space|space) spec='key code 49' ;;
-    BSpace|Backspace) spec='key code 51' ;;
-    Delete) spec='key code 117' ;;
-    Up) spec='key code 126' ;; Down) spec='key code 125' ;;
-    Left) spec='key code 123' ;; Right) spec='key code 124' ;;
-    comma) spec='keystroke ","' ;;
-    period) spec='keystroke "."' ;;
-    slash) spec='keystroke "/"' ;;
-    *+*)
-      local mods="" char="${k##*+}" m IFS='+'
-      for m in ${k%+*}; do
-        case "$m" in
-          ctrl|control) mods="$mods, control down" ;;
-          shift) mods="$mods, shift down" ;;
-          alt|option) mods="$mods, option down" ;;
-          cmd|command) mods="$mods, command down" ;;
+    Escape|Esc) printf '\033' ;;
+    Return|Enter) printf '\r' ;;
+    Tab) printf '\t' ;;
+    Space|space) printf ' ' ;;
+    BSpace|Backspace) printf '\177' ;;
+    Delete) printf '\033[3~' ;;
+    Up) printf '\033[A' ;; Down) printf '\033[B' ;;
+    Left) printf '\033[D' ;; Right) printf '\033[C' ;;
+    comma) printf ',' ;; period) printf '.' ;; slash) printf '/' ;;
+    ctrl+*)
+      local c="${k#ctrl+}"
+      if [ "${#c}" -eq 1 ]; then
+        # control byte = ord(char) & 0x1f (ctrl+g -> \x07, ctrl+p -> \x10)
+        printf "\\$(printf '%03o' $(( $(printf '%d' "'$c") & 31 )))"
+      else
+        case "$c" in
+          Up) printf '\033[1;5A' ;; Down) printf '\033[1;5B' ;;
+          Left) printf '\033[1;5D' ;; Right) printf '\033[1;5C' ;;
+          *) echo "send: unknown 'ctrl+$c'" >&2; return 1 ;;
         esac
-      done
-      mods="{${mods#, }}"
-      case "$char" in
-        Up) spec="key code 126 using $mods" ;; Down) spec="key code 125 using $mods" ;;
-        Left) spec="key code 123 using $mods" ;; Right) spec="key code 124 using $mods" ;;
-        *) spec="keystroke \"$char\" using $mods" ;;
-      esac
+      fi
       ;;
     *)
-      if [ "${#k}" -eq 1 ]; then spec="keystroke \"$k\""
+      if [ "${#k}" -eq 1 ]; then printf '%s' "$k"
       else echo "send: unknown key '$k'" >&2; return 1; fi
       ;;
   esac
-  osascript -e "tell application \"System Events\" to $spec" >/dev/null
 }
 
-send() { ensure_focus; local k; for k in "$@"; do _send_one "$k"; sleep 0.05; done; sleep 0.4; }
-
-# Text goes through an ENV VAR, not the script text, so quotes/backslashes in
-# the payload can't break the AppleScript (same philosophy as qlua's files).
-type_text() {
-  ensure_focus
-  PI_TYPE_TEXT="$*" osascript -e 'tell application "System Events" to keystroke (system attribute "PI_TYPE_TEXT")' >/dev/null
+send() {
+  local k
+  for k in "$@"; do _send_bytes "$(_key_bytes "$k")"; sleep 0.05; done
   sleep 0.4
 }
+
+# Byte injection produces no OS focus events, so the layout's focus/insert
+# autocmds never run: focus the prompt and enter insert explicitly before
+# typing. The KEYS UNDER TEST still travel as terminal bytes.
+focus_prompt() {
+  runlua <<'LUA'
+pcall(function() require("pi").focus_chat_prompt() end)
+vim.cmd("startinsert")
+LUA
+  sleep 0.3
+}
+
+type_text() { focus_prompt; _send_bytes "$*"; sleep 0.4; }
 
 # --- macOS output ----------------------------------------------------------
 
 shot() {
-  local out="$SHOTDIR/$1.png"
-  if [ -z "$WIN" ]; then
+  local out="$SHOTDIR/$1.png" win
+  win=$(_state WIN WIN)
+  if [ -z "$win" ]; then
     echo "  [shot SKIP] no CGWindowID — Screen Recording not granted to this terminal (G27)"
     return 1
   fi
-  if ! screencapture -x -o -l "$WIN" "$out" 2>/dev/null; then
+  if ! screencapture -x -o -l "$win" "$out" 2>/dev/null; then
     echo "  [shot FAIL] screencapture errored — grant Screen Recording to this terminal,"
     echo "              restart the terminal, re-run (G27)"
     return 1

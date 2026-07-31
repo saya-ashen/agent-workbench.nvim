@@ -7,8 +7,9 @@ Each entry is a real defect or trap encountered while adding features to this pl
 | # | Fix in one line |
 |---|-----------------|
 | G27 | macOS: `screencapture` errors and window lists hide other apps' windows ⇒ grant **Screen Recording** to the terminal, restart it; harness degrades loudly, never silently |
-| G28 | macOS: System Events keystrokes reach only the **frontmost** app ⇒ `ensure_focus` (activate test wezterm by recorded pid) before every `send` |
+| G28 | macOS: since macOS 14, **background** activation (`set frontmost`, `NSRunningApplication.activate`) is silently ignored — worse under tmux, which detaches your process tree from the GUI app ⇒ inject input as **terminal bytes** (`wezterm cli send-text --no-paste`), never AppleScript keystrokes |
 | G29 | macOS: find the test wezterm-gui by the socket string in **its own** cmdline — it daemonizes (ppid=1) and its argv *also* matches `nvim.*--listen` patterns |
+| G30 | macOS: **no API captures windows on non-active Spaces** (`screencapture -l` “could not create image”, SCK −3811) ⇒ the test instance **self-fullscreens** at launch (GUI-side `gui-startup` + delayed `toggle_fullscreen`) — the one Space switch that always works |
 | G1 | Defer buffer edits in `<expr>` mappings with `vim.schedule` |
 | G2 | Return literal `"<Up>"` from `<expr>`, never `vim.keycode` |
 | G3 | Compare buffer text to last-applied, don't use a timing flag |
@@ -44,16 +45,22 @@ Each entry is a real defect or trap encountered while adding features to this pl
   screencapture -x -R0,0,50,50 /tmp/probe.png   # errors when denied
   ```
   The harness must degrade **loudly**: launch warns that `shot` will be skipped, `shot` SKIP/FAILs with the remedy instead of passing, and a tiny-file sanity check catches the all-one-color PNG a denied/buggy capture can still produce. A screenshot that silently never happened is the G25 class of fake-green.
+- **排查方法:** Window-id discovery must not use the JXA ObjC bridge: on macOS 26 `ObjC.import("CoreGraphics")` fails to bind `CGWindowListCopyWindowInfo` — the result's `.count` is `undefined`, so filters silently match nothing (a `{}` owners dict that *looks* like the TCC denial). `gui_launch.sh` embeds a tiny Swift helper instead; `swift file.swift <pid>` needs no bridge metadata and returns the real CGWindowIDs.
 
-### G28 — macOS: System Events keystrokes reach only the frontmost app
-- **现象:** A `send comma a p` in a macOS GUI run lands in the user's editor or browser instead of the test window — or works once, then stops after the user clicks elsewhere.
-- **根因:** Unlike `xdotool key --window <id>`, AppleScript `System Events` `keystroke`/`key code` posts to the **frontmost process only**; there is no per-window targeting. Focus can drift mid-run (notifications, user input, another app activating).
-- **修法:** `ensure_focus` before every `send`/`type_text`: compare the frontmost pid and re-activate the test wezterm-gui **by its recorded unix pid** — never by app name, because every wezterm-gui instance shares one bundle id and AppleScript can't distinguish them by name. Requires Accessibility (System Settings → Privacy & Security → Accessibility) for the host terminal; probe with `osascript -e 'tell application "System Events" to count processes'` (errors `-1719` when denied).
+### G28 — macOS: background activation is ignored; inject bytes, don't fight for focus
+- **现象:** An AppleScript-driven run lands its keys in the user's fullscreen WezTerm instead of the test window. `set frontmost` / Swift `NSRunningApplication.activate` print success yet the frontmost pid bounces straight back to the user's app. Works when the agent runs directly in a terminal; breaks the moment it runs **inside tmux**.
+- **根因:** Since macOS 14, activation requests from **background** processes are silently dropped. A tmux server daemonizes (reparented to launchd), so your shell is no longer a descendant of any GUI app and every activate/set-frontmost is a no-op. A fullscreen app's Space additionally re-grabs focus. Keystrokes via System Events only ever reach the frontmost app, so without reliable activation the whole approach collapses.
+- **修法:** Don't use OS key events at all. Write the byte stream a keypress would produce (Esc=`\x1b`, Up=`\x1b[A`, ctrl+g=`\x07`) straight into the test pane's pty: `WEZTERM_UNIX_SOCKET=~/.local/share/wezterm/gui-sock-<pid> wezterm cli send-text --pane-id <N> --no-paste`. nvim consumes bytes, so real keybindings are exercised identically — but delivery is focus-independent and needs NO Accessibility permission. `--no-paste` is mandatory (nvim enables bracketed paste; a paste-wrapped leader sequence inserts as text instead of firing mappings). What this deliberately does not cover is WezTerm's key→byte translation, which is not our code. Caveat: byte injection produces no OS focus events, so layout focus/insert autocmds don't fire — `type_text` focuses the prompt + `startinsert` via RPC first.
 
 ### G29 — macOS: "parent of nvim" does not find the test wezterm-gui
 - **现象:** `WTPID=$(ps -o ppid= -p $NVPID)` yields `1` (launchd), or the recorded wezterm pid is dead minutes later; `ensure_focus` then errors `-1719` (no such process) and keystrokes scatter to whatever is frontmost.
 - **根因:** Two macOS facts. (1) `wezterm start -- ... nvim --listen $SOCK` **daemonizes**: the CLI process exits and the real wezterm-gui is reparented to launchd, so no ppid chain connects nvim to the GUI you launched. (2) The daemonized wezterm-gui's own argv contains the whole payload command (`... start --always-new-process -- nvim --listen /tmp/....sock`), so `pgrep -f "nvim.*--listen.*$SOCK"` matches **wezterm-gui itself**, not (only) nvim.
 - **修法:** Discover by the socket string in the GUI's **own** cmdline: `pgrep -f "wezterm-gui.*$SOCK"` — exactly the pattern cleanup already uses. The same daemonization is why cleanup must kill by *both* the recorded pid and the socket pattern (the recorded pid can be the exited CLI).
+
+### G30 — macOS: off-Space windows are uncapturable; the test instance fullscreens itself
+- **现象:** The CGWindowID of the test window is known, yet `screencapture -x -o -l <id>` fails with `could not create image from window`. A ScreenCaptureKit attempt (`SCContentFilter(desktopIndependentWindow:)`) finds the window (`isOnScreen=false`) but errors `−3811 capture failed`.
+- **根因:** macOS has **no API to pixel-capture a window on a non-active Space** — CGWindowImage, `screencapture -l`, and SCK all refuse. The test window lands on a desktop Space while the user's fullscreen WezTerm owns the active Space; and per G28 you cannot switch Spaces from a background CLI (Mission Control ctrl+←/→ may also be eaten by tmux/WezTerm or disabled). AX can't even enumerate off-Space windows, so AXFullScreen is out too.
+- **修法:** The only Space switch that always works is one a **GUI performs on its own window**. Launch the test wezterm with a generated `--config-file` whose `gui-startup` hook does `mux.spawn_window(cmd)` then, after ~1s (an immediate call only maximizes — verified), `gui_window:toggle_fullscreen()` with `native_macos_fullscreen_mode = true`. The fullscreen transition moves the window to a new Space AND switches the view — making it capturable and legible. Cleanup kills the GUI; its Space vanishes and the view returns by itself. (Note: SCK from a CLI also needs `let _ = NSApplication.shared` first, or `SCContentFilter` aborts on `CGS_REQUIRE_INIT`.)
 
 ---
 

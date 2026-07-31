@@ -37,5 +37,5 @@ if [ -n "$(echo "$ALL" | tr -d ' ')" ]; then
   [ -n "$(echo "$SURV" | tr -d ' ')" ] && kill -9 $SURV 2>/dev/null
 fi
 sleep 1
-rm -f "$SOCK" "$RUN.WIN" "$RUN.WTPID" "$RUN.winid.js"
+rm -f "$SOCK" "$RUN.WIN" "$RUN.WTPID" "$RUN.PANE" "$RUN.WSOCK" "$RUN.winid.swift" "$RUN.wezterm.lua"
 echo "cleanup done (user wezterm/nvim untouched)"
