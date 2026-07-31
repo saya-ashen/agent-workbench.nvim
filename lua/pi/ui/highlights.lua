@@ -117,7 +117,11 @@ local function set_defaults()
         "PiChatPromptWinbarAttentionTitle",
         { default = true, fg = warning.fg, bg = normal.bg, bold = true }
     )
-    vim.api.nvim_set_hl(0, "PiChatPromptWinbarBashTitle", { default = true, fg = warning.fg, bg = normal.bg, bold = true })
+    vim.api.nvim_set_hl(
+        0,
+        "PiChatPromptWinbarBashTitle",
+        { default = true, fg = warning.fg, bg = normal.bg, bold = true }
+    )
     vim.api.nvim_set_hl(0, "PiChatAttachmentsWinbar", { default = true, bg = normal.bg })
     vim.api.nvim_set_hl(
         0,
@@ -135,7 +139,11 @@ local function set_defaults()
         "PiChatPromptFloatAttentionTitle",
         { default = true, fg = warning.fg, bg = normal.bg, bold = true }
     )
-    vim.api.nvim_set_hl(0, "PiChatPromptFloatBashTitle", { default = true, fg = warning.fg, bg = normal.bg, bold = true })
+    vim.api.nvim_set_hl(
+        0,
+        "PiChatPromptFloatBashTitle",
+        { default = true, fg = warning.fg, bg = normal.bg, bold = true }
+    )
     vim.api.nvim_set_hl(0, "PiBashHeader", { default = true, fg = warning.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiBashOutput", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiChatAttachmentsFloatTitle", { default = true, fg = comment.fg, bg = normal.bg })

@@ -74,9 +74,7 @@ end
 ---@param cwd string
 ---@return boolean
 local function is_stale(cwd)
-    return not cache
-        or cache.cwd ~= cwd
-        or (vim.uv.hrtime() - cache.timestamp) >= CACHE_TTL_NS
+    return not cache or cache.cwd ~= cwd or (vim.uv.hrtime() - cache.timestamp) >= CACHE_TTL_NS
 end
 
 --- Refresh the cache asynchronously (single-flight).

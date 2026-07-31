@@ -619,9 +619,13 @@ function Chat:_handle_abort_esc()
     end
     local timeout = cfg.timeout or 1500
     self._abort_esc_timer = assert(vim.uv.new_timer())
-    self._abort_esc_timer:start(timeout, 0, vim.schedule_wrap(function()
-        self:_disarm_abort_esc()
-    end))
+    self._abort_esc_timer:start(
+        timeout,
+        0,
+        vim.schedule_wrap(function()
+            self:_disarm_abort_esc()
+        end)
+    )
     self:_sync_abort_hint()
 end
 
@@ -641,9 +645,13 @@ function Chat:_show_aborted_notice()
     self:_clear_aborted_notice()
     self._prompt:statusline():set_aborted_notice("Aborted")
     self._aborted_notice_timer = assert(vim.uv.new_timer())
-    self._aborted_notice_timer:start(2000, 0, vim.schedule_wrap(function()
-        self:_clear_aborted_notice()
-    end))
+    self._aborted_notice_timer:start(
+        2000,
+        0,
+        vim.schedule_wrap(function()
+            self:_clear_aborted_notice()
+        end)
+    )
 end
 
 ---@return boolean
