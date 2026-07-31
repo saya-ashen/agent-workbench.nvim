@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-31
+
+- **ADDED:** `:PiTree` / `pi.tree()` — session tree navigation, the π equivalent of the TUI's `/tree`. Pick any past conversation point from a picker (depth-indented, current point marked `●`, branch labels shown), choose whether to summarize the abandoned branch (No summary / Summarize / Summarize with custom prompt), and the backend moves the session leaf and rebuilds the chat from the new branch; picking a user message puts its text back in the prompt for editing. Typing a bare `/tree` in the prompt also opens it. Requires a pi version whose extension API exposes `ctx.navigateTree`; can be disabled with `tree = { enabled = false }`.
+
 ## 2026-07-30
 
 - **CHANGED:** The history panel's `π` title no longer uses inverted colors (colored background with dark text). Both the side-layout winbar title (`PiChatHistoryWinbarTitle`) and the float-layout title (`PiChatHistoryFloatTitle`) now render as bold colored text on the normal background, matching the other panel titles. Override either group to restore the badge look.

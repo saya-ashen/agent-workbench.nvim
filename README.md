@@ -818,6 +818,8 @@ Arguments, if the command takes any, follow on the same line:
 
 Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not a pi2.nvim restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
 
+One command is handled locally instead of being sent: a bare `/tree` opens the [session tree navigator](#session-tree-navigation-pitree) (`:PiTree`), mirroring the TUI's built-in `/tree`.
+
 That said, this only applies to the explicit `/command` invocation path. Skills in particular are surfaced to the model as part of the system context: per the [Agent Skills spec](https://agentskills.io/specification), each skill's `name` and `description` are loaded at startup for _all_ available skills ("progressive disclosure"), and the full `SKILL.md` body is only loaded once the model decides to activate that skill. As a result, most models will pick up the right skill even when you _mention_ it inline ("please use the `commit` skill to write the message"), without you having to invoke `/skill:commit` explicitly. How reliably this works depends on the model and on how much other context it's juggling, so for anything load-bearing it's still safer to invoke the command explicitly on the first line.
 
 While typing, the prompt buffer highlights `/commands` in real time, but **only if the command name actually matches one in the backend's command list**. If you don't see the highlight, either the command doesn't exist, you have a typo, or the cache hasn't been populated yet (it's fetched the first time the chat opens and refreshed every 30 seconds).
@@ -1792,8 +1794,31 @@ And mid-session management:
 | Command | Lua | What it does |
 | --- | --- | --- |
 | `:PiNewSession` | `pi.new_session()` | Discard the current session in this tab and start a fresh one. Extensions can cancel this via the `session_before_switch` hook (e.g. to warn about unsaved draft state). |
+| `:PiTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-pitree). |
 | `:PiSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens a dialog to type one. Without any argument and via the API, returns the current name. Names appear in the `:PiResume` picker so you can identify long-running conversations at a glance. |
 | `:PiStop` | `pi.stop()` | Tear down the current session entirely, killing the backing `pi --mode rpc` process. Different from `:PiToggleChat`, which just hides the windows while the session keeps running. |
+
+#### Session tree navigation (:PiTree)
+
+A pi session is not a linear log but a **tree** of entries: going back to an earlier point and continuing from there creates a new branch, while the abandoned branch stays on disk. `:PiTree` (or typing `/tree` in the prompt) is the π equivalent of the TUI's `/tree` command:
+
+1. A picker lists the session's conversation entries (user/assistant messages, branch summaries, compactions), indented by depth, with `●` marking the current point and branch labels shown where set.
+2. After picking an entry you're asked whether to **summarize the abandoned branch** — `No summary`, `Summarize`, or `Summarize with custom prompt` (mirrors the TUI; `Esc` backs out to the picker).
+3. The backend moves the session leaf and the chat is rebuilt from the new branch. If you picked a user message, its text lands back in the prompt for editing and resending (the leaf moves to that message's *parent*).
+
+Navigation is refused while the agent is streaming. Summarizing requires a selected model.
+
+How it works: the RPC protocol has no `navigate_tree` command, so pi2.nvim bundles a tiny pi extension (`extensions/tree.ts`) and injects it into every RPC process via `--extension`. It registers a `/tree` command whose handler calls pi's `ctx.navigateTree()`; extension commands are awaited end-to-end over RPC, so the chat rebuilds exactly when navigation (and any summarization) completes.
+
+```lua
+require("pi").setup({
+    tree = {
+        enabled = true, -- set false to stop injecting the extension and disable :PiTree
+    },
+})
+```
+
+Requires a pi version whose extension API exposes `ctx.navigateTree` — on older versions the command fails with an explicit error telling you to upgrade or disable the feature.
 
 #### Compaction
 
@@ -2000,6 +2025,7 @@ A rough triage checklist for common symptoms:
 | `:PiStop` | Stop the RPC process and close the chat |
 | `:PiAttention` | Open the next queued attention request |
 | `:PiNewSession` | Start a new conversation in the current tab/session |
+| `:PiTree` | Navigate the session tree: jump back to any past conversation point |
 | `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
 | `:PiToggleThinking` | Show or hide thinking blocks |
 | `:PiCycleThinking` | Cycle to the next thinking level |
@@ -2036,6 +2062,7 @@ pi.layout()                   -- "side" | "float" | nil
 pi.continue_session(opts?)    -- load the most recent session for the current cwd
 pi.resume_session(opts?)      -- pick a past session for the current cwd
 pi.new_session()              -- start a fresh conversation in the current tab
+pi.tree()                     -- navigate the session tree (:PiTree)
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens a dialog
 pi.compact(instructions?)     -- manually compact the current session (optional guidance)
 pi.changed_files()            -- string[]: files modified by edit/write tools this session
