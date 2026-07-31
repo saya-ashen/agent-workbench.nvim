@@ -2,6 +2,7 @@
 ---@field name string
 ---@field data string base64-encoded
 ---@field mime string
+---@field size integer byte size of the decoded image (what will be sent)
 
 ---@class pi.ChatAttachments
 ---@field _items pi.Attachment[]
@@ -32,6 +33,29 @@ local mime_map = {
 local function mime_from_path(path)
     local ext = path:match("%.(%w+)$")
     return ext and mime_map[ext:lower()] or nil
+end
+
+---@param bytes integer
+---@return string human-readable size (e.g. "512 B", "1.2 KB", "3.4 MB")
+local function format_size(bytes)
+    if bytes < 1024 then
+        return bytes .. " B"
+    elseif bytes < 1024 * 1024 then
+        return string.format("%.1f KB", bytes / 1024)
+    end
+    return string.format("%.1f MB", bytes / (1024 * 1024))
+end
+
+---@param b64 string base64 without whitespace (img-clip strips newlines)
+---@return integer decoded byte size
+local function base64_size(b64)
+    local padding = 0
+    if b64:sub(-2) == "==" then
+        padding = 2
+    elseif b64:sub(-1) == "=" then
+        padding = 1
+    end
+    return math.floor(#b64 * 3 / 4) - padding
 end
 
 ---@param path string
@@ -82,7 +106,7 @@ function Attachments:_update_buffer()
     local icon = Config.options.labels.attachment
     local lines = {}
     for _, item in ipairs(self._items) do
-        lines[#lines + 1] = icon .. " " .. item.name
+        lines[#lines + 1] = icon .. " " .. item.name .. " (" .. format_size(item.size) .. ")"
     end
     if #lines == 0 then
         lines = { "" }
@@ -93,15 +117,22 @@ function Attachments:_update_buffer()
     -- Apply highlights
     vim.api.nvim_buf_clear_namespace(self._buf, ns, 0, -1)
     local icon_len = #icon
-    for i, _ in ipairs(self._items) do
+    for i, item in ipairs(self._items) do
+        -- Byte column where the size suffix starts: icon + space + filename.
+        local name_end = icon_len + 1 + #item.name
         vim.api.nvim_buf_set_extmark(self._buf, ns, i - 1, 0, {
             end_col = icon_len,
             hl_group = "PiAttachmentIcon",
         })
         vim.api.nvim_buf_set_extmark(self._buf, ns, i - 1, icon_len, {
             end_row = i - 1,
-            end_col = #lines[i],
+            end_col = name_end,
             hl_group = "PiAttachmentFilename",
+        })
+        vim.api.nvim_buf_set_extmark(self._buf, ns, i - 1, name_end, {
+            end_row = i - 1,
+            end_col = #lines[i],
+            hl_group = "PiAttachmentSize",
         })
     end
 end
@@ -126,13 +157,18 @@ function Attachments:add_file(path)
         Notify.warn("Not a supported image format: " .. path)
         return false
     end
+    local stat = vim.uv.fs_stat(path)
+    if not stat then
+        Notify.error("Could not read file: " .. path)
+        return false
+    end
     local data = read_and_encode(path)
     if not data then
         Notify.error("Could not read file: " .. path)
         return false
     end
     local name = vim.fn.fnamemodify(path, ":t")
-    self._items[#self._items + 1] = { name = name, data = data, mime = mime }
+    self._items[#self._items + 1] = { name = name, data = data, mime = mime, size = stat.size }
     self:_rerender()
     return true
 end
@@ -165,7 +201,7 @@ function Attachments:add_from_clipboard()
 
     self._clipboard_counter = self._clipboard_counter + 1
     local name = "cb-image-" .. self._clipboard_counter .. ".png"
-    self._items[#self._items + 1] = { name = name, data = data, mime = "image/png" }
+    self._items[#self._items + 1] = { name = name, data = data, mime = "image/png", size = base64_size(data) }
     self:_rerender()
     return true
 end

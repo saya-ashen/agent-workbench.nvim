@@ -962,7 +962,7 @@ require("pi").setup({
 
 ### Attachments
 
-π supports image attachments. Anything you attach is queued in the dedicated **attachments panel** (`pi-chat-attachments`) below the prompt and sent along with your next message as base64-encoded image data.
+π supports image attachments. Anything you attach is queued in the dedicated **attachments panel** (`pi-chat-attachments`) below the prompt and sent along with your next message as base64-encoded image data. Each entry shows the image's byte size (e.g. `󰫮 shot.png (1.2 MB)`) — the size of the data that will actually be sent.
 
 Supported formats: `png`, `jpg`/`jpeg`, `gif`, `webp`, `svg`.
 
@@ -2180,6 +2180,7 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | --- | --- |
 | `PiAttachmentIcon` | Icon prefix in the attachments buffer |
 | `PiAttachmentFilename` | Filename text in the attachments buffer |
+| `PiAttachmentSize` | File size suffix in the attachments buffer |
 
 ### Panels and layout
 
