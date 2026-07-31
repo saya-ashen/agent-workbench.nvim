@@ -1,6 +1,6 @@
 # Testing — the three layers in depth
 
-The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary) and `smoke` (headless boot of the user config + open the chat). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
+The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary), `smoke` (headless boot of the user config + open the chat), plus `format`/`style`/`lint` (stylua + lua-language-server; `style` and `lint` also gate CI — see `SKILL.md` § CI verification). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
 
 ## Layer 1 — Unit tests (hermetic plenary)
 
@@ -90,6 +90,7 @@ When in doubt, add the cheaper test *and* the GUI screenshot; the screenshot is 
 4. **Stub the LLM.** In any e2e that submits a prompt, replace the backend so no real model call and no transcript write happen: `chat._agent.send = function(_) end`. Because the stub short-circuits *before* the RPC send, the pi backend never writes a session file — so sessions are not polluted. (Do **not** `grep` your way to "test sessions" to delete: a match can be inside an *assistant* quote of your test text, i.e. a real session. See gotcha G18.)
 5. **Isolate from the user's data.** A test instance shares the user's `stdpath` history/draft files and races with their live pi. Redirect both to `/tmp` (gotcha G17) and assert the user's files stayed untouched.
 6. **State exactly what you verified and what you could not**, per `AGENTS.md`.
+7. **Confirm CI is green post-merge.** After pushing `main`, check the GitHub Actions run for the merge commit (`make style` + `make lint`). The runner is a clean environment, so a local pass does not guarantee a CI pass — the run is the authoritative reproducibility gate, and the feature is not done until it is green. Commands in `SKILL.md` § CI verification.
 
 ## How to use the bundled scripts
 

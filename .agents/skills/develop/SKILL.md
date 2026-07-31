@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Use when developing, testing, debugging, or adding/changing features in this pi.nvim plugin. Covers the full feature lifecycle (issue → branch → implement → test → review → merge → close), the three-layer test stack, Neovim-Lua gotchas, and the standard places a change lands. Read this before touching lua/pi/** or tests/**.
+description: Use when developing, testing, debugging, or adding/changing features in this pi.nvim plugin. Covers the full feature lifecycle (issue → branch → implement → test → review → merge → verify CI → close), the three-layer test stack, CI verification, Neovim-Lua gotchas, and the standard places a change lands. Read this before touching lua/pi/** or tests/**.
 ---
 
 # Developing & testing pi.nvim
@@ -25,7 +25,9 @@ flowchart TD
     K -- changes requested --> L["pr:changes-requested"] --> G
     K -- approved --> M["pr:approved"]
     M --> N["merge --no-ff → push main\ndelete branch · remove worktree"]
-    N --> O["Close issue"]
+    N --> P{"CI run for the merge\ngreen? (GH Actions)"}
+    P -- fail --> Q["fix → push main again"] --> P
+    P -- green --> O["Close issue"]
 ```
 
 ### Phase rules
@@ -36,9 +38,9 @@ flowchart TD
 | Branch | Create a **git worktree** on `feat/<short-kebab-name>` and develop there — never in the live `lazy/pi2.nvim` checkout. Baseline `make test` green before starting. |
 | Implement | Follow the **standard places** checklist below. Config knobs touch **three** spots in `config.lua` (G19). |
 | Test | Cheapest layer that can observe the behavior. State what was verified and what was not. |
-| PR | Push branch → implementation comment → `pr:awaiting-review`. |
+| PR | Push branch → implementation comment → `pr:awaiting-review`. CI runs on the push; confirm the run is green before review. |
 | Review | `pr:changes-requested` → fix → re-push → back to `pr:awaiting-review`. `pr:approved` → merge. |
-| Merge | In the **main checkout**: `git merge --no-ff`, push main, delete remote+local branch, `git worktree remove`, close issue. |
+| Merge | In the **main checkout**: `git merge --no-ff`, push main, delete remote+local branch, `git worktree remove`. **Verify the CI run for the merge commit is green** (see CI verification below), then close issue. |
 
 Gitea API: `https://git.yuez.me/api/v1/repos/yuez/pi2.nvim`, auth via `GITEA_TOKEN` (chezmoi-encrypted in `~/.zshrc.local`).
 
@@ -60,8 +62,19 @@ In a worktree, `make test` and headless e2e under `-u tests/minimal_init.lua` ex
 | Unit (plenary) | `make test` | pure-Lua logic, config resolution | buffers, windows, keys, rendering |
 | Headless e2e | `make smoke` / `nvim --headless -l script.lua` | plugin load, RPC, buffer/extmark wiring | visual rendering, real key events |
 | GUI automation | `scripts/gui_launch.sh` + `gui_harness.sh` | real keybindings, insert mode, **pixels** | — (top layer, slow) |
+| CI gate | `.github/workflows/lint.yml` (auto on push/PR) | `make style` + `make lint` reproducibility on a clean runner | plugin runtime; mirrors style/lint only, not `make test` |
 
 Details, pitfalls, isolation recipe, and script usage: `references/testing.md`.
+
+## CI verification
+
+A feature is **not complete until the CI run for its merge commit is green** — local green ≠ CI green (the runner is a different, clean environment). `.github/workflows/lint.yml` runs `make style` + `make lint` on every push to `main` and on PRs; it is self-contained (downloads stylua + lua-language-server, no Neovim needed). `make test` is **not** in CI yet — keep running it locally.
+
+- The repo is public, so run status is readable without auth:
+  `curl -s "https://api.github.com/repos/zgs225/pi2.nvim/actions/runs?branch=main&per_page=5"` (or `gh run list` when logged in).
+- Inspect a run's jobs/steps: `.../actions/runs/<run_id>/jobs` (or `gh run view <run_id>`).
+- The workflow has no `workflow_dispatch`; it triggers on push/PR. To trigger it, push a commit. Manual dispatch needs auth (`gh auth login` or a PAT with `actions:write`).
+- On failure, fix on a branch, push, and re-check the new run before (re-)merging.
 
 ## Standard places a new feature lands
 
