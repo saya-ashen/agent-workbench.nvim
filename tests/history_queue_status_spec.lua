@@ -160,27 +160,31 @@ describe("history queue status rendering", function()
         assert.are.same({ 1, 2, 1, 0 }, counts)
     end)
 
-    it("keeps a two-blank margin after the thinking header (settles to one)", function()
+    it("leaves a one-blank margin after the thinking header (breathing line)", function()
         Config.options.show_thinking = true
-        -- Case 1: buffer ends with a breathing blank — it becomes the 2nd margin.
+        -- Case 1: buffer ends with a breathing blank — it becomes the single
+        -- trailing blank, and the breathing flag is set so the next text delta
+        -- prepends a newline, leaving exactly one blank of separation (#48).
         local h = setup_history(1)
         h:on_thinking_start()
         pump(50)
         local lines = vim.api.nvim_buf_get_lines(h:buf(), 0, -1, false)
-        assert.are.equal(4, #lines) -- blank, header, 2 margin blanks
+        assert.are.equal(3, #lines) -- lead blank, header, one trailing blank
+        assert.are.equal("", lines[1])
+        assert.is_true(lines[2] ~= "", "thinking header line")
         assert.are.equal("", lines[3])
-        assert.are.equal("", lines[4])
+        assert.is_true(h._needs_breathing_line, "breathing flag set for the next block")
 
-        -- The next text delta reuses the final blank, leaving exactly one blank
-        -- line of separation after the header.
-        h:_append_text("answer")
+        -- The next text delta goes through the breathing path (_render_text_deltas
+        -- prepends a newline), so exactly one blank line stays after the header.
+        h:_render_text_deltas("answer")
         lines = vim.api.nvim_buf_get_lines(h:buf(), 0, -1, false)
         assert.are.equal(4, #lines)
         assert.are.equal("", lines[3])
         assert.are.equal("answer", lines[4])
 
-        -- Case 2: buffer ends with real content (e.g. an inline tool) — both
-        -- margin blanks are inserted.
+        -- Case 2: buffer ends with real content (e.g. an inline tool) — one
+        -- trailing blank is inserted after the header.
         local h2 = setup_history(1)
         h2:_with_modifiable(function()
             vim.api.nvim_buf_set_lines(h2:buf(), 0, -1, false, { "read tool output" })
@@ -188,8 +192,10 @@ describe("history queue status rendering", function()
         h2:on_thinking_start()
         pump(50)
         lines = vim.api.nvim_buf_get_lines(h2:buf(), 0, -1, false)
-        assert.are.equal(5, #lines) -- content, blank, header, 2 margin blanks
+        assert.are.equal(4, #lines) -- content, lead blank, header, one trailing blank
+        assert.are.equal("", lines[2])
+        assert.is_true(lines[3] ~= "", "thinking header line")
         assert.are.equal("", lines[4])
-        assert.are.equal("", lines[5])
+        assert.is_true(h2._needs_breathing_line)
     end)
 end)

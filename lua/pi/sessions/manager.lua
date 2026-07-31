@@ -631,6 +631,7 @@ local function replay_messages(session, messages)
         elseif role == "assistant" then
             local text = ""
             local tool_calls = {} ---@type { id: string, name: string, args: table? }[]
+            local thinking_parts = {} ---@type string[]
             if type(msg.content) == "string" then
                 text = msg.content
             elseif type(msg.content) == "table" then
@@ -639,6 +640,11 @@ local function replay_messages(session, messages)
                         text = text .. part
                     elseif type(part) == "table" and part.type == "text" then
                         text = text .. (part.text or "")
+                    elseif type(part) == "table" and part.type == "thinking" then
+                        local t = part.thinking or ""
+                        if t ~= "" then
+                            thinking_parts[#thinking_parts + 1] = t
+                        end
                     elseif type(part) == "table" and part.type == "toolCall" then
                         tool_calls[#tool_calls + 1] = {
                             id = part.toolCallId or part.id or "",
@@ -648,17 +654,27 @@ local function replay_messages(session, messages)
                     end
                 end
             end
-            if text ~= "" or #tool_calls > 0 then
+            -- Replay thinking as a single block (session files store at most
+            -- one thinking part per assistant message).
+            local thinking_text = table.concat(thinking_parts, "\n")
+            if text ~= "" or #tool_calls > 0 or thinking_text ~= "" then
                 -- Suppress agent header for tool-only continuation turns:
                 -- if previous turn was tool-only and this turn is also tool-only,
                 -- skip the header to keep consecutive tool calls visually grouped.
-                local tool_only = text == "" and #tool_calls > 0
+                -- A turn with thinking is NOT tool-only — the thinking block
+                -- needs the agent header above it.
+                local tool_only = text == "" and #tool_calls > 0 and thinking_text == ""
                 if not (tool_only and pending_agent_end) then
                     if pending_agent_end then
                         session.chat:on_agent_end()
                         pending_agent_end = false
                     end
                     session.chat:on_agent_start(msg.timestamp)
+                end
+                if thinking_text ~= "" then
+                    session.chat:on_thinking_start()
+                    session.chat:on_thinking_delta(thinking_text)
+                    session.chat:on_thinking_end()
                 end
                 if text ~= "" then
                     session.chat:on_text_delta(text)
