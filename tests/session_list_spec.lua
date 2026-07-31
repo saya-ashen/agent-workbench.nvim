@@ -36,8 +36,12 @@ describe("session listing parser", function()
   before_each(function()
     agent_dir = vim.fn.tempname()
     cwd = vim.fn.tempname()
-    vim.fn.mkdir(agent_dir .. "/sessions/" .. encode_cwd(cwd), "p")
     vim.fn.mkdir(cwd, "p")
+    -- getcwd() resolves macOS tempdir symlinks (/var → /private/var) after cd,
+    -- while tempname() does not; encode_cwd must mirror the resolved form the
+    -- module will see.
+    cwd = assert(vim.uv.fs_realpath(cwd))
+    vim.fn.mkdir(agent_dir .. "/sessions/" .. encode_cwd(cwd), "p")
     saved_agent_dir = Config.options.agent_dir
     saved_cwd = vim.fn.getcwd()
     Config.options.agent_dir = agent_dir
