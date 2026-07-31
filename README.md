@@ -209,7 +209,20 @@ Run `:checkhealth pi` to verify.
 
 ## Installation
 
-### vim.pack
+### Installing with an agent
+
+The easiest way to install `pi2.nvim` is to hand the job to an AI coding agent (pi, Claude Code, Cursor, …). Point your agent at the instructions below — they tell it how to detect your setup, what to add, and how to verify the result.
+
+> **For the agent:** install the `pi2.nvim` Neovim plugin for the user by following these steps.
+>
+> 1. **Detect the plugin manager.** Read the user's Neovim config (usually `init.lua` under `stdpath("config")`, e.g. `~/.config/nvim/init.lua`) and find which plugin manager is in use — `lazy.nvim`, the built-in `vim.pack` (Neovim 0.11+), `packer.nvim`, etc. Follow that manager's spec conventions; if you can't tell which one is used, ask the user.
+> 2. **Add the plugin and its dependency.** Add `zgs225/pi2.nvim` together with `MeanderingProgrammer/render-markdown.nvim`, which the default history renderer (`render.engine = "render-markdown"`) requires. Optionally add `HakonHarnes/img-clip.nvim` (needed only for `:PiPasteImage` clipboard-image paste). Use the specs under [Installing manually](#installing-manually) as a reference for the two most common managers.
+> 3. **Recommended setup.** Ensure `require("pi").setup()` runs after the plugin loads. The defaults are a good first install — do not add options the user hasn't asked for. See [Configuration](#configuration) for the full option list, and [Keymaps](#keymaps) for a recommended mapping set; if the user already has `<Leader>` conventions, adapt to them rather than introducing new ones.
+> 4. **Verify with the healthcheck.** After installing, run `:checkhealth pi` and confirm it reports OK: the `pi` executable is in `$PATH`, the pi backend version is compatible, Neovim is 0.10+, and the default renderer's dependencies resolve. Fix anything it flags — e.g. install `pi`, or set `cli = { bin = "/absolute/path/to/pi" }` if it isn't on `$PATH`.
+
+### Installing manually
+
+#### vim.pack
 
 ```lua
 vim.pack.add({
@@ -228,7 +241,7 @@ require("pi").setup({
 })
 ```
 
-### lazy.nvim
+#### lazy.nvim
 
 ```lua
 {
