@@ -6,6 +6,9 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 | # | Fix in one line |
 |---|-----------------|
+| G27 | macOS: `screencapture` errors and window lists hide other apps' windows ⇒ grant **Screen Recording** to the terminal, restart it; harness degrades loudly, never silently |
+| G28 | macOS: System Events keystrokes reach only the **frontmost** app ⇒ `ensure_focus` (activate test wezterm by recorded pid) before every `send` |
+| G29 | macOS: find the test wezterm-gui by the socket string in **its own** cmdline — it daemonizes (ppid=1) and its argv *also* matches `nvim.*--listen` patterns |
 | G1 | Defer buffer edits in `<expr>` mappings with `vim.schedule` |
 | G2 | Return literal `"<Up>"` from `<expr>`, never `vim.keycode` |
 | G3 | Compare buffer text to last-applied, don't use a timing flag |
@@ -32,6 +35,25 @@ Each entry is a real defect or trap encountered while adding features to this pl
 | G24 | No Lua 5.3-only syntax (`&` `\|` `~` `<<` `>>`, `//`, `\u{}`) — stable Neovim's LuaJIT can't parse it; `loop or previous error` is only the secondary symptom |
 | G25 | Validate failure-counting grep patterns against known-failing output first; prefer plenary's literal `Failed :`/`Errors :` summary lines over regexes across colored output |
 | G26 | uv callbacks (`vim.system`, timers) are fast events — `vim.schedule` any editor work; `repeat = 0` is one-shot; hold timer objects or they are GC'd |
+
+### G27 — macOS: Screen Recording is a hard gate for screenshots AND window discovery
+- **现象:** On a macOS GUI run, `gui_launch.sh` finds the wezterm-gui pid but **no CGWindowID**; `screencapture` fails with `could not create image`; a direct `CGWindowListCopyWindowInfo` probe returns an empty/`{}` list even though several apps have visible windows.
+- **根因:** macOS TCC. Without the **Screen Recording** permission, (1) `screencapture` cannot read display contents, and (2) `CGWindowListCopyWindowInfo` silently returns only the *caller's own* windows — other apps' windows simply don't appear, no error. The permission is granted per **host terminal app** (the app that owns your shell — WezTerm/iTerm/Terminal), and a grant only takes effect after that app **restarts**. Accessibility (needed for keystrokes) is a separate toggle — one can be granted while the other is denied.
+- **修法:** System Settings → Privacy & Security → Screen Recording → enable the terminal app → **restart the terminal** (this kills sessions inside it, including a pi agent running there — plan around that). Probe before a run:
+  ```bash
+  screencapture -x -R0,0,50,50 /tmp/probe.png   # errors when denied
+  ```
+  The harness must degrade **loudly**: launch warns that `shot` will be skipped, `shot` SKIP/FAILs with the remedy instead of passing, and a tiny-file sanity check catches the all-one-color PNG a denied/buggy capture can still produce. A screenshot that silently never happened is the G25 class of fake-green.
+
+### G28 — macOS: System Events keystrokes reach only the frontmost app
+- **现象:** A `send comma a p` in a macOS GUI run lands in the user's editor or browser instead of the test window — or works once, then stops after the user clicks elsewhere.
+- **根因:** Unlike `xdotool key --window <id>`, AppleScript `System Events` `keystroke`/`key code` posts to the **frontmost process only**; there is no per-window targeting. Focus can drift mid-run (notifications, user input, another app activating).
+- **修法:** `ensure_focus` before every `send`/`type_text`: compare the frontmost pid and re-activate the test wezterm-gui **by its recorded unix pid** — never by app name, because every wezterm-gui instance shares one bundle id and AppleScript can't distinguish them by name. Requires Accessibility (System Settings → Privacy & Security → Accessibility) for the host terminal; probe with `osascript -e 'tell application "System Events" to count processes'` (errors `-1719` when denied).
+
+### G29 — macOS: "parent of nvim" does not find the test wezterm-gui
+- **现象:** `WTPID=$(ps -o ppid= -p $NVPID)` yields `1` (launchd), or the recorded wezterm pid is dead minutes later; `ensure_focus` then errors `-1719` (no such process) and keystrokes scatter to whatever is frontmost.
+- **根因:** Two macOS facts. (1) `wezterm start -- ... nvim --listen $SOCK` **daemonizes**: the CLI process exits and the real wezterm-gui is reparented to launchd, so no ppid chain connects nvim to the GUI you launched. (2) The daemonized wezterm-gui's own argv contains the whole payload command (`... start --always-new-process -- nvim --listen /tmp/....sock`), so `pgrep -f "nvim.*--listen.*$SOCK"` matches **wezterm-gui itself**, not (only) nvim.
+- **修法:** Discover by the socket string in the GUI's **own** cmdline: `pgrep -f "wezterm-gui.*$SOCK"` — exactly the pattern cleanup already uses. The same daemonization is why cleanup must kill by *both* the recorded pid and the socket pattern (the recorded pid can be the exited CLI).
 
 ---
 

@@ -59,7 +59,7 @@ In a worktree, `make test` and headless e2e under `-u tests/minimal_init.lua` ex
 |-------|---------|------|------------|
 | Unit (plenary) | `make test` | pure-Lua logic, config resolution | buffers, windows, keys, rendering |
 | Headless e2e | `make smoke` / `nvim --headless -l script.lua` | plugin load, RPC, buffer/extmark wiring | visual rendering, real key events |
-| GUI automation | `scripts/gui_launch.sh` + `gui_harness.sh` | real keybindings, insert mode, **pixels** | — (top layer, slow) |
+| GUI automation | `scripts/gui_launch.sh` + `gui_harness.sh` (macOS: `scripts/macos/`) | real keybindings, insert mode, **pixels** | — (top layer, slow) |
 
 Details, pitfalls, isolation recipe, and script usage: `references/testing.md`.
 
@@ -76,13 +76,13 @@ Details, pitfalls, isolation recipe, and script usage: `references/testing.md`.
 
 ## Gotchas
 
-G1–G26 are indexed in the quick-reference table at the top of `references/gotchas.md`, with full 现象/根因/修法 and minimal reproductions below it. Read the full entry before relying on a one-liner. Most frequent traps: G1/G2/G3 (expr-mapping keys), G4/G5 (headless e2e), G6 (visual needs a GUI screenshot), G14 (spec scoping), G19 (three config spots), G21 (restart nvim after editing `lua/pi/**`), G23 (worktree test layers), G24 (LuaJIT-parseable syntax).
+G1–G29 are indexed in the quick-reference table at the top of `references/gotchas.md`, with full 现象/根因/修法 and minimal reproductions below it. Read the full entry before relying on a one-liner. Most frequent traps: G1/G2/G3 (expr-mapping keys), G4/G5 (headless e2e), G6 (visual needs a GUI screenshot), G14 (spec scoping), G19 (three config spots), G21 (restart nvim after editing `lua/pi/**`), G23 (worktree test layers), G24 (LuaJIT-parseable syntax).
 
 ## Cross-references
 
 - `references/worktree.md` — why worktrees, exact setup/verification/cleanup commands, layer caveats.
 - `references/architecture.md` — module map, hard design constraints, rationale for standard places.
 - `references/testing.md` — layer details, pitfalls, isolation recipe, verification discipline, script usage.
-- `references/gotchas.md` — quick-reference table + full 现象/根因/修法 for G1–G24 with minimal reproductions.
+- `references/gotchas.md` — quick-reference table + full 现象/根因/修法 for G1–G29 with minimal reproductions.
 - `AGENTS.md` — architecture charter, style, type-annotation conventions.
 - `.agents/skills/commit/SKILL.md` — Conventional Commit format, CHANGELOG rules, breaking-change policy.
