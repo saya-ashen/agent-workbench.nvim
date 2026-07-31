@@ -73,6 +73,26 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **Templates:** `scripts/gui_harness.sh`, `scripts/gui_launch.sh`, `scripts/gui_cleanup.sh`.
 
+### Layer 3 on macOS — `scripts/macos/`
+
+Same topology, same RPC ground truth, same isolation recipe (G17) and verification discipline — only the OS-facing tools differ. The three scripts mirror the Linux ones (`gui_launch.sh` / `gui_harness.sh` / `gui_cleanup.sh`) and take the same `$RUN` wiring, so a run script written against the helper names (`send`/`type_text`/`shot`/`q`/`qlua`/`wait_for`/`check`) works under both.
+
+| purpose | Linux (X11) | macOS |
+|---|---|---|
+| send keys | `xdotool key --window` | `wezterm cli send-text --pane-id <N> --no-paste` over the instance's own mux socket (`WEZTERM_UNIX_SOCKET=~/.local/share/wezterm/gui-sock-<pid>`) — injects the byte stream a keypress produces; focus-independent, no Accessibility (G28). `type_text` focuses the prompt + `startinsert` via RPC first (byte injection fires no OS focus events) |
+| window discovery | `wmctrl -l` | `pgrep -f "wezterm-gui.*$SOCK"` for the pid (G29); CGWindowID via an embedded Swift helper calling `CGWindowListCopyWindowInfo` by owner pid over ALL windows, largest area wins (G27) |
+| screenshot | `maim -i WID` | `screencapture -x -o -l <CGWindowID>`; needs **Screen Recording** (G27) — and the window on the ACTIVE Space, which no background CLI can arrange, so the test instance **self-fullscreens at launch** (G30) |
+| workspace isolation | `i3-msg workspace` | the generated `--config-file` fullscreens the test window onto its own Space (`gui-startup` + delayed `toggle_fullscreen`); cleanup kills the GUI and the Space vanishes |
+| launch / cleanup / RPC | `wezterm start --always-new-process`, pgrep-by-socket kill, `nvim --server` — identical | |
+
+**Permissions checklist (the macOS-specific part, G27).** Granted to the *host terminal app* (the app owning your shell) and takes effect only after that app **restarts**:
+- **Screen Recording** — required for `shot` *and* for the CGWindowID lookup. Probe: `screencapture -x -R0,0,50,50 /tmp/probe.png` (errors when denied; the window list silently hides other apps' windows when denied).
+- Accessibility is **not** needed: input goes through the mux socket, not System Events (G28).
+
+Degradation is deliberate and loud: without Screen Recording everything except `shot` still works — launch prints the remedy, `shot` SKIP/FAILs, and a tiny-file check rejects blank PNGs. Screenshots are also 2x pixels on Retina displays.
+
+**Templates (macOS):** `scripts/macos/gui_harness.sh`, `scripts/macos/gui_launch.sh`, `scripts/macos/gui_cleanup.sh`.
+
 ## Choosing a layer — quick guide
 
 - New pure function / store / parser → **unit**.
@@ -101,6 +121,7 @@ The `scripts/` directory holds **templates** — copy into `/tmp/<run>/`, fill t
 - `scripts/gui_harness.sh` — `source` this; gives `q`/`qlua`/`runlua`/`find_buf`/`send`/`normal`/`type_text`/`shot`/`check`/`wait_for` over the RPC socket. Lua goes through files (`:luafile`) to dodge shell-quoting hell.
 - `scripts/gui_launch.sh` — starts a **dedicated, full-screen** WezTerm+nvim (`--listen`) on its own i3 workspace so screenshots are large; remembers the user's workspace to restore later.
 - `scripts/gui_cleanup.sh` — kills *only* the test instance (matched by the socket string in the cmdline), never the user's wezterm/nvim; safe against G16.
+- `scripts/macos/` — the same three scripts for macOS (AppleScript keys, `screencapture`, no i3); see "Layer 3 on macOS" above for the permission checklist.
 - `scripts/makefile.snippet` — the `test`/`smoke` targets already in the repo `Makefile`, for reference when adding targets.
 
 A typical GUI run:
