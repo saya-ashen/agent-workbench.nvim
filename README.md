@@ -427,6 +427,13 @@ require("pi").setup({
         message = "Press <Esc> again to abort",
     },
 
+    -- Session tree navigation (:PiTree). Injects the bundled pi extension
+    -- (extensions/tree.ts) into every RPC process; requires a pi version
+    -- whose extension API exposes ctx.navigateTree.
+    tree = {
+        enabled = true,
+    },
+
     -- Selects, confirmation dialogs
     dialog = {
         border = "rounded",
