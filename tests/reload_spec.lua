@@ -3,6 +3,13 @@
 describe("pi.reload", function()
   local Reload
 
+  --- macOS resolves tempdir symlinks (/tmp → /private/tmp) in buffer names,
+  --- while the /tmp literals below are not resolved. Normalize after creating
+  --- the file so assertions match the buffer name.
+  local function realpath(path)
+    return vim.uv.fs_realpath(path) or path
+  end
+
   before_each(function()
     package.loaded["pi.reload"] = nil
     package.loaded["pi.config"] = nil
@@ -13,7 +20,7 @@ describe("pi.reload", function()
     -- Clean up any test buffers created
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       local name = vim.api.nvim_buf_get_name(buf)
-      if name:find("/tmp/pi_reload_test", 1, true) then
+      if name:find("pi_reload_test", 1, true) then
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
       end
     end
@@ -25,6 +32,7 @@ describe("pi.reload", function()
       local f = io.open(path, "w")
       f:write("original")
       f:close()
+      path = realpath(path)
 
       vim.cmd("silent edit " .. path)
       local buf = vim.fn.bufnr(path)
@@ -52,6 +60,7 @@ describe("pi.reload", function()
       local f = io.open(path, "w")
       f:write("original")
       f:close()
+      path = realpath(path)
 
       vim.cmd("silent edit " .. path)
       local buf = vim.fn.bufnr(path)
@@ -82,6 +91,34 @@ describe("pi.reload", function()
       assert.are.same({}, result.skipped)
     end)
 
+    it("matches a buffer whose name resolved a symlink in the reported path", function()
+      -- Neovim resolves symlinks in buffer names (/tmp → /private/tmp on
+      -- macOS); pi may report the unresolved form. reload_buffers must match
+      -- both sides by canonical path and echo the raw path back.
+      local raw = "/tmp/pi_reload_test_symlink.txt"
+      local f = io.open(raw, "w")
+      f:write("original")
+      f:close()
+      local resolved = realpath(raw)
+
+      vim.cmd("silent edit " .. raw)
+      local buf = vim.fn.bufnr(resolved)
+      assert.are.equal(resolved, vim.api.nvim_buf_get_name(buf))
+
+      f = io.open(raw, "w")
+      f:write("changed")
+      f:close()
+
+      local result = Reload.reload_buffers { raw }
+      assert.are.same({ raw }, result.reloaded)
+      assert.are.same({}, result.skipped)
+
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      assert.are.equal("changed", lines[1])
+
+      os.remove(raw)
+    end)
+
     it("handles multiple paths independently", function()
       local path_a = "/tmp/pi_reload_test_c1.txt"
       local path_b = "/tmp/pi_reload_test_c2.txt"
@@ -92,6 +129,8 @@ describe("pi.reload", function()
         f:close()
         vim.cmd("silent edit " .. p)
       end
+      path_a = realpath(path_a)
+      path_b = realpath(path_b)
 
       -- Modify path_a on disk; leave path_b's buffer modified by user
       local f = io.open(path_a, "w")
@@ -118,6 +157,7 @@ describe("pi.reload", function()
       local f = io.open(path, "w")
       f:write("original")
       f:close()
+      path = realpath(path)
       vim.cmd("silent edit " .. path)
 
       f = io.open(path, "w")
@@ -141,6 +181,7 @@ describe("pi.reload", function()
       local f = io.open(path, "w")
       f:write("original")
       f:close()
+      path = realpath(path)
       vim.cmd("silent edit " .. path)
 
       f = io.open(path, "w")

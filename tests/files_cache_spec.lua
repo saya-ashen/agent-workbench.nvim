@@ -16,7 +16,10 @@ describe("files cache", function()
             vim.fn.writefile({ "x" }, d .. "/" .. f)
         end
         vim.cmd("cd " .. vim.fn.fnameescape(d))
-        return d
+        -- getcwd() resolves macOS tempdir symlinks (/var → /private/var),
+        -- tempname() does not; the cache keys on getcwd(), so hand the
+        -- resolved form back to the specs.
+        return vim.fn.getcwd()
     end
 
     --- Wait until cond() is true, pumping the event loop (so uv callbacks
@@ -131,6 +134,7 @@ describe("files cache", function()
         vim.system({ "git", "init", "-q", dir2 }):wait()
         vim.fn.writefile({ "x" }, dir2 .. "/c.txt")
         vim.cmd("cd " .. vim.fn.fnameescape(dir2))
+        dir2 = vim.fn.getcwd() -- resolved, same form the cache keys on
 
         local files = FilesCache.list()
         assert.same({ "c.txt" }, files)
