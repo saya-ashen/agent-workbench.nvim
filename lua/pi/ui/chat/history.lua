@@ -239,6 +239,7 @@ local function reanchor_end_extmark(history, block, footer_row)
         id = block.end_extmark,
         end_col = #line,
         hl_group = block.end_hl_group,
+        line_hl_group = "PiToolBody",
     })
 end
 
@@ -1143,7 +1144,7 @@ function History:_set_thinking_preview(row, text, virt_id)
     end
     local line = vim.api.nvim_buf_get_lines(self._buf, row, row + 1, false)[1] or ""
     local opts = {
-        virt_text = { { "  " .. text, "PiThinking" } },
+        virt_text = { { "  " .. text, "PiThinkingPreview" } },
         virt_text_pos = "eol",
     }
     if virt_id then
@@ -2339,6 +2340,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         local lines = cur == "" and { header } or { "", header }
         local start = self:_append_lines(lines)
         local header_row = lines[1] == "" and start + 1 or start
+        Tools.set_line_bg(self, header_row)
 
         local icon_start = #fold
         -- Fold indicator highlight
@@ -2518,6 +2520,7 @@ function History:on_tool_end(tool_name, tool_call_id, result, is_error)
         local footer_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, start, 0, {
             end_col = #footer,
             hl_group = footer_hl,
+            line_hl_group = "PiToolBody",
         })
 
         if block then
@@ -3084,13 +3087,16 @@ function History:on_bash_start(id, command, exclude_from_context)
         local lines = cur == "" and { header } or { "", header }
         local start = self:_append_lines(lines)
         local header_row = lines[1] == "" and start + 1 or start
+        Tools.set_line_bg(self, header_row)
 
         vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {
             end_col = #fold,
             hl_group = "PiToolBorder",
         })
-        -- Excluded-from-context commands (!!) render dim, like the TUI's dim border.
-        local header_hl = exclude_from_context and "PiToolCall" or "PiBashHeader"
+        -- Excluded-from-context commands (!!) render dim, like the TUI's dim
+        -- border. PiToolCall is the main body level now (normal text color), so
+        -- the dim header borrows the border group instead to stay receded.
+        local header_hl = exclude_from_context and "PiToolBorder" or "PiBashHeader"
         vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, #fold, {
             end_col = #header,
             hl_group = header_hl,
@@ -3126,7 +3132,13 @@ function History:on_bash_start(id, command, exclude_from_context)
             header_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, header_row, 0, {}),
             inner_offset = #cmd_lines,
             spinner_extmark = spinner_virt,
-            end_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, footer_row, 0, { right_gravity = true }),
+            end_extmark = vim.api.nvim_buf_set_extmark(
+                self._buf,
+                ns,
+                footer_row,
+                0,
+                { right_gravity = true, line_hl_group = "PiToolBody" }
+            ),
             partial = "",
             partial_rendered = false,
             rendered_lines = 0,
