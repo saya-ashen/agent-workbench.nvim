@@ -282,7 +282,6 @@ function M._navigate(session, item, mode, instructions)
             if item.editor_text then
                 session.chat:_set_prompt_draft(item.editor_text)
             end
-            Notify.info("Navigated to selected point")
         end)
     end)
     if not sent then
