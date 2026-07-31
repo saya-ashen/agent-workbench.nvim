@@ -776,10 +776,6 @@ function Chat:flush_compaction_queue(will_retry)
     end
 end
 
---- Send the current prompt contents as a message.
---- When queue_type is set, the message is added to the pending queue (virtual text)
---- instead of the chat history. It moves to the history when `message_start` arrives.
----@param queue_type "steer"|"follow_up"|nil
 --- Get the prompt-history store for this chat, honoring config. Returns nil
 --- when history is disabled so callers can no-op.
 ---@return pi.PromptHistoryStore?
@@ -872,6 +868,10 @@ function Chat:goto_path_at_cursor()
     return self._history:goto_path_at_cursor()
 end
 
+--- Send the current prompt contents as a message.
+--- When queue_type is set, the message is added to the pending queue (virtual text)
+--- instead of the chat history. It moves to the history when `message_start` arrives.
+---@param queue_type "steer"|"follow_up"|nil
 function Chat:_send_message(queue_type)
     local text = self._prompt:text()
 
@@ -988,7 +988,7 @@ function Chat:_send_bash(raw_text, command, exclude)
         end)
     end)
     if not sent then
-        self:_on_bash_response(req_id, { success = false, error = "Process not running" })
+        self:_on_bash_response(req_id, { type = "response", success = false, error = "Process not running" })
     end
 end
 

@@ -83,6 +83,7 @@ History._stream_flush_ms = 30
 ---@field live_update_line_count? integer number of live partial output rows
 ---@field output_extmark? integer
 ---@field end_extmark? integer
+---@field end_hl_group? string highlight applied to the block's end/border row
 ---@field tool_input? table
 ---@field inline? boolean
 ---@field finished? boolean
@@ -97,6 +98,8 @@ History._stream_flush_ms = 30
 ---@field anchor integer
 ---@field start_time number
 ---@field buf_lines integer
+---@field virt_id? integer extmark id of the streaming thinking preview
+---@field header_text? string rendered header text of the thinking block
 
 ---@class pi.ThinkingBlock
 ---@field header string
@@ -104,6 +107,7 @@ History._stream_flush_ms = 30
 ---@field anchor integer
 ---@field line_count integer
 ---@field visible boolean
+---@field expanded? boolean
 
 ---@class pi.CompactionBlock
 ---@field summary string
@@ -1561,7 +1565,7 @@ function History:on_text_delta(delta)
 end
 
 ---@param done_verb? string
----@param opts? { force_completion?: boolean }
+---@param opts? { force_completion?: boolean, stop_reason?: string }
 function History:on_agent_end(done_verb, opts)
     self:_seal_stream_text()
     vim.schedule(function()

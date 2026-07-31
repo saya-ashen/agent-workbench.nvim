@@ -118,6 +118,7 @@
 
 ---@class pi.StatusLineLayout
 ---@field left pi.StatusLineItem[] Built-in names, literal separators, or custom components
+---@field center? pi.StatusLineItem[] Built-in names, literal separators, or custom components
 ---@field right pi.StatusLineItem[] Built-in names, literal separators, or custom components
 
 ---@class pi.StatusLineComponentConfig
@@ -427,6 +428,7 @@ M.options = vim.deepcopy(defaults)
 
 ---@param opts? pi.Options
 function M.setup(opts)
+    ---@diagnostic disable-next-line: undefined-field -- `bin` was removed; read only to raise a helpful error
     if opts and opts.bin ~= nil then
         error("pi.nvim: `bin` was removed; use `cli = { bin = ... }`", 2)
     end

@@ -8,10 +8,6 @@ local M = {}
 ---@field reloaded string[] Paths whose buffers were reloaded silently.
 ---@field skipped string[] Paths whose buffers were skipped (modified by user).
 
---- Reload all loaded, unmodified buffers whose file matches any of the given paths.
---- Modified buffers are never touched. Returns a summary of what happened.
----@param paths string[] Absolute or relative file paths that pi just modified.
----@return pi.ReloadResult
 --- Canonicalize a path for buffer matching: absolute with symlinks resolved.
 --- Neovim buffer names are always symlink-resolved, while paths reported by
 --- pi may not be (e.g. a cwd under /tmp on macOS, where /tmp → /private/tmp).
@@ -24,6 +20,10 @@ local function canonical(path)
     return vim.uv.fs_realpath(abs) or abs
 end
 
+--- Reload all loaded, unmodified buffers whose file matches any of the given paths.
+--- Modified buffers are never touched. Returns a summary of what happened.
+---@param paths string[] Absolute or relative file paths that pi just modified.
+---@return pi.ReloadResult
 function M.reload_buffers(paths)
     ---@type string[]
     local reloaded = {}
