@@ -77,12 +77,14 @@ end
 ---@param input_mime string
 ---@return string format "jpeg"|"png"|"webp"
 function M._resolve_format(cfg, tool, input_mime)
-    local format = cfg.format
+    local format = cfg.format or "keep"
     if format ~= "jpeg" and format ~= "png" and format ~= "webp" and format ~= "keep" then
         format = "keep"
     end
     if format == "keep" or (format == "webp" and tool == "sips") then
-        return MIME_TO_FORMAT[input_mime]
+        -- Callers guard with M.supported(input_mime), so the mime is always a known
+        -- image type and this lookup never misses; the cast states that invariant.
+        return MIME_TO_FORMAT[input_mime] --[[@as string]]
     end
     return format
 end
