@@ -41,9 +41,13 @@ describe("stream coalescing", function()
     before_each(function()
         saved_flush_ms = History._stream_flush_ms
         History._stream_flush_ms = 1
+        Config.options.render = { engine = "builtin" }
+        require("pi.ui.render")._reset()
     end)
     after_each(function()
         History._stream_flush_ms = saved_flush_ms
+        Config.options.render = { engine = "builtin" }
+        require("pi.ui.render")._reset()
     end)
 
     it("keeps the agent label above the first text when the block opens lazily", function()

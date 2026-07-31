@@ -76,7 +76,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 - **Redesigned tool & thinking blocks.** Fold indicators (`▾`/`▸`) plus indentation replace box-drawing borders; successful tool calls end silently; running tools show an animated spinner. Thinking renders as a single header line with a rolling preview that freezes to a head summary; `<Tab>` expands/collapses it.
 - **Status line in the prompt.** The busy spinner (with elapsed time and thinking state), the pending-queue count, and the abort hint/confirmation live in a configurable status line pinned to the bottom of the prompt window — always visible, regardless of how far you scroll the history. The queue *preview* rows stay at the end of the history.
-- **Opt-in `render-markdown.nvim` engine.** `render.engine = "render-markdown"` renders the history through render-markdown.nvim, with tool output fenced to avoid markdown misparsing. The default remains the builtin engine.
+- **`render-markdown.nvim` engine (default).** By default the history is rendered through render-markdown.nvim, with tool output fenced to avoid markdown misparsing. Set `render.engine = "builtin"` to use the treesitter + custom-drawing engine instead.
 
 **Navigation & layout**
 
@@ -197,13 +197,13 @@ https://github.com/user-attachments/assets/f210246a-2427-4fdb-b679-eeb6ceae4538
 
 - Neovim 0.10+
 - `pi` in `$PATH`
+- [`MeanderingProgrammer/render-markdown.nvim`](https://github.com/MeanderingProgrammer/render-markdown.nvim) for the default chat-history renderer (`render.engine = "render-markdown"`)
 
 Optional but useful:
 
 - `nvim-treesitter` markdown parser for nicer chat history highlighting
 - [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:PiPasteImage`
 - `blink.cmp` if you want popup completion in the π prompt buffer
-- [`MeanderingProgrammer/render-markdown.nvim`](https://github.com/MeanderingProgrammer/render-markdown.nvim) for `render.engine = "render-markdown"`
 
 Run `:checkhealth pi` to verify.
 
@@ -212,7 +212,11 @@ Run `:checkhealth pi` to verify.
 ### vim.pack
 
 ```lua
-vim.pack.add({ "https://github.com/zgs225/pi2.nvim" })
+vim.pack.add({
+    "https://github.com/zgs225/pi2.nvim",
+    -- Default chat-history renderer (render.engine = "render-markdown"):
+    "https://github.com/MeanderingProgrammer/render-markdown.nvim",
+})
 
 -- if you're fine with defaults:
 require("pi").setup()
@@ -230,8 +234,13 @@ require("pi").setup({
 {
     "zgs225/pi2.nvim",
 
-    -- Optional: required only for `:PiPasteImage` (clipboard image paste).
-    dependencies = { "HakonHarnes/img-clip.nvim" },
+    -- render-markdown.nvim powers the default chat-history renderer
+    -- (render.engine = "render-markdown"); img-clip.nvim is optional and
+    -- required only for `:PiPasteImage` (clipboard image paste).
+    dependencies = {
+        "MeanderingProgrammer/render-markdown.nvim",
+        "HakonHarnes/img-clip.nvim",
+    },
 
     -- if you're fine with defaults:
     config = true,
@@ -515,9 +524,9 @@ require("pi").setup({
 
     -- Markdown rendering of the chat history.
     render = {
-        -- "builtin" (treesitter + custom drawing) or "render-markdown"
-        -- (delegates to render-markdown.nvim, an optional dependency).
-        engine = "builtin",
+        -- "render-markdown" (default, delegates to render-markdown.nvim)
+        -- or "builtin" (treesitter + custom drawing).
+        engine = "render-markdown",
     },
 
     -- Verb pairs for status messages, picked randomly per run.
@@ -1780,19 +1789,19 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 
 ### Markdown rendering
 
-By default the chat history uses pi's **builtin** renderer: treesitter markdown highlights plus custom drawing for tables, message labels and tool blocks. For a richer presentation — rendered headings, list bullets, code-block chrome, links — pi can optionally delegate to [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim):
+By default the chat history is rendered through [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim): rendered headings, list bullets, code-block chrome and links. Tool output is fenced so shell content is not misparsed as markdown. If you prefer pi's original **builtin** renderer — treesitter markdown highlights plus custom drawing for tables, message labels and tool blocks — opt out:
 
 ```lua
 require("pi").setup({
     render = {
-        engine = "render-markdown", -- default: "builtin"
+        engine = "builtin", -- default: "render-markdown"
     },
 })
 ```
 
 Notes:
 
-- render-markdown.nvim is an **optional** dependency; add it to your plugin spec yourself. If `engine = "render-markdown"` is set but the plugin is missing, pi warns once and falls back to the builtin renderer.
+- render-markdown.nvim is a dependency of the default renderer; add it to your plugin spec (see [Installation](#installation)). If `engine = "render-markdown"` is active but the plugin is missing, pi warns once and falls back to the builtin renderer.
 - pi only appends its `pi-chat-history` filetype to render-markdown's active `file_types`; your existing render-markdown configuration is left untouched.
 - render-markdown drives the rendering through its standard event hooks, so it stays in sync as the agent streams. The `markdown`/`markdown_inline` treesitter parsers it needs ship with Neovim ≥ 0.10.
 

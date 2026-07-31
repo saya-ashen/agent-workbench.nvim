@@ -66,7 +66,7 @@
 ---@field enabled? boolean Persist the unsent prompt and restore it once after a restart (default: true)
 
 ---@class pi.RenderConfig
----@field engine? string Markdown renderer for the chat history: "builtin" (default, treesitter + custom extmarks) or "render-markdown" (requires render-markdown.nvim)
+---@field engine? string Markdown renderer for the chat history: "render-markdown" (default, requires render-markdown.nvim) or "builtin" (treesitter + custom extmarks)
 
 ---@class pi.DiffKeys
 ---@field accept pi.KeySpecs
@@ -416,7 +416,7 @@ local defaults = {
         },
     },
     render = {
-        engine = "builtin",
+        engine = "render-markdown",
     },
     verbs = {
         use_defaults = true,
