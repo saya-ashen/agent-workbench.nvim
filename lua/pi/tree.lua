@@ -14,7 +14,10 @@ local Notify = require("pi.notify")
 
 ---@class pi.TreeItem
 ---@field id string entry id
----@field depth integer visible depth (skipped entries do not add depth)
+---@field depth integer branch depth: the number of forks (multi-child nodes) above
+---  this entry, not its position in the conversation. A linear chain stays at
+---  depth 0 so long sessions remain readable in the picker instead of marching
+---  off the right edge.
 ---@field kind "user"|"assistant"|"summary"|"compaction"|"custom"
 ---@field text string single-line preview
 ---@field label? string resolved branch label
@@ -112,7 +115,14 @@ end
 
 --- Flatten the RPC tree into a display-ordered item list (DFS). Entries whose
 --- kind is nil are hidden but their children are still traversed, at the same
---- visible depth.
+--- depth.
+---
+--- Depth counts *branching*, not conversation length: descending into a node's
+--- children only adds a level when there is more than one child (a genuine fork
+--- with alternatives). A single child is just the conversation continuing, so it
+--- stays at the same depth. This keeps a long linear session flat and readable
+--- instead of indenting every message one more level and pushing the preview
+--- text off the edge of the picker.
 ---@param nodes pi.TreeRpcNode[]
 ---@param leaf_id string? current session leaf id
 ---@return pi.TreeItem[]
@@ -132,10 +142,14 @@ function M.flatten(nodes, leaf_id)
                 is_leaf = entry.id ~= nil and entry.id == leaf_id,
                 editor_text = M.editor_text(entry),
             }
-            depth = depth + 1
         end
-        for _, child in ipairs(node.children or {}) do
-            visit(child, depth)
+        local children = node.children or {}
+        local child_depth = depth
+        if #children > 1 then
+            child_depth = depth + 1
+        end
+        for _, child in ipairs(children) do
+            visit(child, child_depth)
         end
     end
     for _, node in ipairs(nodes or {}) do
@@ -156,15 +170,17 @@ function M.build_command(entry_id, mode, instructions)
     return "/tree " .. entry_id .. " " .. mode
 end
 
---- One-line picker label for an item.
+--- One-line picker label for an item. The branch label (if any) sits right after
+--- the [kind] tag, before the preview text, so it stays visible even when a long
+--- preview is truncated by the picker width.
 ---@param item pi.TreeItem
 ---@return string
 function M.format_item(item)
-    local indent = string.rep("  ", item.depth)
+    local indent = string.rep("  ", item.depth or 0)
     local leaf = item.is_leaf and "● " or "  "
-    local label = item.label and ("  ⚑ " .. item.label) or ""
+    local label = item.label and ("⚑ " .. item.label .. " ") or ""
     local text = item.text ~= "" and item.text or "(no text)"
-    return string.format("%s%s[%s] %s%s", indent, leaf, item.kind, text, label)
+    return string.format("%s%s[%s] %s%s", indent, leaf, item.kind, label, text)
 end
 
 ---@alias pi.TreeSummaryChoice "none"|"summary"|"custom"
