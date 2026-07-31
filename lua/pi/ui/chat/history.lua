@@ -83,6 +83,7 @@ History._stream_flush_ms = 30
 ---@field live_update_line_count? integer number of live partial output rows
 ---@field output_extmark? integer
 ---@field end_extmark? integer
+---@field end_hl_group? string highlight applied to the block's end/border row
 ---@field tool_input? table
 ---@field inline? boolean
 ---@field finished? boolean
@@ -97,6 +98,8 @@ History._stream_flush_ms = 30
 ---@field anchor integer
 ---@field start_time number
 ---@field buf_lines integer
+---@field virt_id? integer extmark id of the streaming thinking preview
+---@field header_text? string rendered header text of the thinking block
 
 ---@class pi.ThinkingBlock
 ---@field header string
@@ -104,6 +107,7 @@ History._stream_flush_ms = 30
 ---@field anchor integer
 ---@field line_count integer
 ---@field visible boolean
+---@field expanded? boolean
 
 ---@class pi.CompactionBlock
 ---@field summary string
@@ -946,18 +950,22 @@ function History:_ensure_stream_timer()
     end
     local timer = assert(vim.uv.new_timer())
     self._stream_timer = timer
-    timer:start(History._stream_flush_ms, 0, vim.schedule_wrap(function()
-        if self._stream_timer ~= timer then
-            return -- cleared while this callback was queued
-        end
-        self._stream_timer = nil
-        timer:stop()
-        timer:close()
-        self:_flush_stream()
-        if self:_has_deferred_stream() then
-            self:_ensure_stream_timer()
-        end
-    end))
+    timer:start(
+        History._stream_flush_ms,
+        0,
+        vim.schedule_wrap(function()
+            if self._stream_timer ~= timer then
+                return -- cleared while this callback was queued
+            end
+            self._stream_timer = nil
+            timer:stop()
+            timer:close()
+            self:_flush_stream()
+            if self:_has_deferred_stream() then
+                self:_ensure_stream_timer()
+            end
+        end)
+    )
 end
 
 --- Drain all pending streamed content. Synchronous; called from the flush
@@ -1006,8 +1014,7 @@ function History:_flush_stream_thinking()
         local flat = Text.thinking_flat(self._thinking_accum.lines)
         local pw = self:_thinking_preview_width(self._thinking_accum.header_text or "")
         local preview = Text.thinking_tail(flat, pw)
-        self._thinking_accum.virt_id =
-            self:_set_thinking_preview(header_row, preview, self._thinking_accum.virt_id)
+        self._thinking_accum.virt_id = self:_set_thinking_preview(header_row, preview, self._thinking_accum.virt_id)
     end
     self:_update_status_extmark()
     self:_maybe_scroll()
@@ -1096,7 +1103,6 @@ function History:_insert_lines(row, lines_list)
     self:_maybe_scroll()
     return row, row + #lines_list
 end
-
 
 --- Available display columns for the single-line thinking preview.
 ---@return integer
@@ -1559,7 +1565,7 @@ function History:on_text_delta(delta)
 end
 
 ---@param done_verb? string
----@param opts? { force_completion?: boolean }
+---@param opts? { force_completion?: boolean, stop_reason?: string }
 function History:on_agent_end(done_verb, opts)
     self:_seal_stream_text()
     vim.schedule(function()
@@ -1612,7 +1618,8 @@ function History:on_agent_end(done_verb, opts)
         -- Attach completion as virtual text on the last non-empty prose line
         local last_line_idx = vim.api.nvim_buf_line_count(self._buf) - 1
         local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line_idx, last_line_idx + 1, false)[1] or ""
-        local win_width = self._win and vim.api.nvim_win_is_valid(self._win) and vim.api.nvim_win_get_width(self._win) or 80
+        local win_width = self._win and vim.api.nvim_win_is_valid(self._win) and vim.api.nvim_win_get_width(self._win)
+            or 80
         if last_text ~= "" and (#last_text + #suffix) < win_width then
             vim.api.nvim_buf_set_extmark(self._buf, ns, last_line_idx, #last_text, {
                 virt_text = { { suffix, completion_hl } },
@@ -2597,7 +2604,14 @@ function History:_maybe_collapse_tool(tool_call_id)
     self:_with_modifiable(function()
         local line = vim.api.nvim_buf_get_lines(self._buf, header_row, header_row + 1, false)[1] or ""
         if line:sub(1, #Tools.GLYPHS.FOLD_OPEN) == Tools.GLYPHS.FOLD_OPEN then
-            vim.api.nvim_buf_set_text(self._buf, header_row, 0, header_row, #Tools.GLYPHS.FOLD_OPEN, { Tools.GLYPHS.FOLD_CLOSE })
+            vim.api.nvim_buf_set_text(
+                self._buf,
+                header_row,
+                0,
+                header_row,
+                #Tools.GLYPHS.FOLD_OPEN,
+                { Tools.GLYPHS.FOLD_CLOSE }
+            )
         end
     end)
 end
@@ -2741,7 +2755,13 @@ function History:set_blocks_expanded(expanded)
                     end
                     local block_lines = self:_build_thinking_block(block.header, block.lines)
                     self:_with_modifiable(function()
-                        vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, block_lines)
+                        vim.api.nvim_buf_set_lines(
+                            self._buf,
+                            anchor_row,
+                            anchor_row + block.line_count,
+                            false,
+                            block_lines
+                        )
                     end)
                     self:_apply_thinking_hl(anchor_row + 1, #block_lines - 2)
                     block.line_count = #block_lines
@@ -2752,12 +2772,19 @@ function History:set_blocks_expanded(expanded)
                     local label = Config.options.labels.thinking
                     local header_text = label .. " " .. block.header
                     self:_with_modifiable(function()
-                        vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, { "", header_text })
+                        vim.api.nvim_buf_set_lines(
+                            self._buf,
+                            anchor_row,
+                            anchor_row + block.line_count,
+                            false,
+                            { "", header_text }
+                        )
                     end)
                     self:_apply_thinking_hl(anchor_row + 1, 1)
                     local flat = Text.thinking_flat(block.lines)
                     local pw = self:_thinking_preview_width(header_text)
-                    block.virt_id = self:_set_thinking_preview(anchor_row + 1, Text.thinking_head(flat, pw), block.virt_id)
+                    block.virt_id =
+                        self:_set_thinking_preview(anchor_row + 1, Text.thinking_head(flat, pw), block.virt_id)
                     block.line_count = 2
                     block.expanded = false
                     changed = true
@@ -3562,7 +3589,13 @@ function History:toggle_thinking_block()
                 local label = Config.options.labels.thinking
                 local header_text = label .. " " .. block.header
                 self:_with_modifiable(function()
-                    vim.api.nvim_buf_set_lines(self._buf, anchor_row, anchor_row + block.line_count, false, { "", header_text })
+                    vim.api.nvim_buf_set_lines(
+                        self._buf,
+                        anchor_row,
+                        anchor_row + block.line_count,
+                        false,
+                        { "", header_text }
+                    )
                 end)
                 self:_apply_thinking_hl(anchor_row + 1, 1)
                 local flat = Text.thinking_flat(block.lines)
@@ -3923,7 +3956,7 @@ function History:goto_path_at_cursor()
     if target then
         vim.api.nvim_set_current_win(target)
     else
-        vim.cmd "botright vsplit"
+        vim.cmd("botright vsplit")
     end
     vim.cmd("edit " .. vim.fn.fnameescape(abs))
     if lnum and lnum > 0 then

@@ -1,4 +1,4 @@
---- @-mention expansion and insertion.
+--- Expansion and insertion of @-mentions.
 
 local M = {}
 

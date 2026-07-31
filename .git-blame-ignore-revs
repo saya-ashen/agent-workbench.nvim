@@ -1,0 +1,10 @@
+# Commits listed here are ignored by `git blame` — they are pure formatting with
+# no semantic change, so blame should pass through them to the real author.
+#
+# Web blame on GitHub/Gitea honors this file automatically. For the CLI, opt in
+# once per clone with:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply stylua formatting (4-space, double quotes, 120 cols)
+652952ba08802b194a9a47e5220fc9272bbbfbbc

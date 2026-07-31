@@ -1,0 +1,12 @@
+# Formatting config for pi.nvim.
+#
+# The codebase uses 4-space indentation. This is NOT stylua's built-in default
+# (which is Tabs), so this file must exist — running a bare `stylua .` without
+# it would reindent the whole tree to tabs. See `make format` / `make style`.
+column_width = 120
+line_endings = "Unix"
+indent_type = "Spaces"
+indent_width = 4
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"
+collapse_simple_statement = "Never"

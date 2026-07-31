@@ -26,10 +26,7 @@ describe("files cache", function()
     --- and vim.schedule'd code run). Fails the test on timeout.
     ---@param cond fun(): boolean
     local function wait_for(cond)
-        assert.True(
-            vim.wait(3000, cond, 5),
-            "timed out waiting for condition"
-        )
+        assert.True(vim.wait(3000, cond, 5), "timed out waiting for condition")
     end
 
     before_each(function()

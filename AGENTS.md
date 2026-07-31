@@ -63,11 +63,12 @@ Key source files (under `$(npm root -g)/@earendil-works/pi-coding-agent/`):
 - **Scheduling**: any code touching Neovim UI from an RPC callback must be wrapped in `vim.schedule()`.
 - **Config access**: always go through `require("pi.config").options`, never cache config values at module load time.
 - **No globals**: all state lives in module-level locals or class fields.
-- **Formatting**: use stylua defaults (4-space indent for Lua).
+- **Formatting**: stylua, configured in `.stylua.toml` (4-space indent, double quotes, 120 cols). Run `make format` to apply and `make style` to check. stylua's built-in default indent is **Tabs**, so the config file pins Spaces — never run a bare `stylua .` without it.
 
 ## Verification
 
 - There **is** a test harness now: hermetic plenary unit tests (`make test`, specs in `tests/`) and a headless boot check (`make smoke`). For keymap / insert-mode / visual behavior there is also an xdotool+wmctrl+maim GUI-automation stack over the nvim RPC socket. The full playbook — when to use each layer, the pitfalls, the isolation recipe, and the gotchas — is in `.agents/skills/develop/` (see its `references/testing.md` and `references/gotchas.md`). Verify changes at the cheapest layer that can observe the behavior, and escalate to a GUI screenshot for anything visual.
+- Formatting and static checks are gated too: `make style` (stylua `--check`) and `make lint` (lua-language-server `--check` over `lua/`, config `.luarc.json`). Both run in CI and must stay green; `make lint` is environment-independent (bundled luv types only, no vim runtime dependency).
 - Reading files or reviewing diffs is not verification.
 - If a change can only be checked through interactive UI behavior, say so clearly instead of claiming success — or prove it with a GUI screenshot per the skill.
 - In the final report, state exactly what was verified and what could not be verified in this environment.

@@ -17,16 +17,18 @@ M.GLYPHS = {
 
 --- Per-tool nerd font icons (by codepoint so PUA glyphs never get lost in edits).
 --- Falls back to config.labels.tool when a tool is not listed.
-local nf = function(cp) return vim.fn.nr2char(cp, 1) end
+local nf = function(cp)
+    return vim.fn.nr2char(cp, 1)
+end
 ---@type table<string, string>
 local TOOL_ICONS = {
-    bash       = nf(0xE795), -- nf-dev-terminal
-    read       = nf(0xF0219), -- nf-md-file-document
-    edit       = nf(0xF03EB), -- nf-md-pencil
-    write      = nf(0xF0193), -- nf-md-content-save
-    grep       = nf(0xF0349), -- nf-md-magnify
-    glob       = nf(0xF024B), -- nf-md-folder
-    web_fetch  = nf(0xF0593), -- nf-md-web
+    bash = nf(0xE795), -- nf-dev-terminal
+    read = nf(0xF0219), -- nf-md-file-document
+    edit = nf(0xF03EB), -- nf-md-pencil
+    write = nf(0xF0193), -- nf-md-content-save
+    grep = nf(0xF0349), -- nf-md-magnify
+    glob = nf(0xF024B), -- nf-md-folder
+    web_fetch = nf(0xF0593), -- nf-md-web
     web_search = nf(0xF0349), -- nf-md-magnify
 }
 
@@ -671,10 +673,10 @@ function M.extract_tool_sections(history, block)
     if Render.engine() == "render-markdown" and #output_lines >= 2 then
         local first = output_lines[1]
         local last = output_lines[#output_lines]
-        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]" ) then
+        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then
             -- Strip opening fence (```lang) and closing fence (```)
             table.remove(output_lines, 1) -- opening fence
-            table.remove(output_lines)    -- closing fence (last element)
+            table.remove(output_lines) -- closing fence (last element)
         end
     end
 

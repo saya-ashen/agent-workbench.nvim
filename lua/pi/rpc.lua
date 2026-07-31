@@ -58,6 +58,7 @@
 ---| "get_available_models"
 ---| "set_session_name"
 ---| "extension_ui_response"
+---| "get_tree"
 
 ---@class pi.RpcImageContent
 ---@field type "image"

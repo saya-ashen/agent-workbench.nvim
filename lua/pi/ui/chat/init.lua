@@ -619,9 +619,13 @@ function Chat:_handle_abort_esc()
     end
     local timeout = cfg.timeout or 1500
     self._abort_esc_timer = assert(vim.uv.new_timer())
-    self._abort_esc_timer:start(timeout, 0, vim.schedule_wrap(function()
-        self:_disarm_abort_esc()
-    end))
+    self._abort_esc_timer:start(
+        timeout,
+        0,
+        vim.schedule_wrap(function()
+            self:_disarm_abort_esc()
+        end)
+    )
     self:_sync_abort_hint()
 end
 
@@ -641,9 +645,13 @@ function Chat:_show_aborted_notice()
     self:_clear_aborted_notice()
     self._prompt:statusline():set_aborted_notice("Aborted")
     self._aborted_notice_timer = assert(vim.uv.new_timer())
-    self._aborted_notice_timer:start(2000, 0, vim.schedule_wrap(function()
-        self:_clear_aborted_notice()
-    end))
+    self._aborted_notice_timer:start(
+        2000,
+        0,
+        vim.schedule_wrap(function()
+            self:_clear_aborted_notice()
+        end)
+    )
 end
 
 ---@return boolean
@@ -768,10 +776,6 @@ function Chat:flush_compaction_queue(will_retry)
     end
 end
 
---- Send the current prompt contents as a message.
---- When queue_type is set, the message is added to the pending queue (virtual text)
---- instead of the chat history. It moves to the history when `message_start` arrives.
----@param queue_type "steer"|"follow_up"|nil
 --- Get the prompt-history store for this chat, honoring config. Returns nil
 --- when history is disabled so callers can no-op.
 ---@return pi.PromptHistoryStore?
@@ -864,6 +868,10 @@ function Chat:goto_path_at_cursor()
     return self._history:goto_path_at_cursor()
 end
 
+--- Send the current prompt contents as a message.
+--- When queue_type is set, the message is added to the pending queue (virtual text)
+--- instead of the chat history. It moves to the history when `message_start` arrives.
+---@param queue_type "steer"|"follow_up"|nil
 function Chat:_send_message(queue_type)
     local text = self._prompt:text()
 
@@ -980,7 +988,7 @@ function Chat:_send_bash(raw_text, command, exclude)
         end)
     end)
     if not sent then
-        self:_on_bash_response(req_id, { success = false, error = "Process not running" })
+        self:_on_bash_response(req_id, { type = "response", success = false, error = "Process not running" })
     end
 end
 
