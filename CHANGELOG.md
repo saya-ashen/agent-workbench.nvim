@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-02
+
+- **ADDED:** Dedicated history renderers for the four [pi-web-access](https://github.com/nicobailon/pi-web-access) tools (`web_search`, `fetch_content`, `source_check`, `get_search_content`), which previously fell through to the default renderer. Each now gets its own nerd-font icon (web / shield-check / database-search; `web_search` keeps its magnifier) and a deterministic input summary line: the `query` or up to three `queries` joined with ` · ` (longer lists truncate as `…(+N)`), the `url` or each `urls` entry on its own line, the `claim`, and `responseId` plus whichever selector is present (`query` / `queryIndex` / `url` / `urlIndex`) — instead of the default renderer's unordered first-string pick. Collapse thresholds match the default (1/1), so their characteristically long outputs (search answers, full-page markdown, check artifacts, content slices) auto-collapse with `<Tab>` expand, same as before. Tools from other extensions and all existing renderers are unaffected (#51).
+
 ## 2026-08-01
 
 - **CHANGED:** The chat history is now rendered through [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) by default (`render.engine = "render-markdown"`), giving rendered headings, list bullets, code-block chrome and links out of the box; tool output stays fenced so shell content is not misparsed as markdown. render-markdown.nvim is therefore now a dependency of the default setup (add it to your plugin spec — see the README install examples). Set `render.engine = "builtin"` to keep the previous treesitter + custom-drawing renderer. If the default engine is active but render-markdown.nvim is not installed, pi warns once and falls back to the builtin renderer, so existing setups without the plugin keep working.
