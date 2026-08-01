@@ -30,6 +30,9 @@ local TOOL_ICONS = {
     glob = nf(0xF024B), -- nf-md-folder
     web_fetch = nf(0xF0593), -- nf-md-web
     web_search = nf(0xF0349), -- nf-md-magnify
+    fetch_content = nf(0xF059F), -- nf-md-web
+    source_check = nf(0xF0565), -- nf-md-shield-check
+    get_search_content = nf(0xF0866), -- nf-md-database-search
 }
 
 --- Get the nerd font icon for a tool name.
@@ -739,6 +742,20 @@ end
 
 --- Renderers ---
 
+--- Shared on_end for tools whose output is plain result text: render the
+--- extracted result text as output. Same behavior as default_renderer.on_end.
+---@param history pi.ChatHistory
+---@param result table?
+---@param insert_at integer?
+---@return integer?
+local function render_result_output(history, _, result, _, insert_at)
+    local text = extract_result_text(result)
+    if text and text ~= "" then
+        insert_at = render_output(history, text, insert_at)
+    end
+    return insert_at
+end
+
 ---@class pi.ToolRenderer
 ---@field on_start? fun(history: pi.ChatHistory, args: table?)
 ---@field on_end? fun(history: pi.ChatHistory, args: table?, result: table?, is_error: boolean?, insert_at: integer?): integer?
@@ -926,6 +943,102 @@ local renderers = {
             local path = args.path or args.file_path
             return render_diff(history, original, args.content, 0, path, insert_at)
         end,
+    },
+    -- pi-web-access extension tools: compact input summary + collapse
+    -- thresholds (long search answers / page content collapse by default);
+    -- output rendering matches default_renderer.
+    web_search = {
+        input_visible = 1,
+        output_visible = 1,
+        on_start = function(history, args)
+            if not args then
+                return
+            end
+            local query = args.query
+            if type(query) == "string" and query ~= "" then
+                render_body_line(history, query)
+                return
+            end
+            local queries = args.queries
+            if type(queries) == "table" and #queries > 0 then
+                local parts = {}
+                for i = 1, math.min(#queries, 3) do
+                    if type(queries[i]) == "string" and queries[i] ~= "" then
+                        parts[#parts + 1] = queries[i]
+                    end
+                end
+                if #parts > 0 then
+                    local line = table.concat(parts, " · ")
+                    if #queries > 3 then
+                        line = line .. " · …(+" .. (#queries - 3) .. ")"
+                    end
+                    render_body_line(history, line)
+                end
+            end
+        end,
+        on_end = render_result_output,
+    },
+    fetch_content = {
+        input_visible = 1,
+        output_visible = 1,
+        on_start = function(history, args)
+            if not args then
+                return
+            end
+            local url = args.url
+            if type(url) == "string" and url ~= "" then
+                render_body_line(history, url)
+                return
+            end
+            local urls = args.urls
+            if type(urls) == "table" then
+                for _, u in ipairs(urls) do
+                    if type(u) == "string" and u ~= "" then
+                        render_body_line(history, u)
+                    end
+                end
+            end
+        end,
+        on_end = render_result_output,
+    },
+    source_check = {
+        input_visible = 1,
+        output_visible = 1,
+        on_start = function(history, args)
+            if args and type(args.claim) == "string" and args.claim ~= "" then
+                render_body_line(history, args.claim)
+            end
+        end,
+        on_end = render_result_output,
+    },
+    get_search_content = {
+        input_visible = 1,
+        output_visible = 1,
+        on_start = function(history, args)
+            if not args then
+                return
+            end
+            local parts = {}
+            if type(args.responseId) == "string" and args.responseId ~= "" then
+                parts[#parts + 1] = args.responseId
+            end
+            if type(args.query) == "string" and args.query ~= "" then
+                parts[#parts + 1] = args.query
+            end
+            if type(args.queryIndex) == "number" then
+                parts[#parts + 1] = "queryIndex " .. args.queryIndex
+            end
+            if type(args.url) == "string" and args.url ~= "" then
+                parts[#parts + 1] = args.url
+            end
+            if type(args.urlIndex) == "number" then
+                parts[#parts + 1] = "urlIndex " .. args.urlIndex
+            end
+            if #parts > 0 then
+                render_body_line(history, table.concat(parts, " · "))
+            end
+        end,
+        on_end = render_result_output,
     },
 }
 
