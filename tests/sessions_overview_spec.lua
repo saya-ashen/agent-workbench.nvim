@@ -70,9 +70,13 @@ describe("sessions overview", function()
             assert.are.equal("● Working…", text)
         end)
 
-        it("shows a marker for idle and exited", function()
-            assert.are.equal("○ idle", SessionList.status_text({ status = "idle" }))
-            assert.are.equal("✕ exited", SessionList.status_text({ status = "exited" }))
+        it("shows icon-only markers for compacting, idle and exited", function()
+            assert.are.equal("○", SessionList.status_text({ status = "idle" }))
+            assert.are.equal("✕", SessionList.status_text({ status = "exited" }))
+            assert.are.equal(
+                vim.trim(require("pi.config").options.labels.compaction),
+                SessionList.status_text({ status = "compacting" })
+            )
         end)
     end)
 

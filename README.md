@@ -1911,7 +1911,7 @@ Requires a pi version whose extension API exposes `ctx.navigateTree` — on olde
 When you run several sessions across tabs, `:PiSessions` gives you a single dashboard of everything that is live. It lists **active sessions only** (one per Neovim tab) with:
 
 - the **tab number** the session lives in,
-- the **status**: the busy verb while the agent works (`● Cooking…`), the compaction marker while it compacts, `○ idle` when waiting for input, `✕ exited` if the process died — plus the pending-attention count (`󰵚 2`) when the session has queued extension requests,
+- the **status**: the busy verb while the agent works (`● Cooking…`), the compaction icon while it compacts, `○` when waiting for input, `✕` if the process died — plus the pending-attention count (`󰵚 2`) when the session has queued extension requests,
 - the **session name**: the backend session name (`:PiSessionName`), falling back to the first user message, then `(unnamed)`.
 
 The list is a single shared buffer: every tab that opens it gets its own window on the same buffer, so a status change redraws all open views at once. Updates are event-driven (agent start/end, compaction, session creation/teardown, attention requests, name changes) — nothing polls.

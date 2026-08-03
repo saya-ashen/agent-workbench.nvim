@@ -94,18 +94,19 @@ function M.status_of(session)
     return "idle"
 end
 
---- Status column text for a row.
+--- Status column text for a row. The state itself is an icon; a busy row
+--- additionally carries the active verb.
 ---@param row pi.SessionsListRow
 ---@return string
 function M.status_text(row)
     if row.status == "busy" then
         return "● " .. (row.verb or "Working") .. "…"
     elseif row.status == "compacting" then
-        return Config.options.labels.compaction .. " Compacting…"
+        return Config.options.labels.compaction
     elseif row.status == "exited" then
-        return "✕ exited"
+        return "✕"
     end
-    return "○ idle"
+    return "○"
 end
 
 --- Highlight group for a row's status text.
@@ -360,6 +361,7 @@ local function ensure_buf()
         return buf
     end
     buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(buf, "pi://sessions")
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "hide"
     vim.bo[buf].swapfile = false
@@ -533,6 +535,9 @@ end
 
 --- Test hook: drop all module state.
 function M._reset()
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
     buf = nil
     wins = {}
     rows = {}
