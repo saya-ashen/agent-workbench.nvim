@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-03
+
+- **ADDED:** `:PiSessions` / `pi.sessions()` — a live, read-only overview of all active π sessions (one per Neovim tab). Each row shows the tab number, the session's status (the busy verb while the agent works, a compaction marker, `○ idle`, or `✕ exited`, plus the pending-attention count when extension requests are queued), and the session name — the backend session name set via `:PiSessionName`, falling back to the first user message, then `(unnamed)`. The list is a single shared buffer: every tab that opens it gets its own window on the same buffer, so one redraw updates every open view at once. Updates are event-driven (agent start/end, compaction, session create/teardown, attention requests, and `session_info_changed` name changes) — nothing polls. Keys: `<CR>`/`o` jump to a session's tab and open its chat, `r` re-fetches names, `q` closes. Window placement follows the current tab's chat layout (side split or centered float) and is configurable via the new `sessions_list` config (`position`, `width`, `height`, `float`) (#54).
+
+
 ## 2026-08-02
 
 - **ADDED:** Dedicated history renderers for the four [pi-web-access](https://github.com/nicobailon/pi-web-access) tools (`web_search`, `fetch_content`, `source_check`, `get_search_content`), which previously fell through to the default renderer. Each now gets its own nerd-font icon (web / shield-check / database-search; `web_search` keeps its magnifier) and a deterministic input summary line: the `query` or up to three `queries` joined with ` · ` (longer lists truncate as `…(+N)`), the `url` or each `urls` entry on its own line, the `claim`, and `responseId` plus whichever selector is present (`query` / `queryIndex` / `url` / `urlIndex`) — instead of the default renderer's unordered first-string pick. Collapse thresholds match the default (1/1), so their characteristically long outputs (search answers, full-page markdown, check artifacts, content slices) auto-collapse with `<Tab>` expand, same as before. Tools from other extensions and all existing renderers are unaffected (#51).

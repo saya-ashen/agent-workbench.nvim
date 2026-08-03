@@ -184,6 +184,17 @@
 ---@class pi.TreeConfig
 ---@field enabled? boolean Enable :PiTree session-tree navigation (default: true). Injects the bundled pi extension (extensions/tree.ts) into every RPC process; requires a pi version whose extension API exposes ctx.navigateTree.
 
+---@class pi.SessionsListFloatConfig
+---@field width? number Width in columns (>=1) or fraction of editor width (<1, default 0.5)
+---@field height? number Height in lines (>=1) or fraction of editor height (<1, default 0.4)
+---@field border? string|string[] Float border style (default "rounded")
+
+---@class pi.SessionsListConfig
+---@field position? "left"|"right"|"top"|"bottom" Window placement in the side layout (default "left")
+---@field width? integer Window width for left/right placement in the side layout (default 40)
+---@field height? integer Window height for top/bottom placement in the side layout (default 12)
+---@field float pi.SessionsListFloatConfig Float window sizing when the current tab uses the float layout
+
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
 ---@field cancel? pi.KeySpecs
@@ -251,6 +262,7 @@
 ---@field quickfix pi.QuickfixConfig
 ---@field abort pi.AbortConfig
 ---@field tree pi.TreeConfig
+---@field sessions_list pi.SessionsListConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
 ---@field render pi.RenderConfig
@@ -377,6 +389,16 @@ local defaults = {
     },
     tree = {
         enabled = true,
+    },
+    sessions_list = {
+        position = "left",
+        width = 40,
+        height = 12,
+        float = {
+            width = 0.5,
+            height = 0.4,
+            border = "rounded",
+        },
     },
     dialog = {
         border = "rounded",

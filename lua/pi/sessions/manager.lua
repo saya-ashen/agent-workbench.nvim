@@ -74,14 +74,27 @@ end
 --- Events we've reviewed and deliberately choose not to handle.
 --- turn_start/turn_end: TUI doesn't handle them; lifecycle is fully
 --- covered by message_start / message_end / agent_end.
---- thinking_level_changed/session_info_changed: pi.nvim refreshes state
---- through command callbacks; these are redundant notifications.
+--- thinking_level_changed: pi.nvim refreshes state through command
+--- callbacks; this is a redundant notification.
 ---@type table<string, true>
 local ignored_events = {
     turn_start = true,
     turn_end = true,
     thinking_level_changed = true,
-    session_info_changed = true,
+}
+
+--- Lifecycle transitions the sessions overview (:PiSessions) tracks. The
+--- list module coalesces redraws and is a no-op while no list window is
+--- visible, so this stays cheap on the hot path.
+---@type table<string, true>
+local sessions_list_events = {
+    agent_start = true,
+    agent_end = true,
+    compaction_start = true,
+    compaction_end = true,
+    auto_compaction_start = true,
+    auto_compaction_end = true,
+    _process_exit = true,
 }
 
 ---@type fun(session: pi.Session, result: table, will_retry: boolean)?
@@ -229,6 +242,10 @@ local function handle_event(session, msg)
     local t = msg.type
     local chat = session.chat
 
+    if sessions_list_events[t] then
+        require("pi.ui.sessions").request_refresh()
+    end
+
     -- NOTE: This compaction-specific rebuild gate should become a small
     -- transaction helper if other session rebuild flows need event buffering.
     if session._compaction_rebuilding and t ~= "response" then
@@ -333,6 +350,8 @@ local function handle_event(session, msg)
         vim.schedule(function()
             Extension.handle(session, msg)
         end)
+    elseif t == "session_info_changed" then
+        require("pi.ui.sessions").on_session_info_changed(session, msg.name)
     elseif t == "extension_error" then
         local extension_path = type(msg.extensionPath) == "string" and msg.extensionPath or "unknown extension"
         local extension_event = type(msg.event) == "string" and msg.event or "unknown event"
@@ -496,6 +515,7 @@ function M.get_or_create(opts)
     end)
 
     sessions[tab] = session
+    require("pi.ui.sessions").request_refresh()
 
     -- Fetch available /commands for completion, highlighting, and system info
     fetch_commands_and_show_startup_block(session)
@@ -521,6 +541,7 @@ function M.stop()
     session.chat:clear()
 
     sessions[tab] = nil
+    require("pi.ui.sessions").request_refresh()
 end
 
 ---@param session pi.Session
@@ -552,6 +573,8 @@ local function start_new_session(session)
                     return
                 end
                 Attention.end_session_transition(session, true)
+                require("pi.ui.sessions").invalidate(session)
+                require("pi.ui.sessions").request_refresh()
                 session.startup_announcements = {}
                 session.system_errors = {}
                 session.changed_files = {}
@@ -833,6 +856,8 @@ local function load_session(session, session_path)
         end
 
         Attention.end_session_transition(session, true)
+        require("pi.ui.sessions").invalidate(session)
+        require("pi.ui.sessions").request_refresh()
         -- The resumed session's model was restored from its session file by
         -- core; adopt it as this tab's pin.
         refresh_state_and_pin(session)
@@ -1084,6 +1109,7 @@ function M.cleanup()
             Attention.clear_session(session)
             session.rpc:stop()
             sessions[tab] = nil
+            require("pi.ui.sessions").request_refresh()
         end
     end
 end

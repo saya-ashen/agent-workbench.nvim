@@ -204,6 +204,13 @@ function M.tree()
     require("pi.tree").open()
 end
 
+--- Toggle the sessions overview list (:PiSessions): a live list of all
+--- active sessions with their display name and status (busy/idle/attention).
+--- One shared buffer; each tab opens its own window on it.
+function M.sessions()
+    require("pi.ui.sessions").toggle()
+end
+
 --- Toggle thinking block visibility.
 function M.toggle_thinking()
     local session = require("pi.sessions.manager").get()
