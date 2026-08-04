@@ -84,11 +84,11 @@ describe("sessions overview", function()
         it("puts the dot at the left edge and the name right after it", function()
             local row = { tab = 1, status = "idle", attention = 0, name = "fix login" }
             local line, chunks = SessionList.format_line(row, 0)
-            assert.are.equal("● fix login", line)
+            assert.are.equal(" ● fix login", line)
             assert.are.equal(2, #chunks)
-            assert.are.equal(0, chunks[1][1])
+            assert.are.equal(1, chunks[1][1]) -- one-cell left margin before the dot
             assert.are.equal("●", line:sub(chunks[1][1] + 1, chunks[1][2]))
-            assert.are.equal(#"●" + 1, chunks[2][1])
+            assert.are.equal(1 + #"●" + 1, chunks[2][1])
             assert.are.equal("Normal", chunks[2][3])
         end)
 

@@ -94,12 +94,15 @@ end
 ---@return string line
 ---@return integer[][] chunks
 function M.format_line(row, tick)
+    local indent = " "
     local dot = "●"
     local name = row.name or "…"
-    local line = dot .. " " .. name
+    local line = indent .. dot .. " " .. name
+    local dot_start = #indent
+    local name_start = dot_start + #dot + 1
     local chunks = {
-        { 0, #dot, M.dot_hl(row, tick) },
-        { #dot + 1, #dot + 1 + #name, row.name and "Normal" or "PiSessionsListPending" },
+        { dot_start, dot_start + #dot, M.dot_hl(row, tick) },
+        { name_start, name_start + #name, row.name and "Normal" or "PiSessionsListPending" },
     }
     return line, chunks
 end
