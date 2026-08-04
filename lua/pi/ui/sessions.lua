@@ -87,7 +87,7 @@ function M.dot_hl(row, tick)
         return tick % 2 == 0 and "PiSessionsListDone" or "PiSessionsListDotDim"
     end
     if row.status == "busy" then
-        return tick % 2 == 0 and "PiBusy" or "PiSessionsListDotDim"
+        return tick % 2 == 0 and "PiSessionsListBusy" or "PiSessionsListDotDim"
     end
     if row.status == "compacting" then
         return math.floor(tick / 2) % 2 == 0 and "PiSessionsListCompacting" or "PiSessionsListDotDim"
@@ -334,6 +334,9 @@ local function ensure_blink()
     )
 end
 
+---@type fun()
+local refresh_current_markers
+
 --- Rebuild the buffer contents from live session state.
 function M._render()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
@@ -379,6 +382,8 @@ function M._render()
             pcall(vim.api.nvim_buf_set_extmark, buf, ns, lnum - 1, chunk[1], {
                 end_col = chunk[2],
                 hl_group = chunk[3],
+                -- below the window-local current-tab match (priority 20)
+                priority = 10,
             })
         end
     end
@@ -399,6 +404,48 @@ function M._render()
     end
 
     ensure_blink()
+    refresh_current_markers()
+end
+
+--- Window-local "you are here" marker: a background under the dot cell of the
+--- row whose session lives in the window's tab. The buffer is shared across
+--- tabs but matches are window-local, so every tab marks its own session.
+---@type table<integer, integer> matchaddpos id per list window
+local current_matches = {}
+
+refresh_current_markers = function()
+    for tab, win in pairs(wins) do
+        local old_id = current_matches[win]
+        if old_id and vim.api.nvim_win_is_valid(win) then
+            pcall(vim.fn.matchdelete, old_id, win)
+        end
+        current_matches[win] = nil
+        if vim.api.nvim_win_is_valid(win) then
+            for lnum, row in ipairs(rows) do
+                if row.tab == tab then
+                    -- Current-tab marker: the dot of the tab's own session
+                    -- renders steady in the agent color (no blink) whether
+                    -- idle or busy, overriding the buffer-level state color.
+                    -- Attention/done/error/exited keep their own colors.
+                    local markable = (row.status == "idle" or row.status == "busy")
+                        and row.attention == 0
+                        and not row.done
+                        and not row.error
+                    if markable then
+                        -- matchaddpos has no window arg on this Neovim; run it
+                        -- in the window's context.
+                        local ok, id = pcall(vim.api.nvim_win_call, win, function()
+                            return vim.fn.matchaddpos("PiSessionsListCurrent", { { lnum, 2, 3 } }, 20)
+                        end)
+                        if ok then
+                            current_matches[win] = id
+                        end
+                    end
+                    break
+                end
+            end
+        end
+    end
 end
 
 --- Coalesced live redraw; no-op unless a list window is visible.

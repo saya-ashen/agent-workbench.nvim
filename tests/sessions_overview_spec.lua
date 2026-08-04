@@ -62,7 +62,7 @@ describe("sessions overview", function()
     describe("dot_hl", function()
         it("blinks between the busy color and dim", function()
             local row = { status = "busy", attention = 0 }
-            assert.are.equal("PiBusy", SessionList.dot_hl(row, 0))
+            assert.are.equal("PiSessionsListBusy", SessionList.dot_hl(row, 0))
             assert.are.equal("PiSessionsListDotDim", SessionList.dot_hl(row, 1))
         end)
 
@@ -117,7 +117,7 @@ describe("sessions overview", function()
 
         it("colors the dot by status and tick", function()
             local _, chunks = SessionList.format_line({ tab = 1, status = "busy", attention = 0, name = "x" }, 0)
-            assert.are.equal("PiBusy", chunks[1][3])
+            assert.are.equal("PiSessionsListBusy", chunks[1][3])
             local _, chunks1 = SessionList.format_line({ tab = 1, status = "busy", attention = 0, name = "x" }, 1)
             assert.are.equal("PiSessionsListDotDim", chunks1[1][3])
         end)
