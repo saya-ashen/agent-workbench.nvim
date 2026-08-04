@@ -1521,7 +1521,6 @@ function History:on_agent_start(timestamp)
         self._first_delta = true
         self._agent_text_chunks = {}
         self._needs_separator = false
-        self._needs_breathing_line = false
         self._last_was_inline = false
         self:_pick_spinner()
         local icon = Config.options.labels.agent_response
@@ -1536,12 +1535,19 @@ function History:on_agent_start(timestamp)
         local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
         local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
         local ends_blank = last_text == ""
-        -- Two trailing blanks: one becomes the breathing line, one is consumed by _append_text
+        -- End the label block exactly like a tool block's end (#48): one
+        -- trailing blank + the breathing-line flag. A following text delta
+        -- prepends a newline in _render_text_deltas, so one blank remains
+        -- before the text; a following tool/bash/thinking block sees the
+        -- blank last line and adds none of its own. Previously the label
+        -- left two trailing blanks that only a text delta reused, so a
+        -- block follower rendered a two-line gap under the label.
+        self._needs_breathing_line = true
         local lines
         if turn_gap then
-            lines = ends_blank and { "", label_line, "", "" } or { "", "", label_line, "", "" }
+            lines = ends_blank and { "", label_line, "" } or { "", "", label_line, "" }
         else
-            lines = ends_blank and { label_line, "", "" } or { "", label_line, "", "" }
+            lines = ends_blank and { label_line, "" } or { "", label_line, "" }
         end
         local start = self:_append_lines(lines)
         local label_offset = turn_gap and (ends_blank and 1 or 2) or (ends_blank and 0 or 1)

@@ -2,6 +2,8 @@
 
 ## 2026-08-04
 
+- **FIXED:** The agent timestamp label no longer leaves a two-blank-line gap when the turn opens with a tool block, inline tool, or thinking block instead of streamed text — the label now ends with exactly one trailing blank line (the same rhythm text followers already had), so spacing under every timestamp line is uniform.
+
 - **ADDED:** `:PiSessions` marks the current tab's session on the dot itself: that dot renders steady in the agent color — no blink — whether idle or busy, while busy sessions in background tabs blink yellow. The buffer is shared across tabs but the marker is window-local, so each tab's list view points at its own session and follows tab switches; no new text or UI elements (#55).
 
 ## 2026-08-03
