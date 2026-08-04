@@ -263,6 +263,7 @@ require("pi").setup({
     opts = {
         models = { ... },
         layout = { ... },
+        sessions_list = { ... },
     },
 }
 ```
@@ -467,7 +468,9 @@ require("pi").setup({
     },
 
     -- Sessions overview (:PiSessions): a live list of all active sessions
-    -- (one per tab) with display name and busy/idle/attention status.
+    -- (one per tab) — a status dot whose color/animation encodes the state
+    -- (busy/compacting/attention/done/error/idle/exited) plus the session
+    -- name. See "Sessions overview (:PiSessions)" under Usage for details.
     sessions_list = {
         -- How the window opens: "side" | "float" explicitly, or "follow" the
         -- current tab's chat layout (default).
