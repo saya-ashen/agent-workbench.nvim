@@ -24,6 +24,8 @@ local ns = vim.api.nvim_create_namespace("pi-sessions-list")
 ---@field tab pi.TabId
 ---@field status pi.SessionsListStatus
 ---@field attention integer pending attention request count
+---@field done boolean last turn finished while the user was elsewhere
+---@field error boolean last turn failed and the user hasn't seen it yet
 ---@field name string? display name (nil while still fetching)
 
 ---@type integer? shared list buffer
@@ -75,8 +77,14 @@ function M.dot_hl(row, tick)
     if row.status == "exited" then
         return "PiSessionsListExited"
     end
+    if row.error then
+        return tick % 2 == 0 and "PiSessionsListError" or "PiSessionsListDotDim"
+    end
     if row.attention > 0 then
         return "PiStatusLineAttention"
+    end
+    if row.done then
+        return tick % 2 == 0 and "PiSessionsListDone" or "PiSessionsListDotDim"
     end
     if row.status == "busy" then
         return tick % 2 == 0 and "PiBusy" or "PiSessionsListDotDim"
@@ -111,19 +119,83 @@ end
 ---@param sessions pi.Session[]
 ---@param attention_count fun(tab: pi.TabId): integer
 ---@param name_of fun(session: pi.Session): string?
+---@param flags_of? fun(session: pi.Session): { done: boolean, error: boolean }
 ---@return pi.SessionsListRow[]
-function M.build_rows(sessions, attention_count, name_of)
+function M.build_rows(sessions, attention_count, name_of, flags_of)
     ---@type pi.SessionsListRow[]
     local out = {}
     for _, session in ipairs(sessions) do
+        local f = flags_of and flags_of(session) or nil
         out[#out + 1] = {
             tab = session.tab,
             status = M.status_of(session),
             attention = attention_count(session.tab) or 0,
+            done = f ~= nil and f.done == true,
+            error = f ~= nil and f.error == true,
             name = name_of(session),
         }
     end
     return out
+end
+
+-- Turn flags (done / error) -----------------------------------------------------
+
+--- Per-session turn flags, weak-keyed like the name cache.
+---   done:  the agent finished a turn while the session's tab was not current;
+---          cleared when the user enters the tab (or a new turn starts).
+---   error: the last turn failed; cleared the same way.
+---@type table<pi.Session, { done: boolean, error: boolean }>
+local flags = setmetatable({}, { __mode = "k" })
+
+---@param session pi.Session
+---@return { done: boolean, error: boolean }
+local function session_flags(session)
+    local f = flags[session]
+    if not f then
+        f = { done = false, error = false }
+        flags[session] = f
+    end
+    return f
+end
+
+--- A new turn starts: the user is about to see fresh activity, so both
+--- notifications are consumed.
+---@param session pi.Session
+function M.on_agent_start(session)
+    local f = session_flags(session)
+    f.done = false
+    f.error = false
+end
+
+--- The turn failed (stopReason error, retry exhausted, async prompt error,
+--- compaction error). Blinks red until the user looks at the tab.
+---@param session pi.Session
+function M.mark_error(session)
+    session_flags(session).error = true
+    M.request_refresh()
+end
+
+--- A turn finished. If it ended in error, keep the error flag; otherwise mark
+--- the session "done" (green blink) only when the user is looking elsewhere.
+---@param session pi.Session
+function M.on_agent_end(session)
+    local f = session_flags(session)
+    if not f.error and session.tab ~= current_tab() then
+        f.done = true
+    end
+    M.request_refresh()
+end
+
+--- The user is now looking at this session (TabEnter): both notifications are
+--- consumed and the dot returns to idle.
+---@param session pi.Session
+function M.clear_flags(session)
+    local f = flags[session]
+    if f then
+        f.done = false
+        f.error = false
+    end
+    M.request_refresh()
 end
 
 -- Name cache ------------------------------------------------------------------
@@ -282,6 +354,8 @@ function M._render()
             return "(unnamed)"
         end
         return name
+    end, function(session)
+        return flags[session] or { done = false, error = false }
     end)
 
     ---@type string[]

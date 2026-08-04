@@ -78,6 +78,24 @@ describe("sessions overview", function()
             assert.are.equal("PiSessionsListExited", SessionList.dot_hl({ status = "exited", attention = 0 }, 0))
             assert.are.equal("PiStatusLineAttention", SessionList.dot_hl({ status = "busy", attention = 2 }, 1))
         end)
+
+        it("blinks green for an unseen finished turn, red for an unseen error", function()
+            local done = { status = "idle", attention = 0, done = true, error = false }
+            assert.are.equal("PiSessionsListDone", SessionList.dot_hl(done, 0))
+            assert.are.equal("PiSessionsListDotDim", SessionList.dot_hl(done, 1))
+            local err = { status = "idle", attention = 0, done = false, error = true }
+            assert.are.equal("PiSessionsListError", SessionList.dot_hl(err, 0))
+            assert.are.equal("PiSessionsListDotDim", SessionList.dot_hl(err, 1))
+            -- error outranks done and attention; exited outranks everything
+            assert.are.equal(
+                "PiSessionsListError",
+                SessionList.dot_hl({ status = "idle", attention = 1, done = true, error = true }, 0)
+            )
+            assert.are.equal(
+                "PiSessionsListExited",
+                SessionList.dot_hl({ status = "exited", attention = 1, done = true, error = true }, 0)
+            )
+        end)
     end)
 
     describe("format_line", function()
@@ -129,6 +147,8 @@ describe("sessions overview", function()
                 return tab == 11 and 3 or 0
             end, function(session)
                 return session.tab == 10 and "alpha" or nil
+            end, function(session)
+                return session.tab == 11 and { done = true, error = false } or { done = false, error = false }
             end)
 
             assert.are.equal(2, #rows)
@@ -137,6 +157,9 @@ describe("sessions overview", function()
             assert.are.equal(0, rows[1].attention)
             assert.are.equal("idle", rows[2].status)
             assert.are.equal(3, rows[2].attention)
+            assert.is_true(rows[2].done)
+            assert.is_false(rows[2].error)
+            assert.is_false(rows[1].done)
             assert.is_nil(rows[2].name)
         end)
     end)
