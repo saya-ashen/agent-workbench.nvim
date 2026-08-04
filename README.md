@@ -469,6 +469,11 @@ require("pi").setup({
     -- Sessions overview (:PiSessions): a live list of all active sessions
     -- (one per tab) with display name and busy/idle/attention status.
     sessions_list = {
+        -- How the window opens: "side" | "float" explicitly, or "follow" the
+        -- current tab's chat layout (default).
+        mode = "follow",
+        -- Open the list together with the chat (:Pi etc.).
+        auto_open = false,
         -- Window placement in the side layout: "left" | "right" | "top" | "bottom".
         position = "left",
         -- Window width for left/right placement (side layout).
@@ -1917,11 +1922,13 @@ The list is a single shared buffer: every tab that opens it gets its own window 
 
 Keys inside the list: `<CR>` / `o` jump to that session's tab and open its chat, `r` re-fetches session names, `q` closes the window. The list is read-only.
 
-The window follows the current tab's chat layout: a side split (configurable edge and size) when the chat is in side layout, a centered float when it is in float layout:
+By default the window follows the current tab's chat layout (a side split when the chat is in side layout, a centered float when it is in float layout); `mode` pins it to one style, and `auto_open` shows the list whenever the chat opens:
 
 ```lua
 require("pi").setup({
     sessions_list = {
+        mode = "follow",   -- "follow" | "side" | "float"
+        auto_open = false, -- open the list together with the chat
         position = "left", -- side layout: "left" | "right" | "top" | "bottom"
         width = 40,        -- side layout width for left/right
         height = 12,       -- side layout height for top/bottom

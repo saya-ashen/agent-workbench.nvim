@@ -289,10 +289,10 @@ local blink_tick = 0
 ---@type uv.uv_timer_t?
 local blink_timer = nil
 
----@return boolean whether any row animates (busy/compacting)
+---@return boolean whether any row animates (busy/compacting/done/error)
 local function has_animated_row()
     for _, row in ipairs(rows) do
-        if row.status == "busy" or row.status == "compacting" then
+        if row.status == "busy" or row.status == "compacting" or row.done or row.error then
             return true
         end
     end
@@ -538,11 +538,18 @@ local function open_float_win(b)
     return win
 end
 
---- Layout mode for the list window: follow the current tab's chat layout so
---- the list feels consistent with how the chat is shown there, falling back
---- to the configured default layout mode.
+--- Layout mode for the list window. `sessions_list.mode` wins when set to
+--- "side"/"float"; "follow" (default) matches the current tab's chat layout,
+--- falling back to the configured default layout mode.
 ---@return pi.LayoutMode
 local function resolve_mode()
+    local mode = Config.options.sessions_list.mode or "follow"
+    if mode == "side" then
+        return "side"
+    end
+    if mode == "float" then
+        return "float"
+    end
     local Sessions = require("pi.sessions.manager")
     local session = Sessions.get()
     if session then

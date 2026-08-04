@@ -539,6 +539,11 @@ function Layout:show()
     else
         self:_open_in_side_layout()
     end
+    -- auto_open lives here (not in Chat:show) so every path that makes the
+    -- chat visible — including set_layout/set_mode — opens the list too.
+    if Config.options.sessions_list.auto_open then
+        require("pi.ui.sessions").open()
+    end
     return true
 end
 

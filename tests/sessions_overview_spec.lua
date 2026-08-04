@@ -198,5 +198,25 @@ describe("sessions overview", function()
             assert.are.equal("editor", cfg.relative)
             Config.options.layout.default = saved
         end)
+
+        it("sessions_list.mode overrides the chat/default layout", function()
+            local Config = require("pi.config")
+            local saved_mode = Config.options.sessions_list.mode
+            local saved_default = Config.options.layout.default
+
+            Config.options.sessions_list.mode = "float"
+            Config.options.layout.default = "side"
+            SessionList.open()
+            assert.are.equal("editor", vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative)
+            SessionList.close()
+
+            Config.options.sessions_list.mode = "side"
+            Config.options.layout.default = "float"
+            SessionList.open()
+            assert.are.equal("", vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative)
+
+            Config.options.sessions_list.mode = saved_mode
+            Config.options.layout.default = saved_default
+        end)
     end)
 end)
