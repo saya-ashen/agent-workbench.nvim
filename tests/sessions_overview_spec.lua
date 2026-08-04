@@ -59,59 +59,54 @@ describe("sessions overview", function()
         end)
     end)
 
-    describe("status_text", function()
-        it("shows the active verb when busy", function()
-            local text = SessionList.status_text({ status = "busy", verb = "Cooking" })
-            assert.are.equal("● Cooking…", text)
+    describe("dot_hl", function()
+        it("blinks between the busy color and dim", function()
+            local row = { status = "busy", attention = 0 }
+            assert.are.equal("PiBusy", SessionList.dot_hl(row, 0))
+            assert.are.equal("PiSessionsListDotDim", SessionList.dot_hl(row, 1))
         end)
 
-        it("falls back to Working when busy has no verb", function()
-            local text = SessionList.status_text({ status = "busy", verb = nil })
-            assert.are.equal("● Working…", text)
+        it("blinks at half speed while compacting", function()
+            local row = { status = "compacting", attention = 0 }
+            assert.are.equal("PiSessionsListCompacting", SessionList.dot_hl(row, 0))
+            assert.are.equal("PiSessionsListCompacting", SessionList.dot_hl(row, 1))
+            assert.are.equal("PiSessionsListDotDim", SessionList.dot_hl(row, 2))
         end)
 
-        it("shows icon-only markers for compacting, idle and exited", function()
-            assert.are.equal("○", SessionList.status_text({ status = "idle" }))
-            assert.are.equal("✕", SessionList.status_text({ status = "exited" }))
-            assert.are.equal(
-                vim.trim(require("pi.config").options.labels.compaction),
-                SessionList.status_text({ status = "compacting" })
-            )
+        it("is steady for idle and exited; attention wins over busy", function()
+            assert.are.equal("PiSessionsListIdle", SessionList.dot_hl({ status = "idle", attention = 0 }, 1))
+            assert.are.equal("PiSessionsListExited", SessionList.dot_hl({ status = "exited", attention = 0 }, 0))
+            assert.are.equal("PiStatusLineAttention", SessionList.dot_hl({ status = "busy", attention = 2 }, 1))
         end)
     end)
 
     describe("format_line", function()
-        it("lays out tab number, status, name, and attention", function()
-            local row = { tab = 1, number = 1, status = "busy", verb = "Working", attention = 2, name = "fix login" }
-            local line, chunks = SessionList.format_line(row)
-
-            assert.is_truthy(line:find("fix login", 1, true))
-            assert.is_truthy(line:find("󰵚 2", 1, true))
-            assert.are.equal(4, #chunks)
-            -- tab, status, name, attention groups
-            assert.are.equal("PiSessionsListTab", chunks[1][3])
-            assert.are.equal("PiBusy", chunks[2][3])
-            assert.are.equal("Normal", chunks[3][3])
-            assert.are.equal("PiStatusLineAttention", chunks[4][3])
-        end)
-
-        it("omits the attention chunk when the count is zero", function()
-            local row = { tab = 1, number = 1, status = "idle", attention = 0, name = "x" }
-            local line, chunks = SessionList.format_line(row)
-            assert.is_nil(line:find("󰵚", 1, true))
-            assert.are.equal(3, #chunks)
+        it("puts the dot at the left edge and the name right after it", function()
+            local row = { tab = 1, status = "idle", attention = 0, name = "fix login" }
+            local line, chunks = SessionList.format_line(row, 0)
+            assert.are.equal("● fix login", line)
+            assert.are.equal(2, #chunks)
+            assert.are.equal(0, chunks[1][1])
+            assert.are.equal("●", line:sub(chunks[1][1] + 1, chunks[1][2]))
+            assert.are.equal(#"●" + 1, chunks[2][1])
+            assert.are.equal("Normal", chunks[2][3])
         end)
 
         it("renders a pending placeholder when the name is unknown", function()
-            local row = { tab = 1, number = 1, status = "idle", attention = 0, name = nil }
-            local _, chunks = SessionList.format_line(row)
-            assert.are.equal("PiSessionsListPending", chunks[3][3])
+            local _, chunks = SessionList.format_line({ tab = 1, status = "idle", attention = 0, name = nil }, 0)
+            assert.are.equal("PiSessionsListPending", chunks[2][3])
+        end)
+
+        it("colors the dot by status and tick", function()
+            local _, chunks = SessionList.format_line({ tab = 1, status = "busy", attention = 0, name = "x" }, 0)
+            assert.are.equal("PiBusy", chunks[1][3])
+            local _, chunks1 = SessionList.format_line({ tab = 1, status = "busy", attention = 0, name = "x" }, 1)
+            assert.are.equal("PiSessionsListDotDim", chunks1[1][3])
         end)
 
         it("produces byte ranges valid for extmarks", function()
-            local row =
-                { tab = 12, number = 12, status = "busy", verb = "Shaving yaks", attention = 1, name = "námé" }
-            local line, chunks = SessionList.format_line(row)
+            local row = { tab = 12, status = "busy", attention = 1, name = "námé" }
+            local line, chunks = SessionList.format_line(row, 0)
 
             local buf = vim.api.nvim_create_buf(false, true)
             vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
@@ -123,25 +118,6 @@ describe("sessions overview", function()
             local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})
             assert.are.equal(#chunks, #marks)
             pcall(vim.api.nvim_buf_delete, buf, { force = true })
-        end)
-
-        it("pads the status column to a fixed display width", function()
-            -- The name column must start at the same display column whether the
-            -- status text is short or over-long (byte offsets differ: status
-            -- icons are multibyte).
-            local line_short, c_short =
-                SessionList.format_line({ tab = 1, number = 1, status = "idle", attention = 0, name = "a" })
-            local line_long, c_long = SessionList.format_line({
-                tab = 1,
-                number = 1,
-                status = "busy",
-                verb = string.rep("x", 40),
-                attention = 0,
-                name = "a",
-            })
-            local prefix_w_short = vim.fn.strdisplaywidth(line_short:sub(1, c_short[3][1]))
-            local prefix_w_long = vim.fn.strdisplaywidth(line_long:sub(1, c_long[3][1]))
-            assert.are.equal(prefix_w_short, prefix_w_long)
         end)
     end)
 
@@ -157,7 +133,6 @@ describe("sessions overview", function()
 
             assert.are.equal(2, #rows)
             assert.are.equal("busy", rows[1].status)
-            assert.are.equal("Cooking", rows[1].verb)
             assert.are.equal("alpha", rows[1].name)
             assert.are.equal(0, rows[1].attention)
             assert.are.equal("idle", rows[2].status)

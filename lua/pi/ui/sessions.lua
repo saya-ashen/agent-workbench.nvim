@@ -18,16 +18,11 @@ local Highlights = require("pi.ui.highlights")
 
 local ns = vim.api.nvim_create_namespace("pi-sessions-list")
 
---- Display width the status column is padded/truncated to.
-local STATUS_WIDTH = 16
-
 ---@alias pi.SessionsListStatus "busy"|"compacting"|"idle"|"exited"
 
 ---@class pi.SessionsListRow
 ---@field tab pi.TabId
----@field number integer display tabpage number
 ---@field status pi.SessionsListStatus
----@field verb string? active busy verb (only when status == "busy")
 ---@field attention integer pending attention request count
 ---@field name string? display name (nil while still fetching)
 
@@ -54,30 +49,6 @@ local function current_tab()
     return vim.api.nvim_get_current_tabpage()
 end
 
--- Pure helpers ----------------------------------------------------------------
-
---- Truncate text to at most `width` display columns, appending "…" when cut.
----@param text string
----@param width integer
----@return string
-local function truncate(text, width)
-    if vim.fn.strdisplaywidth(text) <= width then
-        return text
-    end
-    local kept = ""
-    local w = 0
-    for i = 1, vim.fn.strchars(text) do
-        local char = vim.fn.strcharpart(text, i - 1, 1)
-        local cw = vim.fn.strdisplaywidth(char)
-        if w + cw > width - 1 then
-            break
-        end
-        kept = kept .. char
-        w = w + cw
-    end
-    return kept .. "…"
-end
-
 --- Current status of a session.
 ---@param session pi.Session
 ---@return pi.SessionsListStatus
@@ -94,63 +65,42 @@ function M.status_of(session)
     return "idle"
 end
 
---- Status column text for a row. The state itself is an icon; a busy row
---- additionally carries the active verb.
+--- Highlight group of a row's status dot at a given animation tick.
+--- Busy blinks every tick, compacting at half speed; attention, idle and
+--- exited are steady (their color alone carries the state).
 ---@param row pi.SessionsListRow
+---@param tick integer
 ---@return string
-function M.status_text(row)
-    if row.status == "busy" then
-        return "● " .. (row.verb or "Working") .. "…"
-    elseif row.status == "compacting" then
-        return Config.options.labels.compaction
-    elseif row.status == "exited" then
-        return "✕"
-    end
-    return "○"
-end
-
---- Highlight group for a row's status text.
----@param status pi.SessionsListStatus
----@return string
-function M.status_hl(status)
-    if status == "busy" then
-        return "PiBusy"
-    elseif status == "compacting" then
-        return "PiSessionsListCompacting"
-    elseif status == "exited" then
+function M.dot_hl(row, tick)
+    if row.status == "exited" then
         return "PiSessionsListExited"
+    end
+    if row.attention > 0 then
+        return "PiStatusLineAttention"
+    end
+    if row.status == "busy" then
+        return tick % 2 == 0 and "PiBusy" or "PiSessionsListDotDim"
+    end
+    if row.status == "compacting" then
+        return math.floor(tick / 2) % 2 == 0 and "PiSessionsListCompacting" or "PiSessionsListDotDim"
     end
     return "PiSessionsListIdle"
 end
 
---- Format a row into one buffer line plus highlight chunks.
+--- Format a row: the status dot at the left edge, the name right after it.
 --- Chunks are byte ranges: { col_start, col_end, hl_group }.
 ---@param row pi.SessionsListRow
+---@param tick integer
 ---@return string line
 ---@return integer[][] chunks
-function M.format_line(row)
-    local chunks = {}
-
-    local tab_text = string.format("%2d", row.number)
-    chunks[#chunks + 1] = { 0, #tab_text, "PiSessionsListTab" }
-
-    local status_start = #tab_text + 2
-    local status = truncate(M.status_text(row), STATUS_WIDTH)
-    status = status .. string.rep(" ", math.max(0, STATUS_WIDTH - vim.fn.strdisplaywidth(status)))
-    chunks[#chunks + 1] = { status_start, status_start + #status, M.status_hl(row.status) }
-
-    local name_start = status_start + #status + 2
+function M.format_line(row, tick)
+    local dot = "●"
     local name = row.name or "…"
-    chunks[#chunks + 1] = { name_start, name_start + #name, row.name and "Normal" or "PiSessionsListPending" }
-
-    local line = tab_text .. "  " .. status .. "  " .. name
-    if row.attention > 0 then
-        local att_start = #line + 1
-        local att_text = "󰵚 " .. row.attention
-        line = line .. " " .. att_text
-        chunks[#chunks + 1] = { att_start, att_start + #att_text, "PiStatusLineAttention" }
-    end
-
+    local line = dot .. " " .. name
+    local chunks = {
+        { 0, #dot, M.dot_hl(row, tick) },
+        { #dot + 1, #dot + 1 + #name, row.name and "Normal" or "PiSessionsListPending" },
+    }
     return line, chunks
 end
 
@@ -163,12 +113,9 @@ function M.build_rows(sessions, attention_count, name_of)
     ---@type pi.SessionsListRow[]
     local out = {}
     for _, session in ipairs(sessions) do
-        local ok, number = pcall(vim.api.nvim_tabpage_get_number, session.tab)
         out[#out + 1] = {
             tab = session.tab,
-            number = ok and number or 0,
             status = M.status_of(session),
-            verb = session.chat:active_verb(),
             attention = attention_count(session.tab) or 0,
             name = name_of(session),
         }
@@ -260,6 +207,58 @@ local function any_win_visible()
     return false
 end
 
+-- Blink animation -------------------------------------------------------------
+
+local uv = vim.uv or vim.loop
+local blink_tick = 0
+---@type uv.uv_timer_t?
+local blink_timer = nil
+
+---@return boolean whether any row animates (busy/compacting)
+local function has_animated_row()
+    for _, row in ipairs(rows) do
+        if row.status == "busy" or row.status == "compacting" then
+            return true
+        end
+    end
+    return false
+end
+
+local function stop_blink()
+    if not blink_timer then
+        return
+    end
+    pcall(blink_timer.stop, blink_timer)
+    if not blink_timer:is_closing() then
+        blink_timer:close()
+    end
+    blink_timer = nil
+end
+
+--- Run the blink timer only while an animated row is on screen.
+local function ensure_blink()
+    if not has_animated_row() then
+        stop_blink()
+        return
+    end
+    if blink_timer and not blink_timer:is_closing() then
+        return
+    end
+    blink_timer = assert(uv.new_timer())
+    blink_timer:start(
+        500,
+        500,
+        vim.schedule_wrap(function()
+            if not any_win_visible() or not has_animated_row() then
+                vim.schedule(stop_blink)
+                return
+            end
+            blink_tick = blink_tick + 1
+            M._render()
+        end)
+    )
+end
+
 --- Rebuild the buffer contents from live session state.
 function M._render()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
@@ -287,7 +286,7 @@ function M._render()
     ---@type table<integer, integer[][]>
     local line_chunks = {}
     for i, row in ipairs(rows) do
-        local line, chunks = M.format_line(row)
+        local line, chunks = M.format_line(row, blink_tick)
         lines[i] = line
         line_chunks[i] = chunks
     end
@@ -321,6 +320,8 @@ function M._render()
     for _, session in ipairs(sessions) do
         fetch_name(session)
     end
+
+    ensure_blink()
 end
 
 --- Coalesced live redraw; no-op unless a list window is visible.
@@ -535,6 +536,8 @@ end
 
 --- Test hook: drop all module state.
 function M._reset()
+    stop_blink()
+    blink_tick = 0
     if buf and vim.api.nvim_buf_is_valid(buf) then
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
