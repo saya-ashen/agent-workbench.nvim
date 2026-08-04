@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-04
+
+- **ADDED:** `:PiSessions` marks the current tab's session on the dot itself: that dot renders steady in the agent color — no blink — whether idle or busy, while busy sessions in background tabs blink yellow. The buffer is shared across tabs but the marker is window-local, so each tab's list view points at its own session and follows tab switches; no new text or UI elements (#55).
+
 ## 2026-08-03
 
 - **ADDED:** `:PiSessions` / `pi.sessions()` — a live, read-only overview of all active π sessions (one per Neovim tab). Each row shows the tab number, the session's status as a single dot at the left edge whose color and animation encode the state (blinking while busy, slow-blinking while compacting, steady warning color when attention is needed, blinking green when a turn finished in another tab, blinking red when the last turn errored — both consumed when you enter the tab — steady dim idle, steady error exited), with the session name right after the dot — the backend session name set via `:PiSessionName`, falling back to the first user message, then `(unnamed)`. The list is a single shared buffer: every tab that opens it gets its own window on the same buffer, so one redraw updates every open view at once. Updates are event-driven (agent start/end, compaction, session create/teardown, attention requests, and `session_info_changed` name changes) — nothing polls. Keys: `<CR>`/`o` jump to a session's tab and open its chat, `r` re-fetches names, `q` closes. The window style is configurable via the new `sessions_list` config: `mode` (`"follow"` the tab's chat layout by default, or pinned `"side"`/`"float"`), `position`/`width`/`height` for the side split, `float` for the floating window, and `auto_open` to show the list whenever the chat opens (#54).
