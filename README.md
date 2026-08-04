@@ -86,6 +86,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 **Sessions & editor integration**
 
+- **Sessions overview (`:PiSessions`).** A live, read-only list of all active sessions — one row per tab: a single status dot at the left edge (colored and animated per state) with the session's display name right after it. One shared buffer across all tabs: each tab opens its own window on it, so every view updates together as sessions start, stream, finish, or ask for attention. `<CR>` jumps to a session's tab and opens its chat; `r` re-fetches names; `q` closes. Window placement follows the tab's chat layout (side vs float) and is configurable via `sessions_list`.
 - **Session tree navigation (`:PiTree`).** Jump back to any past point in the current session — a picker lists the conversation entries (indented by branch depth so a long linear conversation stays flat and readable, current point marked `●`, branch labels shown before each entry's text; tool-only turns show a compact tool-call summary — the chat's per-tool icon as a marker plus the first argument, e.g. the bash command or edited path — and aborted/errored turns show `(aborted)`/`(error)`, so no entry is ever a blank line), you choose whether to summarize the abandoned branch, and the chat rebuilds from the new branch; picking a user message puts its text back in the prompt for editing and resending. This is the π equivalent of the TUI's `/tree`, bridged into RPC mode through a bundled pi extension (`extensions/tree.ts`), so no extra setup is needed. A bare `/tree` typed in the prompt opens it too. Config: `tree.enabled`.
 - **Per-tab model pinning.** The pi backend persists every model switch to its global settings, so out of the box a switch in one tab leaks into every other tab's next `:PiNewSession`. π pins the model per tab instead: captured when the session starts, updated on manual switches (`:PiCycleModel` / `:PiSelectModel` / `:PiSelectModelAll`), adopted from the session file on resume, and reapplied after `:PiNewSession` so the tab's new conversation keeps the tab's model. If the pinned model becomes unavailable, π silently falls back to the backend's choice and adopts it as the new pin.
 - **Auto-reload of open buffers.** When pi's `edit` / `write` tools modify a file that is open in a Neovim buffer, π reloads it so you always see the latest content without a manual `:edit!`; buffers with unsaved user changes are never touched. Config: `reload.mode` (`"silent"` default, `"notify"`, or `false`).
@@ -262,6 +263,7 @@ require("pi").setup({
     opts = {
         models = { ... },
         layout = { ... },
+        sessions_list = { ... },
     },
 }
 ```
@@ -463,6 +465,30 @@ require("pi").setup({
     -- whose extension API exposes ctx.navigateTree.
     tree = {
         enabled = true,
+    },
+
+    -- Sessions overview (:PiSessions): a live list of all active sessions
+    -- (one per tab) — a status dot whose color/animation encodes the state
+    -- (busy/compacting/attention/done/error/idle/exited) plus the session
+    -- name. See "Sessions overview (:PiSessions)" under Usage for details.
+    sessions_list = {
+        -- How the window opens: "side" | "float" explicitly, or "follow" the
+        -- current tab's chat layout (default).
+        mode = "follow",
+        -- Open the list together with the chat (:Pi etc.).
+        auto_open = false,
+        -- Window placement in the side layout: "left" | "right" | "top" | "bottom".
+        position = "left",
+        -- Window width for left/right placement (side layout).
+        width = 40,
+        -- Window height for top/bottom placement (side layout).
+        height = 12,
+        -- Float sizing when the current tab uses the float layout.
+        float = {
+            width = 0.5, -- fraction (<1) of editor width, or columns (>=1)
+            height = 0.4, -- fraction (<1) of editor height, or lines (>=1)
+            border = "rounded",
+        },
     },
 
     -- Selects, confirmation dialogs
@@ -1862,6 +1888,7 @@ And mid-session management:
 | --- | --- | --- |
 | `:PiNewSession` | `pi.new_session()` | Discard the current session in this tab and start a fresh one. Extensions can cancel this via the `session_before_switch` hook (e.g. to warn about unsaved draft state). |
 | `:PiTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-pitree). |
+| `:PiSessions` | `pi.sessions()` | Toggle the live overview of all active sessions (name + busy/idle/attention). See [Sessions overview](#sessions-overview-pisessions). |
 | `:PiSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens a dialog to type one. Without any argument and via the API, returns the current name. Names appear in the `:PiResume` picker so you can identify long-running conversations at a glance. |
 | `:PiStop` | `pi.stop()` | Tear down the current session entirely, killing the backing `pi --mode rpc` process. Different from `:PiToggleChat`, which just hides the windows while the session keeps running. |
 
@@ -1886,6 +1913,32 @@ require("pi").setup({
 ```
 
 Requires a pi version whose extension API exposes `ctx.navigateTree` — on older versions the command fails with an explicit error telling you to upgrade or disable the feature.
+
+#### Sessions overview (:PiSessions)
+
+When you run several sessions across tabs, `:PiSessions` gives you a single dashboard of everything that is live. It lists **active sessions only** (one per Neovim tab) with:
+
+- a single **status dot** at the left edge, colored and animated per state: blinking in the agent color while the agent works, slow-blinking in the compaction color while compacting, steady warning color when the session needs your attention, blinking green when a turn finished while you were in another tab, blinking red when the last turn errored (both consumed — back to idle — when you enter the tab), steady dim when idle, steady error color if the process died,
+- the **session name** right after the dot: the backend session name (`:PiSessionName`), falling back to the first user message, then `(unnamed)`.
+
+The list is a single shared buffer: every tab that opens it gets its own window on the same buffer, so a status change redraws all open views at once. Updates are event-driven (agent start/end, compaction, session creation/teardown, attention requests, name changes) — nothing polls.
+
+Keys inside the list: `<CR>` / `o` jump to that session's tab and open its chat, `r` re-fetches session names, `q` closes the window. The list is read-only.
+
+By default the window follows the current tab's chat layout (a side split when the chat is in side layout, a centered float when it is in float layout); `mode` pins it to one style, and `auto_open` shows the list whenever the chat opens:
+
+```lua
+require("pi").setup({
+    sessions_list = {
+        mode = "follow",   -- "follow" | "side" | "float"
+        auto_open = false, -- open the list together with the chat
+        position = "left", -- side layout: "left" | "right" | "top" | "bottom"
+        width = 40,        -- side layout width for left/right
+        height = 12,       -- side layout height for top/bottom
+        float = { width = 0.5, height = 0.4, border = "rounded" },
+    },
+})
+```
 
 #### Compaction
 
@@ -2093,6 +2146,7 @@ A rough triage checklist for common symptoms:
 | `:PiAttention` | Open the next queued attention request |
 | `:PiNewSession` | Start a new conversation in the current tab/session |
 | `:PiTree` | Navigate the session tree: jump back to any past conversation point |
+| `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
 | `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
 | `:PiToggleThinking` | Show or hide thinking blocks |
 | `:PiCycleThinking` | Cycle to the next thinking level |
@@ -2130,6 +2184,7 @@ pi.continue_session(opts?)    -- load the most recent session for the current cw
 pi.resume_session(opts?)      -- pick a past session for the current cwd
 pi.new_session()              -- start a fresh conversation in the current tab
 pi.tree()                     -- navigate the session tree (:PiTree)
+pi.sessions()                 -- toggle the live sessions overview (:PiSessions)
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens a dialog
 pi.compact(instructions?)     -- manually compact the current session (optional guidance)
 pi.changed_files()            -- string[]: files modified by edit/write tools this session

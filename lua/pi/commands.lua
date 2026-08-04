@@ -80,6 +80,10 @@ function M.setup()
         Pi.tree()
     end, { desc = "Navigate π session tree" })
 
+    vim.api.nvim_create_user_command("PiSessions", function()
+        Pi.sessions()
+    end, { desc = "Toggle π sessions overview list" })
+
     vim.api.nvim_create_user_command("PiToggleThinking", function()
         Pi.toggle_thinking()
     end, { desc = "Toggle π thinking visibility" })

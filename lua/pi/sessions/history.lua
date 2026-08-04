@@ -73,7 +73,7 @@ end
 --- Parse a .jsonl session file: read header + first user message + latest name.
 ---@param path string
 ---@return pi.SessionInfo?
-local function parse_session_file(path)
+function M.parse(path)
     local file = io.open(path, "r")
     if not file then
         return nil
@@ -148,7 +148,7 @@ function M.list()
     ---@type pi.SessionInfo[]
     local sessions = {}
     for _, file in ipairs(files) do
-        local info = parse_session_file(file)
+        local info = M.parse(file)
         if info then
             sessions[#sessions + 1] = info
         end

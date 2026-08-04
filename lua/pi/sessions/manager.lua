@@ -74,14 +74,27 @@ end
 --- Events we've reviewed and deliberately choose not to handle.
 --- turn_start/turn_end: TUI doesn't handle them; lifecycle is fully
 --- covered by message_start / message_end / agent_end.
---- thinking_level_changed/session_info_changed: pi.nvim refreshes state
---- through command callbacks; these are redundant notifications.
+--- thinking_level_changed: pi.nvim refreshes state through command
+--- callbacks; this is a redundant notification.
 ---@type table<string, true>
 local ignored_events = {
     turn_start = true,
     turn_end = true,
     thinking_level_changed = true,
-    session_info_changed = true,
+}
+
+--- Lifecycle transitions the sessions overview (:PiSessions) tracks. The
+--- list module coalesces redraws and is a no-op while no list window is
+--- visible, so this stays cheap on the hot path.
+---@type table<string, true>
+local sessions_list_events = {
+    agent_start = true,
+    agent_end = true,
+    compaction_start = true,
+    compaction_end = true,
+    auto_compaction_start = true,
+    auto_compaction_end = true,
+    _process_exit = true,
 }
 
 ---@type fun(session: pi.Session, result: table, will_retry: boolean)?
@@ -229,6 +242,10 @@ local function handle_event(session, msg)
     local t = msg.type
     local chat = session.chat
 
+    if sessions_list_events[t] then
+        require("pi.ui.sessions").request_refresh()
+    end
+
     -- NOTE: This compaction-specific rebuild gate should become a small
     -- transaction helper if other session rebuild flows need event buffering.
     if session._compaction_rebuilding and t ~= "response" then
@@ -243,8 +260,10 @@ local function handle_event(session, msg)
 
     if t == "agent_start" then
         chat:on_agent_start()
+        require("pi.ui.sessions").on_agent_start(session)
     elseif t == "agent_end" then
         chat:on_agent_end()
+        require("pi.ui.sessions").on_agent_end(session)
         CommandsCache.refresh(session.rpc)
         M.refresh_state(session)
     elseif t == "message_update" then
@@ -303,6 +322,7 @@ local function handle_event(session, msg)
             chat:on_error("Compaction cancelled", { pad_top = true, pad_bottom = true })
             chat:flush_compaction_queue(msg.willRetry == true)
         elseif type(msg.errorMessage) == "string" and msg.errorMessage ~= "" then
+            require("pi.ui.sessions").mark_error(session)
             chat:set_compacting(false)
             restore_active_agent_status(chat)
             chat:on_error(msg.errorMessage, { pad_top = true, pad_bottom = true })
@@ -318,6 +338,7 @@ local function handle_event(session, msg)
         chat:set_status({ type = "agent", text = "Retrying…" })
     elseif t == "auto_retry_end" then
         if msg.success == false then
+            require("pi.ui.sessions").mark_error(session)
             chat:set_status(nil)
             chat:on_error(
                 "Retry failed after "
@@ -333,6 +354,8 @@ local function handle_event(session, msg)
         vim.schedule(function()
             Extension.handle(session, msg)
         end)
+    elseif t == "session_info_changed" then
+        require("pi.ui.sessions").on_session_info_changed(session, msg.name)
     elseif t == "extension_error" then
         local extension_path = type(msg.extensionPath) == "string" and msg.extensionPath or "unknown extension"
         local extension_event = type(msg.event) == "string" and msg.event or "unknown event"
@@ -368,6 +391,7 @@ local function handle_event(session, msg)
         -- responses (e.g. async prompt failures like auth errors) arrive
         -- after the initial success response already consumed the callback.
         if msg.success == false and type(msg.error) == "string" then
+            require("pi.ui.sessions").mark_error(session)
             chat:on_error(msg.error, { pad_top = true, pad_bottom = true })
         end
         return false
@@ -376,6 +400,9 @@ local function handle_event(session, msg)
     elseif t == "message_end" then
         chat:on_message_end(msg)
         local message = msg.message
+        if type(message) == "table" and message.stopReason == "error" then
+            require("pi.ui.sessions").mark_error(session)
+        end
         if type(message) == "table" and message.role == "toolResult" and session._pending_file_change_args then
             local tool_call_id = message.toolCallId or message.toolUseId
             if type(tool_call_id) == "string" and tool_call_id ~= "" then
@@ -496,6 +523,7 @@ function M.get_or_create(opts)
     end)
 
     sessions[tab] = session
+    require("pi.ui.sessions").request_refresh()
 
     -- Fetch available /commands for completion, highlighting, and system info
     fetch_commands_and_show_startup_block(session)
@@ -521,6 +549,7 @@ function M.stop()
     session.chat:clear()
 
     sessions[tab] = nil
+    require("pi.ui.sessions").request_refresh()
 end
 
 ---@param session pi.Session
@@ -552,6 +581,9 @@ local function start_new_session(session)
                     return
                 end
                 Attention.end_session_transition(session, true)
+                require("pi.ui.sessions").invalidate(session)
+                require("pi.ui.sessions").clear_flags(session)
+                require("pi.ui.sessions").request_refresh()
                 session.startup_announcements = {}
                 session.system_errors = {}
                 session.changed_files = {}
@@ -833,6 +865,9 @@ local function load_session(session, session_path)
         end
 
         Attention.end_session_transition(session, true)
+        require("pi.ui.sessions").invalidate(session)
+        require("pi.ui.sessions").clear_flags(session)
+        require("pi.ui.sessions").request_refresh()
         -- The resumed session's model was restored from its session file by
         -- core; adopt it as this tab's pin.
         refresh_state_and_pin(session)
@@ -1084,6 +1119,7 @@ function M.cleanup()
             Attention.clear_session(session)
             session.rpc:stop()
             sessions[tab] = nil
+            require("pi.ui.sessions").request_refresh()
         end
     end
 end
@@ -1095,6 +1131,17 @@ function M.setup_autocmds()
             vim.schedule(function()
                 M.cleanup()
             end)
+        end,
+    })
+
+    -- Entering a tab consumes that session's done/error notification: the
+    -- user has seen it, so the dot returns to idle.
+    vim.api.nvim_create_autocmd("TabEnter", {
+        callback = function()
+            local session = M.get()
+            if session then
+                require("pi.ui.sessions").clear_flags(session)
+            end
         end,
     })
 
