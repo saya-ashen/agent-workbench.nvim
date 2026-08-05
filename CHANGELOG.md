@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-05
+
+- **ADDED:** `?` in the session list (`:PiSessions`) toggles a help overlay listing the list's shortcuts (`<CR>`/`o` open the session under the cursor, `r` refresh, `q` close, `?` help). The overlay is a non-focusable float — it never steals focus from the list — is tracked per list window (each tab's view toggles its own), and closes automatically when its list window closes (#56).
+
 ## 2026-08-04
 
 - **ADDED:** `:PiSessions` marks the current tab's session on the dot itself: that dot renders steady in the agent color — no blink — whether idle or busy, while busy sessions in background tabs blink yellow. The buffer is shared across tabs but the marker is window-local, so each tab's list view points at its own session and follows tab switches; no new text or UI elements (#55).

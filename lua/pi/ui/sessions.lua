@@ -462,6 +462,97 @@ function M.request_refresh()
     end)
 end
 
+-- Help overlay (?) -------------------------------------------------------------
+
+--- Shortcuts shown by the help overlay: { key(s), description } pairs.
+---@type [string, string][]
+local HELP_ENTRIES = {
+    { "<CR>, o", "Open the session under the cursor" },
+    { "r", "Refresh the list" },
+    { "q", "Close the list" },
+    { "?", "Toggle this help" },
+}
+
+--- Help float per list window. The list buffer is shared across tabs but
+--- windows are per-tab, so each window toggles its own overlay.
+---@type table<integer, integer>
+local help_wins = {}
+
+---@param list_win integer
+local function close_help(list_win)
+    local help = help_wins[list_win]
+    if help and vim.api.nvim_win_is_valid(help) then
+        vim.api.nvim_win_close(help, true)
+    end
+    help_wins[list_win] = nil
+end
+
+--- Toggle the help overlay listing the session list shortcuts. The float
+--- never takes focus and closes automatically with its list window.
+---@param list_win integer
+local function toggle_help(list_win)
+    if not vim.api.nvim_win_is_valid(list_win) then
+        return
+    end
+    local existing = help_wins[list_win]
+    if existing and vim.api.nvim_win_is_valid(existing) then
+        close_help(list_win)
+        return
+    end
+
+    local key_width = 0
+    for _, entry in ipairs(HELP_ENTRIES) do
+        key_width = math.max(key_width, vim.fn.strdisplaywidth(entry[1]))
+    end
+    local lines = {}
+    local width = 0
+    for _, entry in ipairs(HELP_ENTRIES) do
+        local line = string.format("%-" .. key_width .. "s  %s", entry[1], entry[2])
+        lines[#lines + 1] = line
+        width = math.max(width, vim.fn.strdisplaywidth(line))
+    end
+    width = width + 2
+
+    local b = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
+    vim.bo[b].buftype = "nofile"
+    vim.bo[b].bufhidden = "wipe"
+    vim.bo[b].filetype = Ft.dialog
+
+    local cfg = Config.options.dialog
+    local editor_w = vim.o.columns
+    local editor_h = vim.o.lines - vim.o.cmdheight
+    local win = vim.api.nvim_open_win(b, false, {
+        relative = "editor",
+        row = math.floor((editor_h - #lines) / 2),
+        col = math.floor((editor_w - width) / 2),
+        width = width,
+        height = #lines,
+        style = "minimal",
+        border = cfg.border,
+        title = " session list ",
+        title_pos = "center",
+        focusable = false,
+    })
+    vim.wo[win].winhighlight = Highlights.DIALOG_WINHIGHLIGHT
+    help_wins[list_win] = win
+
+    vim.api.nvim_create_autocmd("WinClosed", {
+        pattern = tostring(win),
+        once = true,
+        callback = function()
+            help_wins[list_win] = nil
+        end,
+    })
+    vim.api.nvim_create_autocmd("WinClosed", {
+        pattern = tostring(list_win),
+        once = true,
+        callback = function()
+            close_help(list_win)
+        end,
+    })
+end
+
 -- Buffer & windows ------------------------------------------------------------
 
 local function jump_under_cursor()
@@ -504,6 +595,9 @@ local function ensure_buf()
     vim.keymap.set("n", "q", function()
         M.close()
     end, vim.tbl_extend("force", map_opts, { desc = "Close session list" }))
+    vim.keymap.set("n", "?", function()
+        toggle_help(vim.api.nvim_get_current_win())
+    end, vim.tbl_extend("force", map_opts, { desc = "Toggle help" }))
 
     return buf
 end
@@ -669,6 +763,9 @@ end
 function M._reset()
     stop_blink()
     blink_tick = 0
+    for list_win in pairs(help_wins) do
+        close_help(list_win)
+    end
     if buf and vim.api.nvim_buf_is_valid(buf) then
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
