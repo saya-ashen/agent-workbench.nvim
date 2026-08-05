@@ -313,11 +313,13 @@ local function build_entry(session, msg)
                     title = "Select",
                     message = msg.title,
                     options = msg.options or {},
-                    timeout = timeout,
-                    on_timeout = function()
-                        notify_expired("select")
-                    end,
+                    kind = "pi-extension-select",
                 }, function(choice)
+                    local remaining = remaining_timeout_ms(expires_at)
+                    if remaining ~= nil and remaining <= 0 then
+                        notify_expired("select")
+                        return
+                    end
                     if choice then
                         send_response(session, { type = "extension_ui_response", id = id, value = choice })
                     else
@@ -343,11 +345,12 @@ local function build_entry(session, msg)
                 Dialog.confirm({
                     title = msg.title,
                     message = msg.message --[[@as string?]],
-                    timeout = timeout,
-                    on_timeout = function()
-                        notify_expired("confirm")
-                    end,
                 }, function(confirmed)
+                    local remaining = remaining_timeout_ms(expires_at)
+                    if remaining ~= nil and remaining <= 0 then
+                        notify_expired("confirm")
+                        return
+                    end
                     if confirmed then
                         send_response(session, { type = "extension_ui_response", id = id, confirmed = true })
                     else

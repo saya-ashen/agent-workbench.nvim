@@ -887,17 +887,11 @@ function M.open(payload, callback, opts)
         local options = {}
         local option_entries = {}
         for _, entry in ipairs(entries) do
-            local label = tostring(#options + 1)
-                .. ". "
-                .. entry.side
-                .. ":"
-                .. note_range_label(entry)
-                .. " "
-                .. note_preview(entry.note)
+            local label = entry.side .. ":" .. note_range_label(entry) .. " " .. note_preview(entry.note)
             options[#options + 1] = label
             option_entries[label] = entry
         end
-        Dialog.select({ title = title, options = options }, function(choice)
+        Dialog.select({ title = title, options = options, kind = "pi-diff-note" }, function(choice)
             callback(choice and option_entries[choice] or nil)
         end)
     end
@@ -918,17 +912,11 @@ function M.open(payload, callback, opts)
         local options = { "Create new note on line " .. tostring(row + 1) }
         local option_entries = { [options[1]] = false }
         for _, entry in ipairs(entries) do
-            local label = tostring(#options + 1)
-                .. ". Edit "
-                .. entry.side
-                .. ":"
-                .. note_range_label(entry)
-                .. " "
-                .. note_preview(entry.note)
+            local label = "Edit " .. entry.side .. ":" .. note_range_label(entry) .. " " .. note_preview(entry.note)
             options[#options + 1] = label
             option_entries[label] = entry
         end
-        Dialog.select({ title = "Review notes", options = options }, function(choice)
+        Dialog.select({ title = "Review notes", options = options, kind = "pi-diff-note" }, function(choice)
             if choice == nil then
                 callback(nil)
             else
@@ -1041,13 +1029,7 @@ function M.open(payload, callback, opts)
         local options = {}
         local option_entries = {}
         for _, entry in ipairs(notes) do
-            local label = tostring(#options + 1)
-                .. ". "
-                .. entry.side
-                .. ":"
-                .. note_range_label(entry)
-                .. " "
-                .. note_preview(entry.note)
+            local label = entry.side .. ":" .. note_range_label(entry) .. " " .. note_preview(entry.note)
             options[#options + 1] = label
             option_entries[label] = entry
         end
@@ -1057,7 +1039,7 @@ function M.open(payload, callback, opts)
             return
         end
 
-        Dialog.select({ title = "Review notes", options = options }, function(choice)
+        Dialog.select({ title = "Review notes", options = options, kind = "pi-diff-note" }, function(choice)
             local entry = choice and option_entries[choice] or nil
             if not entry then
                 return
