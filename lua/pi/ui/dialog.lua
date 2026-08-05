@@ -1,4 +1,5 @@
---- Custom floating dialog UI for select, confirm, and input.
+--- Dialog UI: selects and confirms render through vim.ui.select (the user's
+--- picker backend); info and input are custom floating windows.
 
 local M = {}
 
@@ -23,13 +24,11 @@ end
 local BASE_KEYS = {
     confirm = { { "<CR>", modes = { "n", "i" } } },
     cancel = { "<Esc>", "q" },
-    next = { "j", "<Down>" },
-    prev = { "k", "<Up>" },
 }
 
 --- Bind base keys + user keys for a dialog action.
 ---@param buf integer
----@param action "confirm"|"cancel"|"next"|"prev"
+---@param action "confirm"|"cancel"
 ---@param handler function
 local function bind_keys(buf, action, handler)
     for _, key in ipairs(BASE_KEYS[action] or {}) do
@@ -110,19 +109,6 @@ local function open_float(lines, title, opts)
     return { buf = buf, win = win }
 end
 
----@param buf integer
----@param row integer 0-indexed
----@param total integer
-local function highlight_selection(buf, row, total)
-    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-    if row >= 0 and row < total then
-        vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
-            sign_text = get_config().indicator,
-            sign_hl_group = "PiDialogSelected",
-        })
-    end
-end
-
 ---@param timeout integer?
 ---@param callback fun()
 ---@return integer?
@@ -142,8 +128,10 @@ local function stop_timeout(timer)
     end
 end
 
---- Picker-style select dialog.
----@param opts { title: string, message?: string, options: string[], shortcuts?: table<string, string>, initial_index?: integer, timeout?: integer, on_timeout?: fun() }
+--- Picker-style select dialog rendered through vim.ui.select, so rendering,
+--- filtering, and keymaps follow the user's picker backend (telescope, snacks,
+--- the built-in picker, ...).
+---@param opts { title: string, message?: string, options: string[], kind?: string }
 ---@param callback fun(choice: string?)
 function M.select(opts, callback)
     local options = opts.options or {}
@@ -152,109 +140,15 @@ function M.select(opts, callback)
         return
     end
 
-    local lines = {}
-    local option_offset = 0 -- 0-indexed row where options start
-
+    local prompt = opts.title or "Select"
     if opts.message and opts.message ~= "" then
-        for _, line in ipairs(vim.split(opts.message, "\n", { plain = true })) do
-            lines[#lines + 1] = line
-        end
-        lines[#lines + 1] = ""
-        option_offset = #lines
+        prompt = prompt .. ": " .. (opts.message:gsub("%s+", " "))
     end
 
-    for _, opt in ipairs(options) do
-        lines[#lines + 1] = "  " .. opt
-    end
-
-    local was_insert = is_insert()
-    vim.cmd("stopinsert")
-    local float = open_float(lines, opts.title or "Select")
-    local buf, win = float.buf, float.win
-    local selected = math.max(0, math.min(#options - 1, (opts.initial_index or 1) - 1)) -- 0-indexed
-
-    vim.api.nvim_win_set_cursor(win, { option_offset + selected + 1, 0 })
-    highlight_selection(buf, option_offset + selected, #lines)
-
-    local responded = false
-    local timeout = nil ---@type integer?
-
-    local function close()
-        stop_timeout(timeout)
-        if vim.api.nvim_win_is_valid(win) then
-            vim.api.nvim_win_close(win, true)
-        end
-        if vim.api.nvim_buf_is_valid(buf) then
-            vim.api.nvim_buf_delete(buf, { force = true })
-        end
-    end
-
-    local function restore_insert(fn)
-        vim.schedule(function()
-            if was_insert then
-                vim.cmd("startinsert")
-            end
-            if fn then
-                fn()
-            end
-        end)
-    end
-
-    local function resolve(choice)
-        if responded then
-            return
-        end
-        responded = true
-        close()
-        restore_insert(function()
-            callback(choice)
-        end)
-    end
-
-    local function expire()
-        if responded then
-            return
-        end
-        responded = true
-        close()
-        restore_insert(opts.on_timeout)
-    end
-
-    timeout = start_timeout(opts.timeout, expire)
-
-    local function move(delta)
-        selected = math.max(0, math.min(#options - 1, selected + delta))
-        vim.api.nvim_win_set_cursor(win, { option_offset + selected + 1, 0 })
-        highlight_selection(buf, option_offset + selected, #lines)
-    end
-
-    bind_keys(buf, "next", function()
-        move(1)
-    end)
-    bind_keys(buf, "prev", function()
-        move(-1)
-    end)
-    bind_keys(buf, "confirm", function()
-        resolve(options[selected + 1])
-    end)
-    bind_keys(buf, "cancel", function()
-        resolve(nil)
-    end)
-    if opts.shortcuts then
-        for key, value in pairs(opts.shortcuts) do
-            Keys.bind(buf, key, function()
-                resolve(value)
-            end)
-        end
-    end
-
-    vim.api.nvim_create_autocmd("BufLeave", {
-        buffer = buf,
-        once = true,
-        callback = function()
-            resolve(nil)
-        end,
-    })
+    vim.ui.select(options, {
+        prompt = prompt,
+        kind = opts.kind or "pi-select",
+    }, callback)
 end
 
 --- Informational dialog with static content.
@@ -321,20 +215,15 @@ function M.info(opts)
     })
 end
 
---- Confirm dialog with picker UI.
----@param opts { title: string, message?: string, timeout?: integer, on_timeout?: fun() }
+--- Confirm dialog rendered as a Yes/No select through vim.ui.select.
+---@param opts { title: string, message?: string }
 ---@param callback fun(confirmed: boolean)
 function M.confirm(opts, callback)
     M.select({
         title = opts.title or "Confirm",
         message = opts.message,
         options = { "Yes", "No" },
-        shortcuts = {
-            ["y"] = "Yes",
-            ["n"] = "No",
-        },
-        timeout = opts.timeout,
-        on_timeout = opts.on_timeout,
+        kind = "pi-confirm",
     }, function(choice)
         callback(choice == "Yes")
     end)

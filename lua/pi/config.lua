@@ -200,8 +200,6 @@
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
 ---@field cancel? pi.KeySpecs
----@field next? pi.KeySpecs
----@field prev? pi.KeySpecs
 
 --- A preferred model entry for cycling/selection.
 --- String: exact model ID.
@@ -217,7 +215,6 @@
 ---@field border string|string[]
 ---@field max_width number max width as fraction of screen (<1) or columns (>=1)
 ---@field max_height number max height as fraction of screen (<1) or lines (>=1)
----@field indicator string sign text for selected item
 ---@field keys pi.DialogKeys
 
 --- A single styled text chunk: { text, hl_group? }.
@@ -408,12 +405,9 @@ local defaults = {
         border = "rounded",
         max_width = 0.8,
         max_height = 0.8,
-        indicator = "▸",
         keys = {
             confirm = nil,
             cancel = nil,
-            next = nil,
-            prev = nil,
         },
     },
     zen = {

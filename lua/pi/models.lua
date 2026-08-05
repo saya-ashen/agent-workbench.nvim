@@ -180,7 +180,7 @@ function M.cycle(session)
 end
 
 --- Select a model from configured models (or all if none configured).
---- Uses Dialog.select for the curated list.
+--- Rendered through vim.ui.select.
 ---@param session pi.Session
 function M.select(session)
     local Dialog = require("pi.ui.dialog")
@@ -197,34 +197,16 @@ function M.select(session)
             labels[i] = M.format_label(m)
         end
 
-        session.rpc:send({ type = "get_state" }, function(state_res)
-            local initial_index = 1
-            local current = state_res.success and state_res.data and state_res.data.model or nil
-            if current then
-                for i, model in ipairs(models) do
-                    if model.provider == current.provider and model.id == current.id then
-                        initial_index = i
-                        break
-                    end
+        Dialog.select({ title = "Select model", options = labels, kind = "pi-model" }, function(choice)
+            if not choice then
+                return
+            end
+            for i, l in ipairs(labels) do
+                if l == choice then
+                    M.set(session, models[i])
+                    return
                 end
             end
-
-            vim.schedule(function()
-                Dialog.select(
-                    { title = "Select model", options = labels, initial_index = initial_index },
-                    function(choice)
-                        if not choice then
-                            return
-                        end
-                        for i, l in ipairs(labels) do
-                            if l == choice then
-                                M.set(session, models[i])
-                                return
-                            end
-                        end
-                    end
-                )
-            end)
         end)
     end)
 end

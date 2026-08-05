@@ -299,7 +299,7 @@ require("pi").setup({
     -- Override the π agent directory used for session lookup.
     -- Defaults to $PI_CODING_AGENT_DIR or ~/.pi/agent.
     agent_dir = nil,
-    -- Preferred models for cycling and :PiSelectModel dialog.
+    -- Preferred models for cycling and the :PiSelectModel picker.
     -- Each entry is either a string (exact ID) or a table:
     --   { match = "opus", latest = true }
     --   { match = "gpt-5.3-codex", exact = true } or just "gpt-5.3-codex"
@@ -491,20 +491,17 @@ require("pi").setup({
         },
     },
 
-    -- Selects, confirmation dialogs
+    -- Select/confirm pickers render through vim.ui.select; this styles the
+    -- input/info dialog floats.
     dialog = {
         border = "rounded",
         -- Max size: fraction (<1) or columns/lines (>=1).
         max_width = 0.8,
         max_height = 0.8,
-        -- Sign text for the selected item.
-        indicator = "▸",
         keys = {
             -- Optional dialog keymaps; nil leaves built-in defaults in place.
             confirm = nil,
             cancel = nil,
-            next = nil,
-            prev = nil,
         },
     },
 
@@ -739,7 +736,7 @@ Each chat contains three panels:
 | `prompt` | `pi-chat-prompt` | Where you type the next message. Multi-line buffer. |
 | `attachments` | `pi-chat-attachments` | Pending image attachments queued for the next message. |
 
-The filetype names are stable — you can target them from your own `FileType` autocmds (see [Keymaps](#keymaps) for an example). Dialog buffers use the stable `pi-dialog` filetype, so completion plugins can be disabled there without affecting the prompt.
+The filetype names are stable — you can target them from your own `FileType` autocmds (see [Keymaps](#keymaps) for an example). Input and info dialog buffers use the stable `pi-dialog` filetype, so completion plugins can be disabled there without affecting the prompt.
 
 Use `:PiToggleLayout` to swap `side` ↔ `float` without losing the conversation, and `:PiToggleChat` to hide and re-show the chat windows. Neither stops the agent. To actually shut down the underlying `pi --mode rpc` process for the current tab, use `:PiStop`.
 
@@ -1435,7 +1432,7 @@ pi2.nvim routes an extension `select` request to the diff review UI if and only 
 1. The request method is `select`, and
 2. The `title` field is a JSON string that decodes to an object with `toolName === "edit"` or `"write"`.
 
-Otherwise it's treated as a regular select dialog.
+Otherwise it's treated as a regular select picker.
 
 **Request payload** (`JSON.stringify` this and pass it as the `title` argument to `ctx.ui.select`):
 
@@ -1591,7 +1588,7 @@ The built-in `attention` statusline component already uses this state — see [S
 
 #### Dialog UI
 
-Selects, confirms, inputs, and editors are all rendered through pi2.nvim's dialog UI. Everything lives under `dialog` in `setup()`:
+Selects and confirms render through `vim.ui.select`, so they appear in whatever picker you have configured (telescope's `ui-select` extension, snacks.nvim, the built-in picker, …). Every call passes a stable `kind` — `pi-thinking-level`, `pi-model`, `pi-diff-note`, `pi-extension-select`, `pi-confirm`, or plain `pi-select` — which picker backends can use for per-source customization. Inputs and editors are custom floating windows. Style and keys for the floats live under `dialog` in `setup()`:
 
 ```lua
 require("pi").setup({
@@ -1600,28 +1597,22 @@ require("pi").setup({
         -- Max size: fraction (<1) of editor, or columns/lines (>=1).
         max_width = 0.8,
         max_height = 0.8,
-        -- Sign text shown next to the selected item in selects.
-        indicator = "▸",
         keys = {
             -- Additional keys, on top of the built-in defaults below.
             -- See the Key specs section for the format.
             confirm = { { "<C-CR>", modes = { "n", "i" } } },
             cancel = nil,
-            next = nil,
-            prev = nil,
         },
     },
 })
 ```
 
-Dialogs always come with a base set of keybindings; `dialog.keys` adds to them rather than replacing them:
+Input and info dialogs come with a base set of keybindings; `dialog.keys` adds to them rather than replacing them:
 
 | Action | Built-in keys | What it does |
 | --- | --- | --- |
-| `confirm` | `<CR>` (normal + insert) | Accept the current selection / value |
+| `confirm` | `<CR>` (normal + insert) | Submit the value / close the info dialog |
 | `cancel` | `<Esc>`, `q` (normal) | Dismiss without responding (extension sees a cancellation) |
-| `next` | `j`, `<Down>` | Move to the next option (selects only) |
-| `prev` | `k`, `<Up>` | Move to the previous option (selects only) |
 
 Anything you add under `dialog.keys.<action>` is bound in addition to the built-ins, so you can keep the defaults and just add your preferred shortcuts on top.
 
@@ -1779,8 +1770,8 @@ Three commands, each with a Lua API counterpart:
 | Command | Lua | What it does |
 | --- | --- | --- |
 | `:PiCycleModel` | `pi.cycle_model()` | Step to the next model. With `models` configured, cycles within the resolved subset; otherwise uses the backend's own cycle. |
-| `:PiSelectModel` | `pi.select_model()` | Open a dialog to pick a model. With `models` configured, shows only the resolved subset; otherwise falls back to all available models. |
-| `:PiSelectModelAll` | `pi.select_model_all()` | Open a dialog with **all** backend-available models, ignoring the `models` config. Useful when you want to reach for something you haven't curated into your short list. |
+| `:PiSelectModel` | `pi.select_model()` | Open a picker (`vim.ui.select`) to pick a model. With `models` configured, shows only the resolved subset; otherwise falls back to all available models. |
+| `:PiSelectModelAll` | `pi.select_model_all()` | Open a picker with **all** backend-available models, ignoring the `models` config. Useful when you want to reach for something you haven't curated into your short list. |
 
 All three take effect immediately and persist for the current session. The active model appears in the `model` statusline component (see [Statusline](#statusline)).
 
@@ -1824,7 +1815,7 @@ off | minimal | low | medium | high | xhigh
 Two ways to change it mid-session:
 
 - **Cycle**: `:PiCycleThinking` / `pi.cycle_thinking_level()` — steps to the next level in the list. Handy for a single key you can tap repeatedly.
-- **Pick**: `:PiSelectThinking` / `pi.select_thinking_level()` — opens a dialog with all six levels and the current one preselected.
+- **Pick**: `:PiSelectThinking` / `pi.select_thinking_level()` — opens a picker (`vim.ui.select`) with all six levels.
 
 Both operations require an active session with a reasoning-capable model; on a non-reasoning model they warn _"Current model does not support thinking"_ and leave state unchanged.
 
@@ -2332,7 +2323,6 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | Group | Role |
 | --- | --- |
 | `PiDialogTitle` | Dialog title bar |
-| `PiDialogSelected` | Selected item in a select dialog (links to `Visual`) |
 
 ### Diff review
 
