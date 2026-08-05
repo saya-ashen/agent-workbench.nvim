@@ -30,6 +30,33 @@ local function fake_session(opts)
     }
 end
 
+--- Fake session whose rpc:send captures the get_state callback instead of
+--- sending, so tests control when the response arrives. `send_count` tracks
+--- fetches; `respond(data)` delivers a response to the oldest in-flight one.
+---@param opts? table see fake_session
+local function fetchable_session(opts)
+    local s = fake_session(opts)
+    ---@type fun[]
+    local in_flight = {}
+    s.send_count = 0
+    s.rpc.send = function(_, req, cb)
+        assert.are.equal("get_state", req.type)
+        s.send_count = s.send_count + 1
+        table.insert(in_flight, cb)
+        return true
+    end
+    s.respond = function(data)
+        local cb = table.remove(in_flight, 1)
+        assert.is_not.is_nil(cb, "no name fetch in flight")
+        cb({ success = true, data = data or {} })
+        -- The handler schedules the cache write; pump the event loop.
+        vim.wait(100, function()
+            return false
+        end)
+    end
+    return s
+end
+
 describe("sessions overview", function()
     before_each(function()
         SessionList._reset()
@@ -161,6 +188,75 @@ describe("sessions overview", function()
             assert.is_false(rows[2].error)
             assert.is_false(rows[1].done)
             assert.is_nil(rows[2].name)
+        end)
+    end)
+
+    describe("name resolution", function()
+        it("shows the pending placeholder only until the first answer", function()
+            local s = fetchable_session()
+            assert.is_nil(SessionList._name_of(s))
+            SessionList._fetch_name(s)
+            assert.are.equal(1, s.send_count)
+            assert.is_nil(SessionList._name_of(s)) -- "…" placeholder while in flight
+            s.respond({}) -- no sessionName, no sessionFile
+            assert.are.equal("(unnamed)", SessionList._name_of(s))
+        end)
+
+        it("keeps (unnamed) on screen while an unresolved name is retried", function()
+            local s = fetchable_session()
+            SessionList._fetch_name(s)
+            s.respond({})
+            assert.are.equal("(unnamed)", SessionList._name_of(s))
+
+            -- Regression: a retry must not fall back to the pending
+            -- placeholder — that alternation was the visible flicker.
+            SessionList.on_agent_end(s)
+            assert.are.equal(2, s.send_count)
+            assert.are.equal("(unnamed)", SessionList._name_of(s))
+            s.respond({})
+            assert.are.equal("(unnamed)", SessionList._name_of(s))
+
+            -- A name arriving on a later retry replaces (unnamed).
+            SessionList.on_agent_end(s)
+            s.respond({ sessionName = "my task" })
+            assert.are.equal("my task", SessionList._name_of(s))
+
+            -- Resolved non-empty entries are not retried.
+            SessionList._fetch_name(s)
+            assert.are.equal(3, s.send_count)
+        end)
+
+        it("does not re-fetch resolved names on redraws", function()
+            local s = fetchable_session()
+            local real_manager = package.loaded["pi.sessions.manager"]
+            package.loaded["pi.sessions.manager"] = {
+                list = function()
+                    return { s }
+                end,
+                get = function()
+                    return nil
+                end,
+            }
+            local ok, err = pcall(function()
+                SessionList.open() -- initial render kicks off the first fetch
+                assert.are.equal(1, s.send_count)
+                s.respond({}) -- also pumps the refresh the response schedules
+                assert.are.equal("(unnamed)", SessionList._name_of(s))
+                assert.are.equal(1, s.send_count)
+
+                SessionList.request_refresh()
+                vim.wait(100, function()
+                    return false
+                end)
+                assert.are.equal(1, s.send_count) -- redraw is not a retry trigger
+
+                local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+                assert.are.equal(" ● (unnamed)", lines[1])
+            end)
+            package.loaded["pi.sessions.manager"] = real_manager
+            if not ok then
+                error(err)
+            end
         end)
     end)
 
