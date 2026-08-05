@@ -287,7 +287,7 @@ describe("thinking block spacing rhythm (issue #48)", function()
         pump()
         h:on_agent_start(os.time() * 1000)
         pump()
-        h:on_thinking_start()
+        h:on_thinking_start({ unmeasured = true })
         pump()
         h:on_thinking_delta("Let me think about this.")
         pump(100)
@@ -302,6 +302,50 @@ describe("thinking block spacing rhythm (issue #48)", function()
         h._replaying = false
 
         assert.are.equal(1, #h._thinking_blocks, "thinking block registered during replay")
-        assert.is_not_nil(find_line(h, "Thought for"), "thinking header rendered during replay")
+        assert.is_not_nil(find_line(h, "Thought"), "thinking header rendered during replay")
+        assert.is_nil(find_line(h, "Thought for"), "replayed header shows no fabricated duration")
+    end)
+
+    it("keeps each block's own content when replay dispatches back-to-back", function()
+        -- Regression: replay_messages dispatches on_thinking_start/delta/end
+        -- for every assistant message synchronously, with no event-loop turns
+        -- in between. The pending-delta queue must attribute each delta to its
+        -- own block (by generation); previously the first block's start
+        -- callback drained ALL queued deltas, so later blocks froze empty and
+        -- the first block showed merged content ("thought content disappears
+        -- after resume").
+        local h = History.new(950)
+        h._replaying = true
+        h:add_user_message("hello", os.time() * 1000, nil, nil)
+        -- turn 1: thinking + tool call, then turn 2: thinking + text,
+        -- dispatched consecutively exactly like replay_messages does.
+        h:on_agent_start(os.time() * 1000)
+        h:on_thinking_start({ unmeasured = true })
+        h:on_thinking_delta("first block content")
+        h:on_thinking_end()
+        h:on_tool_start("bash", "tc1", { command = "echo hi" })
+        h:on_tool_end("bash", "tc1", { content = { { type = "text", text = "hi" } } }, false)
+        h:on_agent_start(os.time() * 1000)
+        h:on_thinking_start({ unmeasured = true })
+        h:on_thinking_delta("second block content")
+        h:on_thinking_end()
+        h:on_text_delta("answer")
+        h:on_agent_end()
+        pump(300)
+        h._replaying = false
+
+        assert.are.equal(2, #h._thinking_blocks, "both thinking blocks registered")
+        local first = table.concat(h._thinking_blocks[1].lines, "\n")
+        local second = table.concat(h._thinking_blocks[2].lines, "\n")
+        assert.are.equal("first block content", first, "block 1 keeps only its own thinking")
+        assert.are.equal("second block content", second, "block 2 keeps only its own thinking")
+
+        -- Both frozen headers carry an end-of-line preview (non-empty content).
+        assert.is_not_nil(h._thinking_blocks[1].virt_id, "block 1 preview set")
+        assert.is_not_nil(h._thinking_blocks[2].virt_id, "block 2 preview set")
+
+        -- Replayed blocks carry no timing data: bare header, no "for 0s".
+        assert.are.equal("Thought", h._thinking_blocks[1].header, "block 1 header has no fabricated duration")
+        assert.are.equal("Thought", h._thinking_blocks[2].header, "block 2 header has no fabricated duration")
     end)
 end)

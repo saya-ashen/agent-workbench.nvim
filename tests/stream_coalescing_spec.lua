@@ -259,7 +259,7 @@ describe("stream coalescing", function()
         assert.is_nil(h._stream_timer)
         assert.are.equal(1, #h._text_batches) -- one empty open batch (invariant)
         assert.are.equal(0, h._structural_inflight)
-        assert.is_nil(h._pending_thinking)
+        assert.are.equal(0, #vim.tbl_keys(h._pending_thinking))
         assert.are.equal(0, #vim.tbl_keys(h._pending_bash))
         assert.are.equal(0, #vim.tbl_keys(h._pending_tool_updates))
         pump(60) -- let any queued callbacks run; pending stream content stays dropped

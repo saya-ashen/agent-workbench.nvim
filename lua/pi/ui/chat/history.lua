@@ -48,13 +48,15 @@
 ---@field _current_turn_last_agent_response_extmark_id integer?
 ---@field _text_batches string[][] sealed/open text-delta batches, one per structural boundary
 ---@field _structural_inflight integer structural dispatches whose callback has not run yet
----@field _pending_thinking string[]? coalesced thinking deltas awaiting flush
+---@field _pending_thinking table<integer, string[]> coalesced thinking deltas awaiting flush, keyed by block generation
 ---@field _pending_bash table<string, string[]> coalesced bash output chunks by block id
 ---@field _pending_tool_updates table<string, pi.RpcEvent> latest tool live-update per tool call
 ---@field _bash_start_pending table<string, true> bash blocks whose start callback is queued
 ---@field _tool_start_pending table<string, true> tool blocks whose start callback is queued
 ---@field _stream_timer uv.uv_timer_t?
----@field _thinking_requested boolean? thinking block whose start callback is queued
+---@field _thinking_requested integer? generation of the thinking block whose start callback is queued
+---@field _thinking_gen integer generation counter for thinking blocks (deltas are attributed per generation)
+---@field _unmeasured_thinking table<integer, true> generations replayed without timing data (header shows no duration)
 local History = {}
 History.__index = History
 
@@ -95,6 +97,8 @@ History._stream_flush_ms = 30
 
 ---@class pi.ThinkingAccum
 ---@field lines string[]
+---@field gen integer generation of the block this accumulator belongs to
+---@field measured boolean whether the elapsed time is a live measurement (false for replayed blocks)
 ---@field anchor integer
 ---@field start_time number
 ---@field buf_lines integer
@@ -504,13 +508,15 @@ function History.new(tab)
     self._current_turn_last_agent_response_extmark_id = nil
     self._text_batches = { {} } -- invariant: always ends with one open batch
     self._structural_inflight = 0
-    self._pending_thinking = nil
+    self._pending_thinking = {}
     self._pending_bash = {}
     self._pending_tool_updates = {}
     self._bash_start_pending = {}
     self._tool_start_pending = {}
     self._stream_timer = nil
     self._thinking_requested = nil
+    self._thinking_gen = 0
+    self._unmeasured_thinking = {}
 
     local panel = Config.options.panels.history
     local name = panel.name and panel.name(tab) or ("π-chat | " .. tab)
@@ -932,7 +938,7 @@ function History:_has_deferred_stream()
             return true
         end
     end
-    if self._pending_thinking then
+    if next(self._pending_thinking) then
         return true
     end
     if next(self._pending_bash) then
@@ -975,7 +981,7 @@ end
 function History:_flush_stream()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         self._text_batches = { {} }
-        self._pending_thinking = nil
+        self._pending_thinking = {}
         self._pending_bash = {}
         self._pending_tool_updates = {}
         return
@@ -987,15 +993,18 @@ function History:_flush_stream()
 end
 
 function History:_flush_stream_thinking()
-    local pending = self._pending_thinking
-    if not pending then
-        return
-    end
     if not self._thinking_accum then
         -- on_thinking_start's scheduled callback has not run yet; keep queued.
         return
     end
-    self._pending_thinking = nil
+    -- Drain only this block's own deltas; chunks queued for other generations
+    -- (e.g. a later replayed block whose start was dispatched back-to-back)
+    -- stay queued until their own start callback runs.
+    local pending = self._pending_thinking[self._thinking_accum.gen]
+    if not pending then
+        return
+    end
+    self._pending_thinking[self._thinking_accum.gen] = nil
     local delta = table.concat(pending)
     local parts = vim.split(delta, "\n", { plain = true })
     self._thinking_accum.lines[#self._thinking_accum.lines] = self._thinking_accum.lines[#self._thinking_accum.lines]
@@ -3400,20 +3409,34 @@ function History:on_bash_replay(msg)
     })
 end
 
-function History:on_thinking_start()
+---@param opts? { unmeasured?: boolean } mark the block as replayed without timing data
+function History:on_thinking_start(opts)
     -- Set synchronously so thinking deltas accumulate (and on_thinking_end's
-    -- fast path stays correct) before this scheduled callback runs.
-    self._thinking_requested = true
+    -- fast path stays correct) before this scheduled callback runs. The
+    -- generation tags queued deltas with their block so back-to-back
+    -- dispatches (session replay) can't leak one block's thinking into the
+    -- previous block's accumulator.
+    self._thinking_gen = self._thinking_gen + 1
+    local gen = self._thinking_gen
+    self._thinking_requested = gen
+    if opts and opts.unmeasured then
+        self._unmeasured_thinking[gen] = true
+    end
     self:_seal_stream_text()
     vim.schedule(function()
-        self._thinking_requested = nil
+        if self._thinking_requested == gen then
+            self._thinking_requested = nil
+        end
         -- Land pending text before anchoring the block relative to the last line.
         self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            self._pending_thinking[gen] = nil
             return
         end
         self._is_thinking = true
         self:_emit_status()
+        local measured = not self._unmeasured_thinking[gen]
+        self._unmeasured_thinking[gen] = nil
         local label = Config.options.labels.thinking
         local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
         local last_text = vim.api.nvim_buf_get_lines(self._buf, last_line, last_line + 1, false)[1] or ""
@@ -3432,6 +3455,8 @@ function History:on_thinking_start()
         })
         self._thinking_accum = {
             lines = { "" },
+            gen = gen,
+            measured = measured,
             anchor = anchor,
             start_time = vim.uv.hrtime() / 1e9,
             buf_lines = 0,
@@ -3476,16 +3501,18 @@ end
 
 ---@param delta string
 function History:on_thinking_delta(delta)
-    -- Accumulate only when a thinking block exists or is about to be created
-    -- (mirrors the old early-return inside the scheduled callback).
-    if not self._thinking_accum and not self._thinking_requested then
+    -- Attribute the delta to the newest dispatched thinking block: a queued
+    -- start generation wins over the active accumulator, because a later
+    -- start dispatch means the earlier block stopped receiving deltas.
+    local gen = self._thinking_requested or (self._thinking_accum and self._thinking_accum.gen)
+    if not gen then
         return
     end
-    local pending = self._pending_thinking
-    if pending then
-        pending[#pending + 1] = delta
+    local chunks = self._pending_thinking[gen]
+    if chunks then
+        chunks[#chunks + 1] = delta
     else
-        self._pending_thinking = { delta }
+        self._pending_thinking[gen] = { delta }
     end
     self:_ensure_stream_timer()
 end
@@ -3511,12 +3538,19 @@ function History:on_thinking_end()
         end
         self._is_thinking = false
         self:_emit_status()
-        local elapsed = math.floor(vim.uv.hrtime() / 1e9 - self._thinking_accum.start_time)
+        -- Replayed blocks carry no timing data (the session file stores
+        -- none), so a live-measured duration would always read 0s; show a
+        -- bare label instead of a fabricated one.
         local header
-        if elapsed >= 60 then
-            header = "Thought for " .. math.floor(elapsed / 60) .. "m " .. (elapsed % 60) .. "s"
+        if self._thinking_accum.measured then
+            local elapsed = math.floor(vim.uv.hrtime() / 1e9 - self._thinking_accum.start_time)
+            if elapsed >= 60 then
+                header = "Thought for " .. math.floor(elapsed / 60) .. "m " .. (elapsed % 60) .. "s"
+            else
+                header = "Thought for " .. elapsed .. "s"
+            end
         else
-            header = "Thought for " .. elapsed .. "s"
+            header = "Thought"
         end
 
         local visible = self._show_thinking
@@ -3849,7 +3883,7 @@ function History:clear()
         self._stream_timer = nil
     end
     self._pending_stream_text = nil
-    self._pending_thinking = nil
+    self._pending_thinking = {}
     self._pending_bash = {}
     self._pending_tool_updates = {}
     self._bash_start_pending = {}
@@ -3863,6 +3897,7 @@ function History:clear()
     self._pending_queue = {}
     self._pending_queue_extmark_id = nil
     self._thinking_accum = nil
+    self._unmeasured_thinking = {}
     self._thinking_blocks = {}
     self._tool_blocks = {}
     self._bash_blocks = {}

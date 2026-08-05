@@ -2,6 +2,10 @@
 
 ## 2026-08-05
 
+- **FIXED:** Resuming a session (`:PiResume`, `:PiContinue`, compaction rebuild) no longer loses thinking content. `replay_messages` dispatches `on_thinking_start/delta/end` for every assistant message synchronously back-to-back, but the coalesced thinking-delta queue was a single global list with no block attribution — so the first block's scheduled start callback drained *all* queued deltas: the first block showed merged thinking while every later block froze empty (`Thought for 0s` with no content, exactly what a resumed session looked like). Deltas are now tagged with their block's generation at dispatch time (`_pending_thinking` is keyed by generation) and each accumulator drains only its own chunks; live streaming is unchanged, where deltas attribute to the active block as before.
+
+- **FIXED:** Resumed thinking blocks no longer show a fabricated `Thought for 0s` header. The duration was never stored in the session file (thinking parts carry no timing field, and message `timestamp`s mark message creation, not the thinking phase), while the header's elapsed time was measured live at render time — replay dispatches start/end back-to-back, so it always read 0s. Replayed blocks now freeze with a bare `Thought` header (content, preview, and expand/collapse unchanged); live streaming still shows the measured `Thought for Ns`.
+
 - **FIXED:** The agent timestamp label no longer leaves a two-blank-line gap when the turn opens with a tool block, inline tool, or thinking block instead of streamed text — the label now ends with exactly one trailing blank line (the same rhythm text followers already had), so spacing under every timestamp line is uniform.
 
 - **ADDED:** `?` in the session list (`:PiSessions`) toggles a help overlay listing the list's shortcuts (`<CR>`/`o` open the session under the cursor, `r` refresh, `q` close, `?` help). The overlay is a non-focusable float — it never steals focus from the list — is tracked per list window (each tab's view toggles its own), and closes automatically when its list window closes (#56).

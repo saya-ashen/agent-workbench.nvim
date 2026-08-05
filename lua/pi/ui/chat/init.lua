@@ -1375,8 +1375,9 @@ function Chat:on_tool_update(tool_name, tool_call_id, msg)
     self._history:on_tool_update(tool_name, tool_call_id, msg)
 end
 
-function Chat:on_thinking_start()
-    self._history:on_thinking_start()
+---@param opts? { unmeasured?: boolean }
+function Chat:on_thinking_start(opts)
+    self._history:on_thinking_start(opts)
 end
 
 ---@param delta string

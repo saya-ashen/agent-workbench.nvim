@@ -704,7 +704,8 @@ local function replay_messages(session, messages)
                     session.chat:on_agent_start(msg.timestamp)
                 end
                 if thinking_text ~= "" then
-                    session.chat:on_thinking_start()
+                    -- Replayed blocks have no timing data; don't fabricate a duration.
+                    session.chat:on_thinking_start({ unmeasured = true })
                     session.chat:on_thinking_delta(thinking_text)
                     session.chat:on_thinking_end()
                 end
