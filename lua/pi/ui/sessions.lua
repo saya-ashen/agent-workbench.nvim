@@ -41,7 +41,7 @@ local rows = {}
 --- sessions. A string entry marks a fetch in flight.
 ---   name:          backend sessionName (false = fetched, none set)
 ---   first_message: fallback from the session file (false = none)
----@type table<pi.Session, { name: string|false, first_message: string|false }|string>
+---@type table<pi.Session, { name: string|false, first_message: string|false, pending: boolean? }|string>
 local name_cache = setmetatable({}, { __mode = "k" })
 
 local refresh_scheduled = false
@@ -140,6 +140,9 @@ end
 
 -- Turn flags (done / error) -----------------------------------------------------
 
+---@type fun(session: pi.Session)
+local fetch_name
+
 --- Per-session turn flags, weak-keyed like the name cache.
 ---   done:  the agent finished a turn while the session's tab was not current;
 ---          cleared when the user enters the tab (or a new turn starts).
@@ -183,6 +186,9 @@ function M.on_agent_end(session)
     if not f.error and session.tab ~= current_tab() then
         f.done = true
     end
+    -- A finished turn may have produced the first user message or a backend
+    -- name; retry unresolved entries here instead of on every redraw.
+    fetch_name(session)
     M.request_refresh()
 end
 
@@ -219,17 +225,27 @@ end
 --- Ask the backend for the session's display name (and fall back to the first
 --- user message from its session file). Successful non-empty results are
 --- cached; lifecycle transitions invalidate the cache (M.invalidate).
---- Entries that resolved empty stay retryable: a brand-new session has no
+--- Entries that resolved empty stay retryable — a brand-new session has no
 --- sessionName and its file does not exist yet, so the first-message fallback
---- only becomes available after the first turn.
+--- only becomes available after the first turn — but retries happen only on
+--- lifecycle hooks (M.on_agent_end, invalidation, manual `r`), never on every
+--- redraw. While a retry is in flight the resolved "(unnamed)" stays on
+--- screen; only the very first fetch shows the pending placeholder.
 ---@param session pi.Session
-local function fetch_name(session)
+fetch_name = function(session)
     local entry = name_cache[session]
     local retryable = entry == nil or (type(entry) == "table" and not entry.name and not entry.first_message)
     if not retryable or not session.rpc:is_running() then
         return
     end
-    name_cache[session] = "pending"
+    if type(entry) ~= "table" then
+        -- First fetch: show the pending placeholder until the answer arrives.
+        name_cache[session] = "pending"
+    else
+        -- Retry of an empty resolution: keep the row on "(unnamed)" while the
+        -- background fetch runs so it does not flicker back to the placeholder.
+        entry.pending = true
+    end
     local sent = session.rpc:send({ type = "get_state" }, function(res)
         vim.schedule(function()
             local data = res.success and res.data or {}
@@ -247,7 +263,11 @@ local function fetch_name(session)
         end)
     end)
     if not sent then
-        name_cache[session] = nil
+        if type(entry) == "table" then
+            entry.pending = nil
+        else
+            name_cache[session] = nil
+        end
     end
 end
 
@@ -399,8 +419,12 @@ function M._render()
         end
     end
 
+    -- Kick off the initial name fetch only; resolved entries (including
+    -- empty "(unnamed)" ones) are re-checked on lifecycle hooks, not redraws.
     for _, session in ipairs(sessions) do
-        fetch_name(session)
+        if name_cache[session] == nil then
+            fetch_name(session)
+        end
     end
 
     ensure_blink()
@@ -757,6 +781,13 @@ end
 ---@return string?
 function M._name_of(session)
     return resolve_name(session)
+end
+
+--- Test hook: trigger a name fetch for a session (initial fetch, or retry of
+--- an entry that resolved empty).
+---@param session pi.Session
+function M._fetch_name(session)
+    fetch_name(session)
 end
 
 --- Test hook: drop all module state.
