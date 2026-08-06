@@ -2,6 +2,10 @@
 
 ## 2026-08-06
 
+- **ADDED:** `:PiSessions` can rename sessions in place: `r` on a row prompts for a display name (prefilled with the current backend name) and sends it to that session's backend over RPC — no need to jump to the session's tab first, and it works for any listed session, current tab or not. The row updates through the backend's `session_info_changed` event, so every open list view refreshes at once. Renaming a session whose process exited is refused with a warning (#61).
+
+- **CHANGED:** In `:PiSessions`, the manual refresh (drop cached names and re-fetch) moved from `r` to `R`; `r` is now rename. The `?` help overlay lists both bindings (#61).
+
 - **FIXED:** A regression from the `(unnamed)` flicker fix: session names in `:PiSessions` only appeared when a turn *ended*, so long turns kept the row on `(unnamed)` the whole time. The backend buffers session entries and flushes them to disk when the *first assistant message* completes, so the first-user-message fallback becomes readable mid-turn — unresolved names are now retried on every `message_end` (cheap: a no-op once resolved, no timers), with the `agent_end` retry kept as a backstop. Also, a `get_state` answer arriving while a fetch is in flight no longer clobbers a name that `session_info_changed` set meanwhile (#60, follow-up to #58).
 
 ## 2026-08-05
