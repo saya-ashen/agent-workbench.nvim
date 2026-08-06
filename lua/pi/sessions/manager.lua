@@ -463,16 +463,28 @@ function M.get()
     return sessions[tab]
 end
 
---- List all active sessions.
+--- List all active sessions in tabline order.
+---
+--- Tabpage handles reflect creation order, not position: a tab created while
+--- tab 1 is current lands between tabs 1 and 2, and :tabmove reorders tabs
+--- without touching handles. Sorting by handle would therefore disagree with
+--- the tabline; rank by the visual order of nvim_list_tabpages() instead.
 ---@return pi.Session[]
 function M.list()
+    ---@type table<pi.TabId, integer> visual position per tab
+    local rank = {}
+    for i, tab in ipairs(vim.api.nvim_list_tabpages()) do
+        rank[tab] = i
+    end
     ---@type pi.Session[]
     local result = {}
     for _, session in pairs(sessions) do
         result[#result + 1] = session
     end
     table.sort(result, function(a, b)
-        return a.tab < b.tab
+        -- A session whose tab was just closed can linger until the scheduled
+        -- cleanup runs; sort it last instead of crashing on a missing rank.
+        return (rank[a.tab] or math.huge) < (rank[b.tab] or math.huge)
     end)
     return result
 end
