@@ -476,6 +476,93 @@ describe("sessions overview", function()
         end)
     end)
 
+    describe("current-tab marker", function()
+        --- Run fn with the manager stubbed to a single session and the list
+        --- open in the current tab.
+        local function with_list_session(session, fn)
+            local real_manager = package.loaded["pi.sessions.manager"]
+            package.loaded["pi.sessions.manager"] = {
+                list = function()
+                    return { session }
+                end,
+                get = function()
+                    return nil
+                end,
+            }
+            local ok, err = pcall(function()
+                SessionList.open()
+                fn()
+            end)
+            package.loaded["pi.sessions.manager"] = real_manager
+            if not ok then
+                error(err)
+            end
+        end
+
+        ---@param win integer
+        local function marker_match(win)
+            for _, m in ipairs(vim.fn.getmatches(win)) do
+                if m.group == "PiSessionsListCurrent" then
+                    return m
+                end
+            end
+            return nil
+        end
+
+        --- Highlight group of the dot extmark on a line of the list buffer.
+        ---@param bufnr integer
+        ---@param lnum integer 1-based
+        local function dot_extmark_hl(bufnr, lnum)
+            local ns = vim.api.nvim_create_namespace("pi-sessions-list")
+            local marks = vim.api.nvim_buf_get_extmarks(
+                bufnr,
+                ns,
+                { lnum - 1, 0 },
+                { lnum - 1, -1 },
+                { details = true }
+            )
+            assert.are.equal(2, #marks) -- dot + name
+            return marks[1][4].hl_group
+        end
+
+        it("is steady while the current session is idle", function()
+            local s = fetchable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_list_session(s, function()
+                local win = vim.api.nvim_get_current_win()
+                SessionList._set_blink_tick(0)
+                SessionList._render()
+                assert.is_not_nil(marker_match(win))
+                SessionList._set_blink_tick(1)
+                SessionList._render()
+                assert.is_not_nil(marker_match(win))
+            end)
+        end)
+
+        it("blinks while the current session is busy, keeping the agent color", function()
+            local s = fetchable_session({ tab = vim.api.nvim_get_current_tabpage(), streaming = true })
+            with_list_session(s, function()
+                local win = vim.api.nvim_get_current_win()
+                local bufnr = vim.api.nvim_win_get_buf(win)
+
+                -- On phase: the marker covers the dot in the agent color;
+                -- the busy yellow never shows for the current session.
+                SessionList._set_blink_tick(0)
+                SessionList._render()
+                local m = marker_match(win)
+                assert.is_not_nil(m)
+                assert.same({ 1, 2, 3 }, m.pos1)
+                assert.are.equal("PiSessionsListBusy", dot_extmark_hl(bufnr, 1))
+
+                -- Off phase: no marker; the dot falls through to the dim
+                -- buffer-level color (same rhythm as other blinking dots).
+                SessionList._set_blink_tick(1)
+                SessionList._render()
+                assert.is_nil(marker_match(win))
+                assert.are.equal("PiSessionsListDotDim", dot_extmark_hl(bufnr, 1))
+            end)
+        end)
+    end)
+
     describe("open / render / toggle", function()
         it("opens a window on the shared list buffer with a placeholder", function()
             SessionList.open()

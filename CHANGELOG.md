@@ -2,6 +2,8 @@
 
 ## 2026-08-06
 
+- **CHANGED:** In `:PiSessions`, the current tab's session dot now blinks while that session is busy. Previously the window-local current-tab marker rendered the dot steady in the agent color whether idle or busy; now the marker follows the blink animation (same rhythm as the other dots), so a working session you're looking at visibly pulses. The color is unchanged — the dot stays in the agent color, never the busy yellow; the dim phase falls through to the same dimmed state the other blinking dots use. Idle sessions keep the steady dot (#55 follow-up).
+
 - **ADDED:** `:PiSessions` can rename sessions in place: `r` on a row prompts for a display name (prefilled with the current backend name) and sends it to that session's backend over RPC — no need to jump to the session's tab first, and it works for any listed session, current tab or not. The row updates through the backend's `session_info_changed` event, so every open list view refreshes at once. Renaming a session whose process exited is refused with a warning (#61).
 
 - **CHANGED:** In `:PiSessions`, the manual refresh (drop cached names and re-fetch) moved from `r` to `R`; `r` is now rename. The `?` help overlay lists both bindings (#61).

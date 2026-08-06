@@ -469,14 +469,18 @@ refresh_current_markers = function()
             for lnum, row in ipairs(rows) do
                 if row.tab == tab then
                     -- Current-tab marker: the dot of the tab's own session
-                    -- renders steady in the agent color (no blink) whether
-                    -- idle or busy, overriding the buffer-level state color.
-                    -- Attention/done/error/exited keep their own colors.
+                    -- renders in the agent color, overriding the buffer-level
+                    -- state color. Steady while idle; while busy it blinks
+                    -- with the tick (the dim phase falls through to the
+                    -- buffer-level PiSessionsListDotDim, so the agent color
+                    -- stays the only color). Attention/done/error/exited keep
+                    -- their own colors.
                     local markable = (row.status == "idle" or row.status == "busy")
                         and row.attention == 0
                         and not row.done
                         and not row.error
-                    if markable then
+                    local marker_on = row.status ~= "busy" or blink_tick % 2 == 0
+                    if markable and marker_on then
                         -- matchaddpos has no window arg on this Neovim; run it
                         -- in the window's context.
                         local ok, id = pcall(vim.api.nvim_win_call, win, function()
@@ -843,6 +847,12 @@ function M.toggle()
     else
         M.open()
     end
+end
+
+--- Test hook: set the blink animation tick (drives dot/marker blink phase).
+---@param tick integer
+function M._set_blink_tick(tick)
+    blink_tick = tick
 end
 
 --- Test hook: resolved display name for a session (nil while fetching).

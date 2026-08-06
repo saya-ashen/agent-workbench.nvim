@@ -200,8 +200,9 @@ local function set_defaults()
     -- Busy: yellow blink.
     local diag_warn = vim.api.nvim_get_hl(0, { name = "DiagnosticWarn", link = false })
     vim.api.nvim_set_hl(0, "PiSessionsListBusy", { default = true, fg = diag_warn.fg or special.fg, bold = true })
-    -- Window-local current-tab marker: steady agent color over the dot of
-    -- the tab's own session, idle or busy (no blink, no background).
+    -- Window-local current-tab marker: agent color over the dot of the
+    -- tab's own session — steady while idle; while busy it blinks (the dim
+    -- phase falls through to PiSessionsListDotDim), no background.
     vim.api.nvim_set_hl(0, "PiSessionsListCurrent", { default = true, fg = agent.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiSessionsListCompacting", { default = true, fg = special.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiSessionsListExited", { default = true, fg = diagnostic_error.fg })
