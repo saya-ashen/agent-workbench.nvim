@@ -3988,6 +3988,7 @@ local PI_PANEL_FILETYPES = {
     [Ft.prompt] = true,
     [Ft.attachments] = true,
     [Ft.dialog] = true,
+    [Ft.sessions] = true,
 }
 
 --- Open the file referenced on the history line under the cursor in an editor
@@ -4013,11 +4014,13 @@ function History:goto_path_at_cursor()
         return false
     end
 
-    -- Prefer an existing non-π window in the current tab.
+    -- Prefer an existing non-π window in the current tab. Skip windows with
+    -- 'winfixbuf' enabled (π panels, the sessions list, or anything the user
+    -- or another plugin pinned): :edit would fail there with E1513.
     local target
     for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
         local b = vim.api.nvim_win_get_buf(w)
-        if not PI_PANEL_FILETYPES[vim.bo[b].filetype] then
+        if not PI_PANEL_FILETYPES[vim.bo[b].filetype] and not vim.wo[w].winfixbuf then
             target = w
             break
         end
