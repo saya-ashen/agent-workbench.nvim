@@ -80,7 +80,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 **Navigation & layout**
 
-- **Open file under cursor (`gf`).** From a history line, `gf` resolves a bare path, an `@mention#L<line>`, or a `path:line` and opens it in a non-π window (`pi.goto_file_under_cursor()`).
+- **Open file under cursor (`gf`).** From a history line, `gf` resolves a bare path, an `@mention#L<line>`, or a `path:line` and opens it in a non-π window, skipping `winfixbuf`-pinned windows and falling back to a fresh split (`pi.goto_file_under_cursor()`).
 - **Search results in the quickfix list.** When the `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) and loaded into the quickfix list, so you can jump between them with `:cnext` / `:cprev`. The `find` tool's file list can be loaded the same way. The quickfix window is never opened automatically — use `:copen` to see it; the list is titled `pi <tool>: <pattern>`. Config: `quickfix`.
 - **Left side panel.** `layout.side.position` accepts `"left"`.
 
