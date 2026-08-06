@@ -67,9 +67,20 @@ describe("session list help overlay", function()
         assert.equals(before, vim.api.nvim_get_current_win())
 
         local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-        for _, key in ipairs({ "<CR>, o", "r", "q", "?" }) do
+        for _, key in ipairs({ "<CR>, o", "r", "R", "q", "?" }) do
             assert.is_truthy(text:find(key, 1, true), "help should list " .. key)
         end
+        assert.is_truthy(text:find("Rename the session under the cursor", 1, true), "help should describe rename")
+        assert.is_truthy(text:find("Refresh the list", 1, true), "help should describe refresh")
+    end)
+
+    it("binds r to rename and R to refresh in the list buffer", function()
+        local rename = vim.fn.maparg("r", "n", false, true)
+        assert.equals(1, rename.buffer)
+        assert.equals("Rename this session", rename.desc)
+        local refresh = vim.fn.maparg("R", "n", false, true)
+        assert.equals(1, refresh.buffer)
+        assert.equals("Refresh session list", refresh.desc)
     end)
 
     it("closes the overlay on a second ?", function()

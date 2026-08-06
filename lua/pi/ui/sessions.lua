@@ -239,7 +239,7 @@ end
 --- sessionName and its file does not exist yet, so the first-message fallback
 --- only becomes available after the first turn — but retries happen only on
 --- lifecycle hooks (M.on_message_end, M.on_agent_end, invalidation, manual
---- `r`), never on every redraw. While a retry is in flight the resolved
+--- `R`), never on every redraw. While a retry is in flight the resolved
 --- "(unnamed)" stays on screen; only the very first fetch shows the pending
 --- placeholder.
 ---@param session pi.Session
@@ -513,7 +513,8 @@ end
 ---@type [string, string][]
 local HELP_ENTRIES = {
     { "<CR>, o", "Open the session under the cursor" },
-    { "r", "Refresh the list" },
+    { "r", "Rename the session under the cursor" },
+    { "R", "Refresh the list" },
     { "q", "Close the list" },
     { "?", "Toggle this help" },
 }
@@ -600,20 +601,66 @@ end
 
 -- Buffer & windows ------------------------------------------------------------
 
+--- Find the live session owning a row's tab.
+---@param tab pi.TabId
+---@return pi.Session?
+local function session_for_tab(tab)
+    local Sessions = require("pi.sessions.manager")
+    for _, session in ipairs(Sessions.list()) do
+        if session.tab == tab then
+            return session
+        end
+    end
+    return nil
+end
+
 local function jump_under_cursor()
     local lnum = vim.api.nvim_win_get_cursor(0)[1]
     local row = rows[lnum]
     if not row or not vim.api.nvim_tabpage_is_valid(row.tab) then
         return
     end
-    local Sessions = require("pi.sessions.manager")
-    for _, session in ipairs(Sessions.list()) do
-        if session.tab == row.tab then
-            vim.api.nvim_set_current_tabpage(row.tab)
-            session.chat:ensure_shown_and_focus_prompt()
+    local session = session_for_tab(row.tab)
+    if not session then
+        return
+    end
+    vim.api.nvim_set_current_tabpage(row.tab)
+    session.chat:ensure_shown_and_focus_prompt()
+end
+
+--- Rename the session under the cursor: prompt for a display name and send it
+--- to that session's backend (works for any listed session, not just the
+--- current tab's). The backend's session_info_changed event updates the row
+--- via M.on_session_info_changed.
+local function rename_under_cursor()
+    local lnum = vim.api.nvim_win_get_cursor(0)[1]
+    local row = rows[lnum]
+    if not row or not vim.api.nvim_tabpage_is_valid(row.tab) then
+        return
+    end
+    local session = session_for_tab(row.tab)
+    if not session then
+        return
+    end
+    local Notify = require("pi.notify")
+    if not session.rpc:is_running() then
+        Notify.warn("Cannot rename: the session process is not running")
+        return
+    end
+    local entry = name_cache[session]
+    local current = type(entry) == "table" and entry.name or ""
+    require("pi.ui.dialog").input({ title = "Session Name", default = current }, function(value)
+        if not value or value == "" then
             return
         end
-    end
+        session.rpc:send({ type = "set_session_name", name = value }, function(res)
+            vim.schedule(function()
+                if not res.success then
+                    Notify.error("Failed to set session name: " .. (res.error or "unknown error"))
+                end
+            end)
+        end)
+    end)
 end
 
 ---@return integer
@@ -633,7 +680,8 @@ local function ensure_buf()
     local map_opts = { buffer = buf, nowait = true }
     vim.keymap.set("n", "<CR>", jump_under_cursor, vim.tbl_extend("force", map_opts, { desc = "Open this session" }))
     vim.keymap.set("n", "o", jump_under_cursor, vim.tbl_extend("force", map_opts, { desc = "Open this session" }))
-    vim.keymap.set("n", "r", function()
+    vim.keymap.set("n", "r", rename_under_cursor, vim.tbl_extend("force", map_opts, { desc = "Rename this session" }))
+    vim.keymap.set("n", "R", function()
         name_cache = setmetatable({}, { __mode = "k" })
         M._render()
     end, vim.tbl_extend("force", map_opts, { desc = "Refresh session list" }))

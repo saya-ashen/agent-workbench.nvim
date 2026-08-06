@@ -312,6 +312,170 @@ describe("sessions overview", function()
         end)
     end)
 
+    describe("rename", function()
+        --- Fake session capturing every outgoing RPC request; the
+        --- set_session_name response callback is held in `rename_cb`.
+        local function renamable_session(opts)
+            local s = fake_session(opts)
+            s.sent = {}
+            s.rpc.send = function(_, req, cb)
+                table.insert(s.sent, req)
+                if req.type == "set_session_name" then
+                    s.rename_cb = cb
+                end
+                return true
+            end
+            return s
+        end
+
+        local function last_request(s, type_)
+            for i = #s.sent, 1, -1 do
+                if s.sent[i].type == type_ then
+                    return s.sent[i]
+                end
+            end
+            return nil
+        end
+
+        local function press_key(key)
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "x", false)
+        end
+
+        --- Run fn with the session manager, Dialog.input, and Notify stubbed.
+        --- The dialog answers `answer` immediately; fn receives the captured
+        --- dialog option tables and notification list.
+        local function with_stubs(sessions, answer, fn)
+            local real_manager = package.loaded["pi.sessions.manager"]
+            local real_dialog = package.loaded["pi.ui.dialog"]
+            local real_notify = package.loaded["pi.notify"]
+            local dialog_calls = {}
+            local notifications = {}
+            package.loaded["pi.sessions.manager"] = {
+                list = function()
+                    return sessions
+                end,
+                get = function()
+                    return nil
+                end,
+            }
+            package.loaded["pi.ui.dialog"] = {
+                input = function(opts, cb)
+                    table.insert(dialog_calls, opts)
+                    cb(answer)
+                end,
+            }
+            package.loaded["pi.notify"] = {
+                warn = function(msg)
+                    table.insert(notifications, { "warn", msg })
+                end,
+                error = function(msg)
+                    table.insert(notifications, { "error", msg })
+                end,
+                info = function(msg)
+                    table.insert(notifications, { "info", msg })
+                end,
+            }
+            local ok, err = pcall(fn, dialog_calls, notifications)
+            package.loaded["pi.sessions.manager"] = real_manager
+            package.loaded["pi.ui.dialog"] = real_dialog
+            package.loaded["pi.notify"] = real_notify
+            if not ok then
+                error(err)
+            end
+        end
+
+        it("sends set_session_name for the session under the cursor", function()
+            local s = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, "new name", function(dialog_calls)
+                SessionList.open()
+                press_key("r")
+                assert.are.equal(1, #dialog_calls)
+                assert.are.equal("", dialog_calls[1].default) -- unnamed: nothing to prefill
+                local req = last_request(s, "set_session_name")
+                assert.is_not_nil(req)
+                assert.are.equal("new name", req.name)
+            end)
+        end)
+
+        it("prefills the input with the current backend name", function()
+            local s = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            SessionList.on_session_info_changed(s, "old name")
+            with_stubs({ s }, "new name", function(dialog_calls)
+                SessionList.open()
+                press_key("r")
+                assert.are.equal("old name", dialog_calls[1].default)
+            end)
+        end)
+
+        it("does nothing when the input is cancelled or emptied", function()
+            local s = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, nil, function()
+                SessionList.open()
+                press_key("r")
+                assert.is_nil(last_request(s, "set_session_name"))
+            end)
+            local s2 = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s2 }, "", function()
+                press_key("r")
+                assert.is_nil(last_request(s2, "set_session_name"))
+            end)
+        end)
+
+        it("refuses to rename a session whose process exited", function()
+            local s = renamable_session({ running = false, tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, "new name", function(dialog_calls, notifications)
+                SessionList.open()
+                press_key("r")
+                assert.are.equal(0, #dialog_calls)
+                assert.is_nil(last_request(s, "set_session_name"))
+                assert.are.equal("warn", notifications[1][1])
+            end)
+        end)
+
+        it("reports an RPC failure via Notify.error", function()
+            local s = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, "new name", function(_, notifications)
+                SessionList.open()
+                press_key("r")
+                assert.is_not_nil(last_request(s, "set_session_name"))
+                s.rename_cb({ success = false, error = "Session name cannot be empty" })
+                vim.wait(100, function()
+                    return false
+                end)
+                assert.are.equal("error", notifications[1][1])
+                assert.is_truthy(notifications[1][2]:find("Session name cannot be empty", 1, true))
+            end)
+        end)
+
+        it("stays silent on success; the row updates via session_info_changed", function()
+            local s = renamable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, "new name", function(_, notifications)
+                SessionList.open()
+                press_key("r")
+                s.rename_cb({ success = true })
+                -- The backend emits session_info_changed, which updates the row.
+                SessionList.on_session_info_changed(s, "new name")
+                vim.wait(100, function()
+                    return false
+                end)
+                assert.are.equal(0, #notifications)
+                assert.are.equal("new name", SessionList._name_of(s))
+            end)
+        end)
+
+        it("R drops cached names and re-fetches", function()
+            local s = fetchable_session({ tab = vim.api.nvim_get_current_tabpage() })
+            with_stubs({ s }, nil, function()
+                SessionList.open()
+                assert.are.equal(1, s.send_count)
+                s.respond({})
+                assert.are.equal("(unnamed)", SessionList._name_of(s))
+                press_key("R")
+                assert.are.equal(2, s.send_count)
+            end)
+        end)
+    end)
+
     describe("open / render / toggle", function()
         it("opens a window on the shared list buffer with a placeholder", function()
             SessionList.open()
