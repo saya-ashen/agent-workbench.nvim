@@ -226,6 +226,58 @@ describe("sessions overview", function()
             assert.are.equal(3, s.send_count)
         end)
 
+        it("retries unresolved names on message_end and stops once resolved", function()
+            local s = fetchable_session()
+            SessionList._fetch_name(s)
+            s.respond({})
+            assert.are.equal("(unnamed)", SessionList._name_of(s))
+
+            -- The backend flushes the session file when the first assistant
+            -- message completes; message_end is when the fallback becomes
+            -- readable, well before agent_end on long turns.
+            SessionList.on_message_end(s)
+            assert.are.equal(2, s.send_count)
+            s.respond({ sessionName = "named mid-turn" })
+            assert.are.equal("named mid-turn", SessionList._name_of(s))
+
+            -- Resolved entries make message_end a no-op.
+            SessionList.on_message_end(s)
+            assert.are.equal(2, s.send_count)
+        end)
+
+        it("keeps at most one retry of an unresolved name in flight", function()
+            local s = fetchable_session()
+            SessionList._fetch_name(s)
+            s.respond({})
+
+            SessionList.on_message_end(s) -- retry goes out
+            SessionList.on_message_end(s) -- skipped while the retry is in flight
+            SessionList.on_agent_end(s) -- same: one in flight at a time
+            assert.are.equal(2, s.send_count)
+
+            s.respond({})
+            SessionList.on_message_end(s) -- next event may retry again
+            assert.are.equal(3, s.send_count)
+        end)
+
+        it("does not clobber a name set by session_info_changed mid-fetch", function()
+            -- First fetch in flight when a rename arrives.
+            local s = fetchable_session()
+            SessionList._fetch_name(s)
+            SessionList.on_session_info_changed(s, "renamed")
+            s.respond({}) -- stale empty answer must not win
+            assert.are.equal("renamed", SessionList._name_of(s))
+
+            -- Same for an in-flight retry of an empty entry.
+            local s2 = fetchable_session()
+            SessionList._fetch_name(s2)
+            s2.respond({})
+            SessionList.on_message_end(s2) -- retry in flight
+            SessionList.on_session_info_changed(s2, "renamed too")
+            s2.respond({}) -- stale empty answer must not win
+            assert.are.equal("renamed too", SessionList._name_of(s2))
+        end)
+
         it("does not re-fetch resolved names on redraws", function()
             local s = fetchable_session()
             local real_manager = package.loaded["pi.sessions.manager"]
