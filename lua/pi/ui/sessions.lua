@@ -192,6 +192,16 @@ function M.on_agent_end(session)
     M.request_refresh()
 end
 
+--- A message was finalized. The backend only flushes the session file to disk
+--- when the first assistant message completes (earlier entries are buffered),
+--- so this is when the first-message fallback becomes readable — well before
+--- agent_end on long turns. Retry unresolved names here; resolved entries
+--- make this a no-op. The agent_end retry remains as a backstop.
+---@param session pi.Session
+function M.on_message_end(session)
+    fetch_name(session)
+end
+
 --- The user is now looking at this session (TabEnter): both notifications are
 --- consumed and the dot returns to idle.
 ---@param session pi.Session
@@ -228,13 +238,15 @@ end
 --- Entries that resolved empty stay retryable — a brand-new session has no
 --- sessionName and its file does not exist yet, so the first-message fallback
 --- only becomes available after the first turn — but retries happen only on
---- lifecycle hooks (M.on_agent_end, invalidation, manual `r`), never on every
---- redraw. While a retry is in flight the resolved "(unnamed)" stays on
---- screen; only the very first fetch shows the pending placeholder.
+--- lifecycle hooks (M.on_message_end, M.on_agent_end, invalidation, manual
+--- `r`), never on every redraw. While a retry is in flight the resolved
+--- "(unnamed)" stays on screen; only the very first fetch shows the pending
+--- placeholder.
 ---@param session pi.Session
 fetch_name = function(session)
     local entry = name_cache[session]
-    local retryable = entry == nil or (type(entry) == "table" and not entry.name and not entry.first_message)
+    local retryable = entry == nil
+        or (type(entry) == "table" and not entry.name and not entry.first_message and not entry.pending)
     if not retryable or not session.rpc:is_running() then
         return
     end
@@ -257,6 +269,15 @@ fetch_name = function(session)
                 if info and info.first_message ~= "" then
                     first_message = info.first_message
                 end
+            end
+            local current = name_cache[session]
+            if type(current) == "table" and current.name then
+                -- A name arrived via session_info_changed while this fetch was
+                -- in flight; keep it instead of clobbering it with possibly
+                -- stale backend state.
+                current.pending = nil
+                M.request_refresh()
+                return
             end
             name_cache[session] = { name = name, first_message = first_message }
             M.request_refresh()

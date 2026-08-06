@@ -399,6 +399,7 @@ local function handle_event(session, msg)
         chat:on_message_start(msg)
     elseif t == "message_end" then
         chat:on_message_end(msg)
+        require("pi.ui.sessions").on_message_end(session)
         local message = msg.message
         if type(message) == "table" and message.stopReason == "error" then
             require("pi.ui.sessions").mark_error(session)
