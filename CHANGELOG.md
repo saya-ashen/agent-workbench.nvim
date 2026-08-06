@@ -8,6 +8,8 @@
 
 - **CHANGED:** In `:PiSessions`, the manual refresh (drop cached names and re-fetch) moved from `r` to `R`; `r` is now rename. The `?` help overlay lists both bindings (#61).
 
+- **FIXED:** `:PiSessions` could list sessions in the wrong order — e.g. tabs 2 and 3 swapped — because the list was sorted by tabpage handle (creation order), which stops matching the tabline once a tab is created mid-list (`:tabnew` inserts after the current tab) or tabs are rearranged with `:tabmove`. The list now follows the tabline's visual order (#63).
+
 - **FIXED:** `gf` on a path in the chat crashed with `E1513: Cannot switch buffer. 'winfixbuf' is enabled` when the session list was the only non-chat window in the tab — the target-window scan did not recognize the session list filetype and never checked `winfixbuf`. π panels, the session list, and any `winfixbuf`-pinned window are now skipped; with no eligible window the file opens in a fresh split (#62).
 
 - **FIXED:** A regression from the `(unnamed)` flicker fix: session names in `:PiSessions` only appeared when a turn *ended*, so long turns kept the row on `(unnamed)` the whole time. The backend buffers session entries and flushes them to disk when the *first assistant message* completes, so the first-user-message fallback becomes readable mid-turn — unresolved names are now retried on every `message_end` (cheap: a no-op once resolved, no timers), with the `agent_end` retry kept as a backstop. Also, a `get_state` answer arriving while a fetch is in flight no longer clobbers a name that `session_info_changed` set meanwhile (#60, follow-up to #58).
