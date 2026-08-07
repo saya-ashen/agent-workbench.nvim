@@ -313,7 +313,7 @@ local defaults = {
         compaction = "󰏗",
         attachment = "",
         attachments = "",
-        error = "󰘨 󱚟 󱔁 ",
+        error = "",
     },
     layout = {
         default = "side",

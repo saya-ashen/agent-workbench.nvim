@@ -183,6 +183,9 @@ accent-colored.
 - This is the **only** structural element in the entire design
 - Justified: errors must break the visual flow; color alone isn't enough
   during fast scrolling
+- Long lines are hard-wrapped to the history window width so every screen
+  line is a buffer line carrying the rail; a soft wrap would leave
+  continuation lines rail-less at column 0 and break the block apart
 
 ---
 

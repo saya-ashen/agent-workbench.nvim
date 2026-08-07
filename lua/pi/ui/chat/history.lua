@@ -1666,6 +1666,20 @@ function History:on_agent_end(done_verb, opts)
     end)
 end
 
+---@return integer text-area width of the history window in columns (80 when not shown)
+function History:_history_width()
+    if self._win and vim.api.nvim_win_is_valid(self._win) then
+        -- Exclude signcolumn/foldcolumn/number offsets (same pattern as the
+        -- statusline's text_area_width): the rail lives in the text area.
+        local info = vim.fn.getwininfo(self._win)
+        if info and info[1] then
+            return math.max(1, info[1].width - info[1].textoff)
+        end
+        return vim.api.nvim_win_get_width(self._win)
+    end
+    return 80
+end
+
 ---@param error_message string
 ---@param opts? pi.ChatErrorOpts
 function History:on_error(error_message, opts)
@@ -1676,11 +1690,19 @@ function History:on_error(error_message, opts)
         end
         self:_pop_text_batch()
         local icon = Config.options.labels.error
-        local error_lines = vim.split(error_message, "\n", { plain = true })
-        local indent = string.rep(" ", vim.fn.strdisplaywidth(icon) + 1)
-        error_lines[1] = icon .. " " .. error_lines[1]
-        for i = 2, #error_lines do
-            error_lines[i] = indent .. error_lines[i]
+        local prefix_w = vim.fn.strdisplaywidth(icon) + 1
+        local indent = string.rep(" ", prefix_w)
+        -- Hard-wrap to the window width so every screen line is a buffer
+        -- line: a soft-wrapped continuation would lose the rail/indent and
+        -- start at column 0, breaking the block apart. The -1 leaves headroom
+        -- for terminal fonts that render PUA glyphs a cell wider than
+        -- utf8proc reports (see the _set_thinking_preview note).
+        local body_w = math.max(16, self:_history_width() - 2 - prefix_w - 1)
+        local error_lines = {}
+        for i, raw in ipairs(vim.split(error_message, "\n", { plain = true })) do
+            for j, chunk in ipairs(Text.wrap(raw, body_w)) do
+                error_lines[#error_lines + 1] = (i == 1 and j == 1) and (icon .. " " .. chunk) or (indent .. chunk)
+            end
         end
 
         local lines = {}
@@ -1721,7 +1743,14 @@ function History:_append_system_error_block(error_message, timestamp, opts)
     local time_str = format_time(timestamp)
     local time_sep = " "
     local label_line = icon .. time_sep .. time_str
-    local error_lines = vim.split(error_message, "\n", { plain = true })
+    -- Hard-wrap (see on_error): soft-wrapped continuations would lose the rail.
+    local body_w = math.max(16, self:_history_width() - 2 - 1)
+    local error_lines = {}
+    for _, raw in ipairs(vim.split(error_message, "\n", { plain = true })) do
+        for _, chunk in ipairs(Text.wrap(raw, body_w)) do
+            error_lines[#error_lines + 1] = chunk
+        end
+    end
 
     local lines = {}
     if opts and opts.pad_top then
@@ -1927,15 +1956,18 @@ function History:_build_startup_error_lines(base_row)
             col_end = #label_line,
             hl = "PiMessageDateTime",
         }
-        local error_lines = vim.split(entry.message, "\n", { plain = true })
-        for _, line in ipairs(error_lines) do
-            lines[#lines + 1] = line
-            marks[#marks + 1] = {
-                row = base_row + #lines - 1,
-                col_start = 0,
-                col_end = #line,
-                hl = "PiStartupError",
-            }
+        -- Hard-wrap (see on_error): keeps long stderr lines inside the panel.
+        local body_w = math.max(16, self:_history_width() - 2)
+        for _, raw in ipairs(vim.split(entry.message, "\n", { plain = true })) do
+            for _, line in ipairs(Text.wrap(raw, body_w)) do
+                lines[#lines + 1] = line
+                marks[#marks + 1] = {
+                    row = base_row + #lines - 1,
+                    col_start = 0,
+                    col_end = #line,
+                    hl = "PiStartupError",
+                }
+            end
         end
     end
     return lines, marks

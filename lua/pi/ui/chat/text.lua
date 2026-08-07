@@ -54,6 +54,42 @@ function M.thinking_head(s, w)
     return s:sub(1, end_byte) .. "…"
 end
 
+--- Hard-wrap one line into chunks of at most `w` display columns.
+---
+--- Error blocks put a rail/indent on every buffer line via extmarks; a soft
+--- (window) wrap would leave continuation screen lines at column 0 with no
+--- rail, breaking the block apart. Wrapping here makes every screen line a
+--- real buffer line. Width uses strdisplaywidth (tab-aware, column-relative);
+--- a single char wider than `w` is placed on a line of its own.
+---@param s string
+---@param w integer
+---@return string[]
+function M.wrap(s, w)
+    local dw = vim.fn.strdisplaywidth
+    if w <= 0 or dw(s) <= w then
+        return { s }
+    end
+    local chunks, cur, cur_w = {}, "", 0
+    local i, n = 1, #s
+    while i <= n do
+        local len = M.utf8_len(s:byte(i))
+        local ch = s:sub(i, i + len - 1)
+        local cw = dw(ch, cur_w)
+        if cur_w + cw > w and cur ~= "" then
+            chunks[#chunks + 1] = cur
+            cur, cur_w = "", 0
+            cw = dw(ch, 0)
+        end
+        cur = cur .. ch
+        cur_w = cur_w + cw
+        i = i + len
+    end
+    if cur ~= "" then
+        chunks[#chunks + 1] = cur
+    end
+    return chunks
+end
+
 --- Keep the trailing slice of s that fits in w display columns (rolling window).
 ---@param s string
 ---@param w integer

@@ -113,4 +113,38 @@ describe("pi.ui.chat.text", function()
             assert.are.equal(r, vim.fn.substitute(r, ".", "", "g") and r or r)
         end)
     end)
+
+    describe("wrap", function()
+        it("returns the line unchanged when it fits", function()
+            assert.are.same({ "hello" }, Text.wrap("hello", 10))
+        end)
+
+        it("returns the line unchanged for w <= 0", function()
+            assert.are.same({ "hello" }, Text.wrap("hello", 0))
+        end)
+
+        it("splits long ASCII lines at the width", function()
+            assert.are.same({ "abcd", "efgh" }, Text.wrap("abcdefgh", 4))
+        end)
+
+        it("never emits a chunk wider than the width", function()
+            for _, chunk in ipairs(Text.wrap(string.rep("x", 100), 7)) do
+                assert.is_true(vim.fn.strdisplaywidth(chunk) <= 7)
+            end
+        end)
+
+        it("does not split multi-byte chars (CJK)", function()
+            -- 6 CJK chars = 12 cols; w=5 fits 2 chars (4 cols) per chunk
+            assert.are.same({ "你好", "世界", "你好" }, Text.wrap("你好世界你好", 5))
+        end)
+
+        it("places a single over-wide char on its own line", function()
+            assert.are.same({ "aa", "你", "bb" }, Text.wrap("aa你bb", 2))
+        end)
+
+        it("preserves all text (round-trip concat)", function()
+            local s = '429 data: {"error":"资源耗尽 ResourceExhausted"}'
+            assert.are.equal(s, table.concat(Text.wrap(s, 10), ""))
+        end)
+    end)
 end)
