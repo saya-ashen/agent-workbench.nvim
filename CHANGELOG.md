@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-07
+
+- **FIXED:** Error blocks in the chat history no longer fall apart when the message is wider than the panel. The `▌` rail and the continuation indent were per-buffer-line extmarks, but long single-line errors — typically `429 data: {"error":…}` model-service failures — relied on the window's soft wrap, and soft-wrapped continuation screen lines started at column 0 with no rail, so the block looked like scattered fragments. Error text is now hard-wrapped to the history window width (display-width aware, never splitting a multi-byte char), so the rail runs down every screen line and wrapped chunks align under the first line; applies to mid-turn errors, inline system errors, and startup-preamble errors alike. The default `labels.error` also changes from a three-glyph cluster — two of whose codepoints render as tofu/hex boxes in common Nerd Font builds, making the prefix read as mojibake — to a single warning-triangle glyph.
+
 ## 2026-08-06
 
 - **CHANGED:** In `:PiSessions`, the current tab's session dot now blinks while that session is busy. Previously the window-local current-tab marker rendered the dot steady in the agent color whether idle or busy; now the marker follows the blink animation (same rhythm as the other dots), so a working session you're looking at visibly pulses. The color is unchanged — the dot stays in the agent color, never the busy yellow; the dim phase falls through to the same dimmed state the other blinking dots use. Idle sessions keep the steady dot (#55 follow-up).
