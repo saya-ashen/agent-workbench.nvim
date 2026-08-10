@@ -5,6 +5,7 @@
 #   make format  — reformat lua/ and tests/ in place with stylua
 #   make style   — check formatting only (stylua --check); non-zero exit on drift, for CI/hooks
 #   make lint    — static/type check lua/ with lua-language-server (--check); non-zero on problems
+#   make docs-links — validate relative links and anchors in README.md and doc/*.md
 #
 # The suite is intentionally runnable without the user's full Neovim config so
 # it stays fast and deterministic; PLENARY_PATH overrides the plenary location.
@@ -15,7 +16,7 @@ MIN_INIT := tests/minimal_init.lua
 STYLUA_BIN ?= stylua
 LUA_LS_BIN ?= lua-language-server
 
-.PHONY: test smoke format style lint
+.PHONY: test smoke format style lint docs-links
 
 test:
 	PLENARY_PATH=$(PLENARY_PATH) $(NVIM_BIN) --headless -u $(MIN_INIT) \
@@ -44,3 +45,6 @@ style:
 # types are intentionally not loaded so the check is environment-independent).
 lint:
 	$(LUA_LS_BIN) --check lua --configpath $(CURDIR)/.luarc.json --loglevel error
+
+docs-links:
+	python3 scripts/check_docs_links.py
