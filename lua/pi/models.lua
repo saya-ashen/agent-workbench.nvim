@@ -221,7 +221,7 @@ function M.select_all(session)
             labels[i] = M.format_label(m)
         end
         vim.ui.select(labels, {
-            prompt = "Select model",
+            prompt = "Select model (all)",
             -- snacks.nvim workaround: its picker can compute non-integer
             -- heights, crashing nvim_win_set_config. Force math.floor.
             snacks = {

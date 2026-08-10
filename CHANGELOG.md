@@ -2,6 +2,8 @@
 
 ## 2026-08-10
 
+- **CHANGED:** `:PiSelectModelAll` now opens its picker under its own title — `Select model (all)` — instead of sharing `:PiSelectModel`'s `Select model`, so the two pickers are distinguishable at a glance.
+
 - **CHANGED:** Thinking blocks are now shown by default (`show_thinking` defaults to `true` instead of `false`). They used to be hidden by default because they can be noisy on verbose models; they are now visible out of the box, and `show_thinking = false` in `setup()` or `:PiToggleThinking` / `pi.toggle_thinking()` restores the old behavior at any time.
 
 - **ADDED:** Dynamic `@mention` providers. Mentions are no longer limited to files: `@git-diff`, `@git-log`, `@lsp-errors`, and `@quickfix` now materialize live state — the current `git diff HEAD`, recent commits, ERROR-severity LSP diagnostics, and the quickfix list — and attach it to the message at send time as fenced `<context>` blocks appended after your sentence (the mention itself is lifted out). Providers that produce nothing vanish silently. They surface in `@`-completion ahead of file matches and highlight in the prompt like file mentions. Users can register their own via the new `mention_providers` config option — a `name → function returning text` map (or a spec table with `fn`/`description`/`lang`) — making any `@name` a custom context source. Output is trimmed and capped at 256 KB per provider; a provider that errors warns instead of breaking the send (#69).
