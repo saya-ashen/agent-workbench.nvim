@@ -2,6 +2,7 @@
 
 local FilesCache = require("pi.cache.files")
 local CommandsCache = require("pi.cache.commands")
+local Providers = require("pi.mention_providers")
 
 local M = {}
 
@@ -131,6 +132,38 @@ function M.complete_files(prefix, make_item)
                         end
                     end
                 end
+            end
+        end
+    end
+
+    return items
+end
+
+--- Two-pass dynamic-provider matching: case-insensitive prefix matches
+--- first, then fuzzy matches. Providers are few, so both passes are cheap.
+--- Calls make_item(provider, is_fuzzy) for each result.
+---@param prefix string typed text after @
+---@param make_item fun(provider: pi.MentionProvider, is_fuzzy: boolean): table
+---@return table[]
+function M.complete_providers(prefix, make_item)
+    local lprefix = prefix:lower()
+    local items = {}
+    local seen = {}
+
+    -- Pass 1: prefix matches on name (case-insensitive)
+    for _, provider in ipairs(Providers.list()) do
+        local lname = provider.name:lower()
+        if lname:sub(1, #lprefix) == lprefix then
+            seen[provider.name] = true
+            items[#items + 1] = make_item(provider, false)
+        end
+    end
+
+    -- Pass 2: fuzzy matches on name
+    if lprefix ~= "" then
+        for _, provider in ipairs(Providers.list()) do
+            if not seen[provider.name] and fuzzy_match_lower(lprefix, provider.name:lower()) then
+                items[#items + 1] = make_item(provider, true)
             end
         end
     end

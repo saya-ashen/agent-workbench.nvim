@@ -28,6 +28,7 @@ Use the [pi coding agent](https://pi.dev) without leaving Neovim — **π²**, a
     - [Chat & layouts](#chat--layouts)
     - [Prompt](#prompt)
     - [Mentions](#mentions)
+    - [Dynamic mentions](#dynamic-mentions)
     - [Slash commands](#slash-commands)
     - [Completion](#completion)
     - [Attachments](#attachments)
@@ -580,6 +581,11 @@ require("pi").setup({
     -- Extension setWidget hook. Return a custom block to render inline
     -- in history, or nil to ignore. Not called for `:startup` widgets.
     on_widget = nil,
+
+    -- Custom dynamic @-mention providers (see "Dynamic mentions" below).
+    -- name -> function returning context text, or a spec table
+    -- { fn = ..., description = ..., lang = ... }.
+    mention_providers = {},
 })
 ```
 
@@ -874,6 +880,43 @@ While typing, `@mentions` are highlighted in the prompt buffer so you can see at
 > When the user references a file with `[file: ...]` and a specific line or line range, you must re-read that exact reference immediately before answering, even if the file was read earlier in the conversation.
 > ```
 
+### Dynamic mentions
+
+Some context is not a file — it is generated on demand: the current diff, recent commits, LSP errors, the quickfix list. Dynamic mentions materialize that state and attach it to the message when you send it:
+
+| Mention | Attached content |
+| --- | --- |
+| `@git-diff` | `git diff HEAD` output (staged + unstaged changes) |
+| `@git-log` | `git log --oneline -20` (recent commits) |
+| `@lsp-errors` | all LSP diagnostics with ERROR severity, as `path:lnum:col: message` |
+| `@quickfix` | the current quickfix list (title + `path:lnum:col: text` entries) |
+
+Unlike file mentions, a dynamic mention is lifted out of your sentence: its content is appended to the end of the message as a fenced `<context>` block. _"review @git-diff please"_ reaches the agent as `review please` followed by a block with the actual diff. A mention whose provider produces nothing (clean tree, empty quickfix, no errors) vanishes silently.
+
+Dynamic mentions appear in `@`-completion ahead of file matches and are highlighted in the prompt exactly like file mentions.
+
+You can register your own providers — any `name → function returning text` pair becomes an `@name` mention:
+
+```lua
+require("pi").setup({
+    mention_providers = {
+        todos = {
+            fn = function()
+                return vim.fn.system("grep -rn TODO src/")
+            end,
+            description = "open TODOs in src/",
+            lang = "text", -- fence language for the attached block (optional)
+        },
+        -- plain functions work too
+        branch = function()
+            return vim.trim(vim.fn.system("git branch --show-current"))
+        end,
+    },
+})
+```
+
+Output is trimmed and capped at 256 KB per provider (larger payloads are truncated with a marker). A provider that errors never breaks the send — the failure is reported as a warning and the mention attaches nothing.
+
 ### Slash commands
 
 Slash commands come from the **pi backend**, not from pi2.nvim. They cover three sources:
@@ -939,7 +982,7 @@ The π prompt buffer ships with completion for both `@mentions` and `/commands` 
 
 This is the default Vim user-defined completion key. It will:
 
-- Complete `@path` mentions against project files (resolved relative to the current working directory).
+- Complete `@path` mentions against project files (resolved relative to the current working directory), plus dynamic mention providers (`@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix`, and any custom `mention_providers`) ahead of file matches.
 - Complete `/commands` against the backend's command list — but only when the cursor is on the first line of the prompt and that line starts with `/`.
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.

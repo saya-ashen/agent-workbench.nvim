@@ -45,11 +45,18 @@ function M.completefunc(findstart, base)
         end)
     end
 
-    -- @mention completion
+    -- @mention completion: dynamic providers first, then project files.
     local prefix = base:sub(2) -- strip @
-    return Matcher.complete_files(prefix, function(path)
-        return { word = "@" .. path, kind = "f", menu = "[Pi]" }
+    local items = Matcher.complete_providers(prefix, function(provider)
+        return { word = "@" .. provider.name, kind = "v", menu = "[Pi]", info = provider.description }
     end)
+    vim.list_extend(
+        items,
+        Matcher.complete_files(prefix, function(path)
+            return { word = "@" .. path, kind = "f", menu = "[Pi]" }
+        end)
+    )
+    return items
 end
 
 return M
