@@ -213,6 +213,14 @@ require("pi").setup({
         },
     },
 
+    -- Session diff review (:PiDiff): a float with the combined `git diff` of
+    -- every file the current session changed. See doc/diff-review.md.
+    diff_review = {
+        width = 0.8, -- fraction (<1) of editor width, or columns (>=1)
+        height = 0.8, -- fraction (<1) of editor height, or lines (>=1)
+        border = "rounded",
+    },
+
     -- Select/confirm pickers render through vim.ui.select; this styles the
     -- input/info dialog floats.
     dialog = {

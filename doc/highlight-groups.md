@@ -117,6 +117,9 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiDiffWinbarProposed` | `PROPOSED:` label on the right pane winbar |
 | `PiDiffWinbarHint` | Key hint text (`[<Leader>da=accept ...]`) on the winbar |
 | `PiDiffReviewNote` | Sign and virtual text for line-level diff review notes |
+| `PiDiffReviewFile` | File header lines in the `:PiDiff` session diff float |
+| `PiDiffReviewHint` | Hint line (file count / key hints) in the `:PiDiff` float |
+| `PiDiffReviewFloatTitle` | Float title of the `:PiDiff` window |
 
 ## Statusline
 
