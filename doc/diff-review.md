@@ -19,21 +19,27 @@ Markdown diffs enable wrapping and linebreak in the review panes for readability
 
 ## Session diff review (`:PiDiff`)
 
-Where the two-way review above intercepts a single edit _before_ it lands, `:PiDiff` reviews everything the session already changed, after the fact: it opens a floating window with the combined `git diff` of every file the current session's `edit`/`write` tools touched (`session.changed_files`). This is the code-review surface — after a round of changes, one command shows the whole session diff.
+Where the two-way review above intercepts a single edit _before_ it lands, `:PiDiff` reviews everything the session already changed, after the fact. It opens the combined `git diff` of every file the current session's `edit`/`write` tools touched (`session.changed_files`), split into two windows:
 
-- The float renders the raw unified diff with the `diff` filetype, so hunks get native syntax highlighting. Each file gets its own `── path ──` header line.
-- **`<CR>` / `o`** on a hunk line (or a file header) jumps to that file and line in an editor window and closes the float. Line numbers are tracked per hunk (`@@ -a,b +c,d @@`), so a jump lands on the exact changed line; removed lines jump to the deletion point, headers jump to line 1. Deleted files have no jump target.
-- **`q`** closes the float. Re-running `:PiDiff` refreshes it (it always re-reads `git diff`).
-- Files the agent created are shown as full-file additions (git's `--no-index` mode). Files outside the current git repository are skipped and counted in the hint line. Hunk context follows `'diffopt'` (`context:`), matching the two-way review.
+- **Side file list** (`pi-diff-review` filetype) — one row per changed file with an `A`/`M`/`D` status letter (added / modified / deleted) in the diff semantic colors. Moving the cursor shows that file's diff; `<CR>`/`o` jumps to its first changed line.
+- **Diff float** — the selected file's unified diff, rendered with the `diff` filetype for native syntax highlighting, with a `── path ──` header. `<CR>`/`o` on a hunk line jumps to that exact line (line numbers are tracked per hunk, so added and context lines land precisely; removed lines jump to the deletion point; deleted files have no target); `q` closes. Click or `<C-w>w` to focus the float for scrolling.
 
-`diff_review` config sizes the window:
+`q` in either window closes the whole review; closing one window closes the other. Re-running `:PiDiff` refreshes (it always re-reads `git diff`).
+
+Files the agent created render as full-file additions (git's `--no-index` mode). Files outside the current git repository are skipped and counted in the list hint line. Hunk context follows `'diffopt'` (`context:`), matching the two-way review.
+
+`diff_review` config sizes both windows:
 
 ```lua
 -- setup()
 diff_review = {
-    width = 0.8, -- fraction (<1) of editor width, or columns (>=1)
-    height = 0.8, -- fraction (<1) of editor height, or lines (>=1)
+    width = 0.8, -- diff float width: fraction (<1) of editor width, or columns (>=1)
+    height = 0.8, -- diff float height: fraction (<1) of editor height, or lines (>=1)
     border = "rounded",
+    list = {
+        position = "left", -- side file list: "left" | "right"
+        width = 30, -- side file list width in columns
+    },
 },
 ```
 

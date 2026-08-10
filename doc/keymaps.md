@@ -10,7 +10,7 @@ What the plugin does bind on its own:
 - `<Tab>` block expand/collapse and `gf` open-file-under-cursor in the history buffer.
 - `dd` / `x` to remove an entry in the attachments buffer.
 - The [diff review](diff-review.md) keys inside the diff tab.
-- The `:PiDiff` session diff float: `<CR>`/`o` jump to the file/line under the cursor, `q` closes (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
+- The `:PiDiff` session diff review: in the side file list, moving the cursor previews the file's diff and `<CR>`/`o` jumps to its first changed line; in the diff float, `<CR>`/`o` jumps to the line under the cursor; `q` in either window closes the whole review (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
 - The [sessions overview](sessions.md#sessions-overview-pisessions) keys inside the list.
 
 ## Key specs
@@ -44,6 +44,7 @@ Every π buffer gets a stable filetype, so you can target them from your own `Fi
 | `pi-chat-attachments` | Attachments panel |
 | `pi-dialog` | Input and info dialog floats (completion plugins can be disabled here without affecting the prompt) |
 | `pi-sessions` | The [sessions overview](sessions.md#sessions-overview-pisessions) list |
+| `pi-diff-review` | The `:PiDiff` session diff review file list |
 
 ## Example setup
 

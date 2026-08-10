@@ -244,7 +244,7 @@ require("pi").setup({
 | `:PiNewSession` | Start a new conversation in the current tab/session |
 | `:PiTree` | Navigate the session tree: jump back to any past conversation point |
 | `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
-| `:PiDiff` | Review the git diff of every file changed by the current session in a float |
+| `:PiDiff` | Review the git diff of every file changed by the current session: side file list + diff float |
 | `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
 | `:PiToggleThinking` | Show or hide thinking blocks |
 | `:PiCycleThinking` | Cycle to the next thinking level |

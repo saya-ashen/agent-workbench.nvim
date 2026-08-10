@@ -58,14 +58,19 @@ describe("diff_review parse_sections", function()
         local new_file = sections[2]
         assert.are.equal("lua/pi/init.lua", new_file.path)
         assert.is_false(new_file.deleted)
+        assert.are.equal("A", new_file.status)
         assert.are.equal("new file mode 100644", new_file.body[1])
 
         local gone = sections[3]
         assert.are.equal("gone.txt", gone.path)
         assert.is_true(gone.deleted)
+        assert.are.equal("D", gone.status)
         assert.are.equal("@@ -1,2 +0,0 @@", gone.body[5])
         -- trailing empty line from the final newline is trimmed
         assert.are.equal("-old two", gone.body[#gone.body])
+
+        -- the plain modified file keeps status M
+        assert.are.equal("M", sections[1].status)
     end)
 
     it("handles a/dev/null (new file) and b/dev/null (deleted) paths", function()
@@ -174,13 +179,17 @@ describe("diff_review config", function()
         assert.are.equal(0.8, Config.options.diff_review.width)
         assert.are.equal(0.8, Config.options.diff_review.height)
         assert.are.equal("rounded", Config.options.diff_review.border)
+        assert.are.equal("left", Config.options.diff_review.list.position)
+        assert.are.equal(30, Config.options.diff_review.list.width)
     end)
 
     it("merges partial user config over the defaults", function()
-        Config.setup({ diff_review = { width = 0.5 } })
+        Config.setup({ diff_review = { width = 0.5, list = { position = "right", width = 40 } } })
         assert.are.equal(0.5, Config.options.diff_review.width)
         assert.are.equal(0.8, Config.options.diff_review.height)
         assert.are.equal("rounded", Config.options.diff_review.border)
+        assert.are.equal("right", Config.options.diff_review.list.position)
+        assert.are.equal(40, Config.options.diff_review.list.width)
     end)
 end)
 
@@ -189,47 +198,70 @@ describe("diff_review render", function()
         M._reset()
     end)
 
-    it("creates a diff-typed float with a hint line, headers, and jump targets", function()
+    it("opens a side file list plus a float showing the first file", function()
         local sections = M.parse_sections(SAMPLE)
         M.render(sections)
 
         assert.is_true(M.is_open())
-        local win = vim.api.nvim_get_current_win()
-        local b = vim.api.nvim_win_get_buf(win)
+        -- focus stays in the list window
+        local list_win = vim.api.nvim_get_current_win()
+        local list_buf = vim.api.nvim_win_get_buf(list_win)
+        assert.are.equal("pi-diff-review", vim.bo[list_buf].filetype)
+        assert.are.equal("nofile", vim.bo[list_buf].buftype)
+        assert.is_true(vim.wo[list_win].winfixbuf)
+
+        local list_lines = vim.api.nvim_buf_get_lines(list_buf, 0, -1, false)
+        assert.matches("3 files", list_lines[1])
+        assert.are.equal("M README.md", list_lines[2])
+        assert.are.equal("A lua/pi/init.lua", list_lines[3])
+        assert.are.equal("D gone.txt", list_lines[4])
+
+        -- the float shows the first file's diff
+        local float_win = assert(M._float_win())
+        local b = vim.api.nvim_win_get_buf(float_win)
         assert.are.equal("diff", vim.bo[b].filetype)
         assert.are.equal("nofile", vim.bo[b].buftype)
-        assert.is_true(vim.wo[win].winfixbuf)
+        assert.is_true(vim.wo[float_win].winfixbuf)
+        assert.are.equal(1, M._current_idx())
 
         local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-        assert.matches("3 files changed", lines[1])
-        assert.is_true(vim.startswith(lines[2], "── README.md"))
-        assert.is_true(vim.startswith(lines[3], "index 1234567"))
-        assert.is_true(vim.startswith(lines[12], "── lua/pi/init.lua"))
-        assert.is_true(vim.startswith(lines[20], "── gone.txt"))
+        assert.is_true(vim.startswith(lines[1], "── README.md"))
+        assert.is_true(vim.startswith(lines[2], "index 1234567"))
 
+        -- header jumps to line 1; "-old line" (buffer line 7) keeps the deletion point
         local targets = M._targets()
-        -- header lines jump to line 1 of their file
-        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 1 }, targets[2])
-        -- body: "-old line" (buffer line 8) keeps the deletion point -> new-file line 2
-        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 2 }, targets[8])
-        -- the blank added line (buffer line 11) -> new-file line 4
-        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 4 }, targets[11])
-        -- the first added line of the new file (buffer line 18) -> line 1
-        assert.are.same({ path = vim.fn.fnamemodify("lua/pi/init.lua", ":p"), line = 1 }, targets[18])
-        -- metadata before the first hunk has no target
-        assert.is_nil(targets[16])
-        -- deleted-file header and body lines have no jump target
-        assert.is_nil(targets[20])
-        assert.is_nil(targets[26])
+        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 1 }, targets[1])
+        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 2 }, targets[7])
+        -- the blank added line (buffer line 10) -> new-file line 4
+        assert.are.same({ path = vim.fn.fnamemodify("README.md", ":p"), line = 4 }, targets[10])
+    end)
+
+    it("switches the float to the selected file", function()
+        M.render(M.parse_sections(SAMPLE))
+        M._show_file(2)
+        assert.are.equal(2, M._current_idx())
+        local float_win = assert(M._float_win())
+        local b = vim.api.nvim_win_get_buf(float_win)
+        local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+        assert.is_true(vim.startswith(lines[1], "── lua/pi/init.lua"))
+        -- the first added line (buffer line 7) -> new-file line 1
+        assert.are.same({ path = vim.fn.fnamemodify("lua/pi/init.lua", ":p"), line = 1 }, M._targets()[7])
+
+        -- a deleted file shows only the header, with no jump targets
+        M._show_file(3)
+        assert.are.equal(3, M._current_idx())
+        local gone_lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+        assert.is_true(vim.startswith(gone_lines[1], "── gone.txt"))
+        assert.are.same({}, M._targets())
     end)
 
     it("is closed by M.close and M._reset", function()
-        local sections = M.parse_sections(SAMPLE)
-        M.render(sections)
+        M.render(M.parse_sections(SAMPLE))
         M.close()
         assert.is_false(M.is_open())
+        assert.is_nil(M._float_win())
         assert.are.same({}, M._targets())
-        M.render(sections)
+        M.render(M.parse_sections(SAMPLE))
         M._reset()
         assert.is_false(M.is_open())
     end)

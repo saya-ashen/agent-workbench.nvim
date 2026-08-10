@@ -197,10 +197,15 @@
 ---@field height? integer Window height for top/bottom placement in the side layout (default 12)
 ---@field float pi.SessionsListFloatConfig Float window sizing when the current tab uses the float layout
 
+---@class pi.DiffReviewListConfig
+---@field position? "left"|"right" Side window placement (default "left")
+---@field width? integer Side window width in columns (default 30)
+
 ---@class pi.DiffReviewConfig
 ---@field width? number Width in columns (>=1) or fraction of editor width (<1, default 0.8)
 ---@field height? number Height in lines (>=1) or fraction of editor height (<1, default 0.8)
 ---@field border? string|string[] Float border style (default "rounded")
+---@field list pi.DiffReviewListConfig Side file-list window
 
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
@@ -416,6 +421,10 @@ local defaults = {
         width = 0.8,
         height = 0.8,
         border = "rounded",
+        list = {
+            position = "left",
+            width = 30,
+        },
     },
     dialog = {
         border = "rounded",

@@ -213,12 +213,17 @@ require("pi").setup({
         },
     },
 
-    -- Session diff review (:PiDiff): a float with the combined `git diff` of
-    -- every file the current session changed. See doc/diff-review.md.
+    -- Session diff review (:PiDiff): a side file list plus a float with the
+    -- `git diff` of every file the current session changed. See
+    -- doc/diff-review.md.
     diff_review = {
-        width = 0.8, -- fraction (<1) of editor width, or columns (>=1)
-        height = 0.8, -- fraction (<1) of editor height, or lines (>=1)
+        width = 0.8, -- diff float width: fraction (<1) of editor width, or columns (>=1)
+        height = 0.8, -- diff float height: fraction (<1) of editor height, or lines (>=1)
         border = "rounded",
+        list = {
+            position = "left", -- side file list: "left" | "right"
+            width = 30, -- side file list width in columns
+        },
     },
 
     -- Select/confirm pickers render through vim.ui.select; this styles the
