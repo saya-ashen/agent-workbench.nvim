@@ -76,7 +76,21 @@ function source:get_completions(ctx, callback)
     end
 
     local prefix = line:sub(at_col + 1, col)
-    local items = Matcher.complete_files(prefix, function(path, kind, is_fuzzy)
+
+    -- Dynamic mention providers (@git-diff, @quickfix, …) come first.
+    local items = Matcher.complete_providers(prefix, function(provider, is_fuzzy)
+        return {
+            label = "@" .. provider.name,
+            kind = vim.lsp.protocol.CompletionItemKind.Reference,
+            insertText = "@" .. provider.name,
+            filterText = "@" .. provider.name,
+            sortText = (is_fuzzy and "1" or "0") .. provider.name,
+            score_offset = is_fuzzy and -10 or 0,
+            labelDetails = { description = provider.description },
+        }
+    end)
+
+    local file_items = Matcher.complete_files(prefix, function(path, kind, is_fuzzy)
         if is_fuzzy then
             return {
                 label = "@" .. path,
@@ -96,6 +110,7 @@ function source:get_completions(ctx, callback)
             sortText = "0" .. path,
         }
     end)
+    vim.list_extend(items, file_items)
 
     callback({ items = items, is_incomplete_forward = true, is_incomplete_backward = true })
 end

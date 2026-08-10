@@ -229,6 +229,10 @@
 ---@field block "custom" Block type.
 ---@field content pi.CustomBlockLine[] Lines of styled chunks to render.
 
+--- A custom dynamic @-mention provider (see `mention_providers`).
+--- The function returns the context text to attach; nil or empty attaches nothing.
+---@alias pi.MentionProviderFn fun(): string?
+
 ---@class pi.CliConfig
 ---@field bin string Path to the `pi` executable.
 ---@field args string[] Extra startup args for every RPC process. pi.nvim filters args that conflict with RPC mode.
@@ -267,6 +271,7 @@
 ---@field render pi.RenderConfig
 ---@field dialog pi.DialogConfig
 ---@field verbs pi.VerbsConfig Verb pairs for status messages, picked randomly per run
+---@field mention_providers? table<string, pi.MentionProviderFn|pi.MentionProviderSpec> Custom dynamic @-mention providers: name → function returning context text (or a spec table with fn/description/lang). Mentioning `@name` attaches the returned text to the message.
 ---@field on_widget? fun(key: string, lines: string[]?, placement: string?): pi.CustomBlock? Handle extension setWidget calls. Return a custom block to render inline in history, or nil to ignore. Not called for `:startup` widgets (keys ending with `:startup`), which are always stored as startup announcements and rendered in the system preamble.
 
 ---@class pi.ConfigModule
@@ -461,6 +466,7 @@ local defaults = {
         },
     },
     on_widget = nil,
+    mention_providers = {},
 }
 
 ---@type pi.Options

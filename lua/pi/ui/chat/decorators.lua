@@ -51,7 +51,8 @@ function M.update(buf)
             local clean = Mentions.strip_trailing(ref)
             finish = start + #clean -- adjust end to exclude punctuation
             local path = parse_path(clean)
-            if FilesCache.exists(path) then
+            local Providers = require("pi.mention_providers")
+            if Providers.has(path) or FilesCache.exists(path) then
                 vim.api.nvim_buf_set_extmark(buf, ns, row - 1, start - 1, {
                     end_col = finish,
                     hl_group = "PiMention",

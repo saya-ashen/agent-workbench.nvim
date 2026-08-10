@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-10
+
+- **ADDED:** Dynamic `@mention` providers. Mentions are no longer limited to files: `@git-diff`, `@git-log`, `@lsp-errors`, and `@quickfix` now materialize live state — the current `git diff HEAD`, recent commits, ERROR-severity LSP diagnostics, and the quickfix list — and attach it to the message at send time as fenced `<context>` blocks appended after your sentence (the mention itself is lifted out). Providers that produce nothing vanish silently. They surface in `@`-completion ahead of file matches and highlight in the prompt like file mentions. Users can register their own via the new `mention_providers` config option — a `name → function returning text` map (or a spec table with `fn`/`description`/`lang`) — making any `@name` a custom context source. Output is trimmed and capped at 256 KB per provider; a provider that errors warns instead of breaking the send (#69).
+
 ## 2026-08-07
 
 - **FIXED:** Error blocks in the chat history no longer fall apart when the message is wider than the panel. The `▌` rail and the continuation indent were per-buffer-line extmarks, but long single-line errors — typically `429 data: {"error":…}` model-service failures — relied on the window's soft wrap, and soft-wrapped continuation screen lines started at column 0 with no rail, so the block looked like scattered fragments. Error text is now hard-wrapped to the history window width (display-width aware, never splitting a multi-byte char), so the rail runs down every screen line and wrapped chunks align under the first line; applies to mid-turn errors, inline system errors, and startup-preamble errors alike. The default `labels.error` also changes from a three-glyph cluster — two of whose codepoints render as tofu/hex boxes in common Nerd Font builds, making the prefix read as mojibake — to a single warning-triangle glyph.
