@@ -203,12 +203,30 @@ describe("diff_review render", function()
         M.render(sections)
 
         assert.is_true(M.is_open())
-        -- focus stays in the list window
+        -- the review is one panel: an outer container float framing two
+        -- borderless inner floats (file list left, diff right)
+        local shell_win = assert(M._shell_win())
+        local shell_cfg = vim.api.nvim_win_get_config(shell_win)
+        assert.are.equal("editor", shell_cfg.relative)
+        assert.are.equal(8, #shell_cfg.border) -- rounded border, expanded
+        assert.is_true(vim.wo[shell_win].winfixbuf)
+
+        -- focus stays in the file list float
         local list_win = vim.api.nvim_get_current_win()
         local list_buf = vim.api.nvim_win_get_buf(list_win)
         assert.are.equal("pi-diff-review", vim.bo[list_buf].filetype)
         assert.are.equal("nofile", vim.bo[list_buf].buftype)
         assert.is_true(vim.wo[list_win].winfixbuf)
+
+        local float_win = assert(M._float_win())
+        for _, w in ipairs({ list_win, float_win }) do
+            local cfg = vim.api.nvim_win_get_config(w)
+            assert.are.equal("editor", cfg.relative)
+            assert.are.equal("none", cfg.border)
+            -- inner floats sit inside the container bounds
+            assert.is_true(cfg.col > shell_cfg.col and cfg.col + cfg.width <= shell_cfg.col + shell_cfg.width)
+            assert.is_true(cfg.row > shell_cfg.row and cfg.row + cfg.height <= shell_cfg.row + shell_cfg.height)
+        end
 
         local list_lines = vim.api.nvim_buf_get_lines(list_buf, 0, -1, false)
         assert.matches("3 files", list_lines[1])

@@ -1,12 +1,13 @@
 --- Session diff review (:PiDiff) — review every file the current session
 --- changed, as one unified `git diff`.
 ---
---- The file list lives in a side window (`pi-diff-review` filetype); moving
---- the cursor there shows the selected file's diff in a floating window
---- (`diff` filetype, native syntax highlighting). <CR>/o jumps to the file
---- and line under the cursor, q closes. Untracked files are shown as
---- full-file additions (git's no-index mode). Window geometry comes from
---- the `diff_review` config.
+--- One outer float is the review panel: a shared border, title and
+--- background frame two inner borderless floats — the file list on the left
+--- (`pi-diff-review` filetype) and the selected file's diff on the right
+--- (`diff` filetype, native syntax highlighting). Moving the cursor in the
+--- list shows that file's diff; <CR>/o jumps to the file and line under the
+--- cursor, q closes. Untracked files are shown as full-file additions (git's
+--- no-index mode). Geometry comes from the `diff_review` config.
 
 local M = {}
 
@@ -17,10 +18,13 @@ local Notify = require("pi.notify")
 
 local ns = vim.api.nvim_create_namespace("pi-diff-review")
 
----@type integer? float window/buffer showing the selected file's diff
+---@type integer? outer container float (border/title)
+local shell_win = nil
+local shell_buf = nil
+---@type integer? diff float (selected file)
 local win = nil
 local buf = nil
----@type integer? side file-list window/buffer
+---@type integer? file-list float
 local list_win = nil
 local list_buf = nil
 ---@type pi.DiffReviewSection[] collected sections (list row = index + 1)
@@ -170,6 +174,18 @@ local function close_list()
     list_buf = nil
 end
 
+--- Close the outer container float and wipe its buffer.
+local function close_shell()
+    if shell_win and vim.api.nvim_win_is_valid(shell_win) then
+        pcall(vim.api.nvim_win_close, shell_win, false)
+    end
+    if shell_buf and vim.api.nvim_buf_is_valid(shell_buf) then
+        pcall(vim.api.nvim_buf_delete, shell_buf, { force = true })
+    end
+    shell_win = nil
+    shell_buf = nil
+end
+
 -- Rendering -----------------------------------------------------------------
 
 ---@param path string
@@ -290,13 +306,52 @@ local function on_list_cursor_moved()
     end
 end
 
---- Open the side file-list window.
-local function open_list_window()
-    local list_cfg = Config.options.diff_review.list
-    local width = math.max(10, math.floor(list_cfg.width))
-    local cmd = list_cfg.position == "right" and ("botright " .. width .. "vsplit") or ("topleft " .. width .. "vsplit")
-    vim.cmd(cmd)
-    local w = vim.api.nvim_get_current_win()
+--- Open the review panel: one outer float (border/title/background) framing
+--- two inner borderless floats — the file list and the selected file's diff.
+--- All three share the PiFloat background, so the panel reads as one UI.
+local function open_review_windows()
+    local cfg = Config.options.diff_review
+    local list_cfg = cfg.list
+    local total_w = resolve_dimension(cfg.width, vim.o.columns)
+    local total_h = resolve_dimension(cfg.height, vim.o.lines - vim.o.cmdheight - 1)
+    local list_w = math.max(10, math.floor(list_cfg.width))
+    local inner_h = math.max(1, total_h - 2)
+    local diff_w = math.max(10, total_w - 2 - list_w - 1)
+    local col0 = math.floor((vim.o.columns - total_w) / 2)
+    local row0 = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - 1 - total_h) / 2))
+
+    -- Outer container: draws the panel border/title and the shared background.
+    local sb = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(sb, "pi://diff-review")
+    vim.bo[sb].buftype = "nofile"
+    vim.bo[sb].bufhidden = "wipe"
+    vim.bo[sb].swapfile = false
+    vim.bo[sb].buflisted = false
+    vim.bo[sb].filetype = Ft.diff_review
+    local sw = vim.api.nvim_open_win(sb, false, {
+        relative = "editor",
+        width = total_w,
+        height = total_h,
+        col = col0,
+        row = row0,
+        style = "minimal",
+        focusable = false,
+        border = cfg.border or "rounded",
+        title = " diff review ",
+        title_pos = "center",
+    })
+    vim.wo[sw].winfixbuf = true
+    vim.wo[sw].winhighlight = Highlights.DIFF_REVIEW_WINHIGHLIGHT
+    shell_win = sw
+    shell_buf = sb
+
+    -- File list (left) and diff (right), borderless, inside the container.
+    local list_col = col0 + 1
+    local diff_col = col0 + 1 + list_w + 1
+    if list_cfg.position == "right" then
+        list_col, diff_col = diff_col, list_col
+    end
+
     local b = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(b, "pi://diff-review-files")
     vim.bo[b].buftype = "nofile"
@@ -305,7 +360,15 @@ local function open_list_window()
     vim.bo[b].buflisted = false
     vim.bo[b].filetype = Ft.diff_review
     vim.bo[b].modifiable = false
-    vim.api.nvim_win_set_buf(w, b)
+    local w = vim.api.nvim_open_win(b, true, {
+        relative = "editor",
+        width = list_w,
+        height = inner_h,
+        col = list_col,
+        row = row0 + 1,
+        style = "minimal",
+        border = "none",
+    })
     vim.wo[w].wrap = false
     vim.wo[w].number = false
     vim.wo[w].relativenumber = false
@@ -315,58 +378,47 @@ local function open_list_window()
     vim.wo[w].spell = false
     vim.wo[w].cursorline = true
     vim.wo[w].winfixbuf = true
+    vim.wo[w].winhighlight = "NormalFloat:PiFloat"
     list_win = w
     list_buf = b
-end
 
---- Open the float showing the selected file's diff. Focus returns to the
---- file list afterwards; the float stays reachable (click / <C-w>w) for
---- scrolling and line-level jumps.
-local function open_float_window()
-    local cfg = Config.options.diff_review
-    local width = resolve_dimension(cfg.width, vim.o.columns)
-    local height = resolve_dimension(cfg.height, vim.o.lines - vim.o.cmdheight - 1)
-    local col = math.floor((vim.o.columns - width) / 2)
-    local row = math.floor((vim.o.lines - vim.o.cmdheight - 1 - height) / 2)
-    local b = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(b, "pi://diff-review")
-    vim.bo[b].buftype = "nofile"
-    vim.bo[b].bufhidden = "wipe"
-    vim.bo[b].swapfile = false
-    vim.bo[b].buflisted = false
-    vim.bo[b].filetype = "diff"
-    vim.bo[b].modifiable = false
-    local w = vim.api.nvim_open_win(b, true, {
+    local db = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(db, "pi://diff-review-diff")
+    vim.bo[db].buftype = "nofile"
+    vim.bo[db].bufhidden = "wipe"
+    vim.bo[db].swapfile = false
+    vim.bo[db].buflisted = false
+    vim.bo[db].filetype = "diff"
+    vim.bo[db].modifiable = false
+    local dw = vim.api.nvim_open_win(db, true, {
         relative = "editor",
-        width = width,
-        height = height,
-        col = col,
-        row = math.max(0, row),
+        width = diff_w,
+        height = inner_h,
+        col = diff_col,
+        row = row0 + 1,
         style = "minimal",
-        border = cfg.border or "rounded",
-        title = " diff review ",
-        title_pos = "center",
+        border = "none",
     })
-    vim.wo[w].cursorline = true
-    vim.wo[w].number = false
-    vim.wo[w].relativenumber = false
-    vim.wo[w].signcolumn = "no"
-    vim.wo[w].foldcolumn = "0"
-    vim.wo[w].foldenable = false
-    vim.wo[w].spell = false
-    vim.wo[w].winfixbuf = true
-    vim.wo[w].winhighlight = Highlights.DIFF_REVIEW_WINHIGHLIGHT
+    vim.wo[dw].cursorline = true
+    vim.wo[dw].number = false
+    vim.wo[dw].relativenumber = false
+    vim.wo[dw].signcolumn = "no"
+    vim.wo[dw].foldcolumn = "0"
+    vim.wo[dw].foldenable = false
+    vim.wo[dw].spell = false
+    vim.wo[dw].winfixbuf = true
+    vim.wo[dw].winhighlight = "NormalFloat:PiFloat"
+    win = dw
+    buf = db
 
-    vim.keymap.set("n", "q", M.close, { buffer = b, nowait = true, desc = "Close diff review" })
-    vim.keymap.set("n", "<CR>", jump_to_target, { buffer = b, nowait = true, desc = "Jump to file" })
-    vim.keymap.set("n", "o", jump_to_target, { buffer = b, nowait = true, desc = "Jump to file" })
-
-    buf = b
-    win = w
+    vim.keymap.set("n", "q", M.close, { buffer = db, nowait = true, desc = "Close diff review" })
+    vim.keymap.set("n", "<CR>", jump_to_target, { buffer = db, nowait = true, desc = "Jump to file" })
+    vim.keymap.set("n", "o", jump_to_target, { buffer = db, nowait = true, desc = "Jump to file" })
 end
 
---- Render the collected sections: side file list + float with the first file.
---- Closes any existing review windows first.
+--- Render the collected sections into the review panel: outer container
+--- float framing the file list and the diff of the first file.
+--- Closes any existing review first.
 ---@param rendered pi.DiffReviewSection[]
 ---@param opts? { skipped?: integer } number of changed files outside the git repo
 function M.render(rendered, opts)
@@ -376,11 +428,10 @@ function M.render(rendered, opts)
     current_idx = 1
     skipped_outside = opts.skipped or 0
 
-    open_list_window()
+    open_review_windows()
     render_list()
-    open_float_window()
     M._show_file(1)
-    -- The float takes focus on open; hand it back to the file list.
+    -- The diff float takes focus on open; hand it back to the file list.
     pcall(vim.api.nvim_set_current_win, list_win)
 
     vim.keymap.set("n", "q", M.close, { buffer = list_buf, nowait = true, desc = "Close diff review" })
@@ -390,17 +441,14 @@ function M.render(rendered, opts)
         buffer = list_buf,
         callback = on_list_cursor_moved,
     })
-    -- Closing either window closes the whole review.
-    vim.api.nvim_create_autocmd("WinClosed", {
-        pattern = tostring(list_win),
-        once = true,
-        callback = close_float,
-    })
-    vim.api.nvim_create_autocmd("WinClosed", {
-        pattern = tostring(win),
-        once = true,
-        callback = close_list,
-    })
+    -- Closing any of the three windows closes the whole review.
+    for _, w in ipairs({ shell_win, list_win, win }) do
+        vim.api.nvim_create_autocmd("WinClosed", {
+            pattern = tostring(w),
+            once = true,
+            callback = M.close,
+        })
+    end
 
     -- Land the cursor on the first file row.
     pcall(vim.api.nvim_win_set_cursor, list_win, { 2, 0 })
@@ -408,13 +456,21 @@ end
 
 ---@return boolean
 function M.is_open()
-    return list_win ~= nil and vim.api.nvim_win_is_valid(list_win)
+    return shell_win ~= nil and vim.api.nvim_win_is_valid(shell_win)
 end
 
----@return integer? the float window handle when the review is open
+---@return integer? the diff float window handle when the review is open
 function M._float_win()
     if win and vim.api.nvim_win_is_valid(win) then
         return win
+    end
+    return nil
+end
+
+---@return integer? the outer container float handle when the review is open
+function M._shell_win()
+    if shell_win and vim.api.nvim_win_is_valid(shell_win) then
+        return shell_win
     end
     return nil
 end
@@ -423,6 +479,7 @@ end
 function M.close()
     close_float()
     close_list()
+    close_shell()
     sections = {}
     current_idx = 1
     skipped_outside = 0
