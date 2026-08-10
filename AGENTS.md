@@ -7,8 +7,8 @@ Neovim plugin (Lua) — a frontend for the [pi coding agent](https://github.com/
 - Be concise. Prefer small, targeted edits over full-file rewrites.
 - Ask before broad, multi-file, or potentially destructive changes. State assumptions and tradeoffs briefly when they matter.
 - Match the existing style and conventions of the file/project. Don't reformat unrelated code and avoid unrelated cleanup.
-- Treat `lua/` as the source of truth; `README.md` is user-facing documentation, not authority over behavior.
-- If public API, commands, keymaps, config defaults, or other user-visible behavior change, update `README.md` in the same change.
+- Treat `lua/` as the source of truth; `README.md` and `doc/` are user-facing documentation, not authority over behavior.
+- **Every code change must keep the documentation consistent with the code.** Any change to `lua/` (and `extensions/`) requires checking the docs against it: user-visible changes — public API, commands, keymaps, config defaults, highlight groups, or any documented behavior — must update the docs **in the same change**; purely internal changes must still verify the docs remain accurate and fix any drift found. `README.md` is the landing page (overview only); detailed guides live in `doc/` (`usage.md`, `sessions.md`, `diff-review.md`, `attention.md`, `extensions.md`, `configuration.md`, `keymaps.md`, `api.md`, `highlight-groups.md`, `troubleshooting.md`). Run `make docs-links` to validate relative links and anchors.
 - Re-read a file immediately before editing it. Never rely on content from an earlier read — it may be stale.
 - Handle errors explicitly. Don't swallow them or mask them with odd defaults. Use `pcall` for Neovim API calls that may fail (invalid windows/buffers) and `Notify.error/warn/info` for user-facing messages.
 

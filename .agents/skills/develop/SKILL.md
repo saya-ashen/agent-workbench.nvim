@@ -16,7 +16,7 @@ flowchart TD
     C -- wontfix --> D["review:wontfix · close"]
     C -- approve --> E["review:approved"]
     E --> F["git worktree add <wt> -b feat/<name>"]
-    F --> G["Implement in the worktree\n(config → module → wiring → tests → README → CHANGELOG)"]
+    F --> G["Implement in the worktree\n(config → module → wiring → tests → docs → CHANGELOG)"]
     G --> H{"make test\nheadless e2e"}
     H -- fail --> G
     H -- green --> I["git commit · push feat/<name>"]
@@ -84,7 +84,7 @@ A feature is **not complete until the CI run for its merge commit is green** —
 - **Chat wiring** → `lua/pi/ui/chat/init.lua`: keymaps in `_set_keymaps()`, submit logic in `_send_message()`.
 - **History rendering** → `lua/pi/ui/chat/history.lua`; tool renderers → `lua/pi/ui/chat/tools.lua`.
 - **Highlight group** → `lua/pi/ui/highlights.lua` (`default = true`).
-- **README + CHANGELOG** → in the same commit for user-facing changes.
+- **Docs (README + `doc/`) + CHANGELOG** → docs-code consistency is mandatory: user-facing changes update `README.md` / the relevant `doc/*.md` in the same commit; internal changes still verify the docs remain accurate and fix any drift. Run `make docs-links` before committing.
 - **Tests** → `tests/<name>_spec.lua`; e2e per `references/testing.md`.
 
 ## Gotchas
