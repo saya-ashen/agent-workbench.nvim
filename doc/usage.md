@@ -686,9 +686,9 @@ Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, Open
 
 ### Visibility
 
-Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so pi2.nvim hides them by default. You can flip the default and toggle visibility on demand:
+Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so you may want to hide them. pi2.nvim shows them by default; you can flip the default and toggle visibility on demand:
 
-- **Default**: `show_thinking` (bool in `setup()`) — `false` by default.
+- **Default**: `show_thinking` (bool in `setup()`) — `true` by default.
 - **Toggle**: `:PiToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
 
 Hiding thinking doesn't change anything on the backend or affect how the agent works; it's purely a view setting.

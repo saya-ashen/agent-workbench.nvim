@@ -33,7 +33,7 @@ require("pi").setup({
     -- { refresh_rate = ms, frames = { ... } }.
     spinner = "robot",
     -- Show thinking blocks by default.
-    show_thinking = false,
+    show_thinking = true,
     -- Extra blank line between conversation turns (pure whitespace, no drawn rule).
     turn_separator = true,
     -- Default expand/collapse state for the startup block
