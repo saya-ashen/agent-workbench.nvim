@@ -42,7 +42,7 @@ flowchart TD
 | Review | `pr:changes-requested` → fix → re-push → back to `pr:awaiting-review`. `pr:approved` → merge. |
 | Merge | In the **main checkout**: `git merge --no-ff`, push main, delete remote+local branch, `git worktree remove`. **Verify the CI run for the merge commit is green** (see CI verification below), then close issue. |
 
-Gitea API: `https://git.yuez.me/api/v1/repos/yuez/pi2.nvim`, auth via `GITEA_TOKEN` (chezmoi-encrypted in `~/.zshrc.local`).
+Gitea: 所有交互统一使用 `tea` CLI（eos-bootstrap 安装，login `yuez`），**不要**手写 curl 调 API。issue 生命周期命令速查见 `references/gitea.md`。
 
 ## Worktree workflow
 
@@ -97,5 +97,6 @@ G1–G30 are indexed in the quick-reference table at the top of `references/gotc
 - `references/architecture.md` — module map, hard design constraints, rationale for standard places.
 - `references/testing.md` — layer details, pitfalls, isolation recipe, verification discipline, script usage.
 - `references/gotchas.md` — quick-reference table + full 现象/根因/修法 for G1–G30 with minimal reproductions.
+- `references/gitea.md` — tea CLI cheat sheet for the issue lifecycle (create/list/labels/comments/close).
 - `AGENTS.md` — architecture charter, style, type-annotation conventions.
 - `.agents/skills/commit/SKILL.md` — Conventional Commit format, CHANGELOG rules, breaking-change policy.
