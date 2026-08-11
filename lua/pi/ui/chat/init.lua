@@ -298,8 +298,7 @@ function Chat:_set_keymaps()
             return false
         end
         if kind == "tool" then
-            vim.cmd.normal({ expanded and "zo" or "zc", bang = true })
-            return true
+            return self._history:set_tool_block_expanded_at_cursor(expanded)
         end
         return self._history:set_block_expanded_at_cursor(expanded ~= nil and expanded or not current)
     end
@@ -310,19 +309,32 @@ function Chat:_set_keymaps()
             return false
         end
         if kind == "tool" then
-            vim.cmd.normal({ "za", bang = true })
-            return true
+            return self._history:toggle_tool_block()
         end
         return self._history:set_block_expanded_at_cursor(not expanded)
     end
 
-    for _, lhs in ipairs({ "<Tab>", "za", "<CR>" }) do
+    for _, lhs in ipairs({ "za", "<CR>", "o" }) do
         vim.keymap.set("n", lhs, toggle_block, {
             buffer = hbuf,
             silent = true,
             desc = "Toggle π block under cursor",
         })
     end
+    vim.keymap.set("n", "<Tab>", function()
+        local kind, expanded = self._history:block_state_at_cursor()
+        if not kind then
+            return false
+        end
+        if kind == "tool" then
+            return self._history:open_tool_output_at_cursor()
+        end
+        return self._history:set_block_expanded_at_cursor(not expanded)
+    end, {
+        buffer = hbuf,
+        silent = true,
+        desc = "Open π block output",
+    })
     vim.keymap.set("n", "zo", function()
         set_block(true)
     end, { buffer = hbuf, silent = true, desc = "Expand π block under cursor" })

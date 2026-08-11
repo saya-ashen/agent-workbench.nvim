@@ -7,7 +7,7 @@ What the plugin does bind on its own:
 - Submission keys in the prompt buffer (`<CR>`, `<A-CR>`, `<S-CR>` — see [Usage → Prompt](usage.md#prompt)).
 - `<Esc>` / double-`<Esc>` abort gestures (see [Usage → Aborting](usage.md#aborting-with-double-esc)).
 - `<C-p>` / `<C-n>` / `<Up>` / `<Down>` prompt-history recall (see [Usage → Prompt history](usage.md#prompt-history)).
-- `<Tab>` block expand/collapse and `gf` open-file-under-cursor in the history buffer.
+- `<Tab>` opens complete long tool output in a viewer (and toggles short output inline); `za` / `<CR>` / `o` toggle block previews, while `gf` opens the file under the cursor in the history buffer.
 - `dd` / `x` to remove an entry in the attachments buffer.
 - The [diff review](diff-review.md) keys inside the diff tab.
 - The [sessions overview](sessions.md#sessions-overview-pisessions) keys inside the list.
@@ -41,6 +41,7 @@ Every π buffer gets a stable filetype, so you can target them from your own `Fi
 | `pi-chat-history` | Chat history panel |
 | `pi-chat-prompt` | Prompt panel |
 | `pi-chat-attachments` | Attachments panel |
+| `pi-tool-output` | Read-only split for tool output longer than 30 lines |
 | `pi-dialog` | Input and info dialog floats (completion plugins can be disabled here without affecting the prompt) |
 | `pi-sessions` | The [sessions overview](sessions.md#sessions-overview-pisessions) list |
 

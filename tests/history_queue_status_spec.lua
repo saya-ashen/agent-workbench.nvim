@@ -57,8 +57,13 @@ describe("history queue status rendering", function()
         pump(50)
         local virt_lines, anchor_row = status_virt_lines(h)
         assert.is_not_nil(virt_lines)
-        assert.are.equal(vim.api.nvim_buf_line_count(h:buf()), anchor_row)
-        assert.are.equal(2, #virt_lines) -- 1 blank + 1 busy row
+        assert.are.equal(vim.api.nvim_buf_line_count(h:buf()) - 1, anchor_row)
+        assert.are.equal(2, #virt_lines) -- 1 divider + 1 busy row
+        local divider = ""
+        for _, chunk in ipairs(virt_lines[1]) do
+            divider = divider .. chunk[1]
+        end
+        assert.is_not_nil(divider:find("─", 1, true))
         local text = ""
         for _, chunk in ipairs(virt_lines[2]) do
             text = text .. chunk[1]
@@ -71,26 +76,55 @@ describe("history queue status rendering", function()
         assert.are.equal(0, h._status_virt_line_count)
     end)
 
-    it("reopens the active assistant fold while preserving busy status", function()
+    it("opens active folds only on output transitions", function()
         Config.options.spinner = { refresh_rate = 1000, frames = { "x" } }
         local h = setup_history(5)
         local anchor = vim.api.nvim_buf_set_extmark(h:buf(), h:ns(), 0, 0, {})
         h._message_blocks = { { anchor = anchor, role = "assistant" } }
-        h._current_turn_first_agent_response_extmark_id = anchor
+        h._active_fold_anchors[1] = anchor
+        pump(20) -- let set_win() finish its deferred fold setup
         vim.wo.foldmethod = "manual"
         vim.cmd("1,5fold")
         vim.api.nvim_win_set_cursor(0, { 1, 0 })
         assert.are.equal(1, vim.fn.foldclosed(1))
 
-        h:set_status({ type = "agent", text = "Working…" })
-        pump(50)
+        h._status_text = "Working…"
+        h:_update_status_extmark()
 
-        assert.are.equal(-1, vim.fn.foldclosed(1))
-        assert.is_not_nil(status_virt_lines(h))
+        assert.are.equal(1, vim.fn.foldclosed(1), "status refresh must not mutate folds")
+        h:_open_active_output_folds()
+        assert.are.equal(-1, vim.fn.foldclosed(1), "output transition opens the active fold")
+        local _, status_row = status_virt_lines(h)
+        assert.are.equal(vim.api.nvim_buf_line_count(h:buf()) - 1, status_row)
 
-        h:set_status(nil)
-        pump(50)
+        h._status_text = nil
+        h:_update_status_extmark()
         vim.wo.foldmethod = "expr"
+    end)
+
+    it("does not rewrite unchanged status extmarks", function()
+        Config.options.spinner = { refresh_rate = 1000, frames = { "x" } }
+        local h = setup_history(5)
+        h._status_text = "Working…"
+        h:_update_status_extmark()
+
+        local orig = vim.api.nvim_buf_set_extmark
+        local calls = 0
+        ---@diagnostic disable-next-line: duplicate-set-field
+        vim.api.nvim_buf_set_extmark = function(...)
+            calls = calls + 1
+            return orig(...)
+        end
+        local ok = pcall(function()
+            h:_update_status_extmark()
+            h:_update_status_extmark()
+        end)
+        vim.api.nvim_buf_set_extmark = orig
+        assert.is_true(ok)
+        assert.are.equal(0, calls)
+
+        h._status_text = nil
+        h:_update_status_extmark()
     end)
 
     it("never calls nvim_win_text_height on the append hot path (G22)", function()
@@ -114,13 +148,28 @@ describe("history queue status rendering", function()
         assert.are.equal(0, calls)
     end)
 
-    it("renders a blank margin line plus one row per queue entry", function()
+    it("scrolls to the final screen row of wrapped output", function()
+        local h = setup_history(1)
+        local text = string.rep("wrapped output ", 20)
+        h:_with_modifiable(function()
+            vim.api.nvim_buf_set_lines(h:buf(), 0, -1, false, { text })
+        end)
+        local original_width = vim.api.nvim_win_get_width(0)
+        vim.api.nvim_win_set_width(0, 20)
+
+        h:_scroll_to_bottom()
+
+        assert.are.equal(#text - 1, vim.api.nvim_win_get_cursor(0)[2])
+        vim.api.nvim_win_set_width(0, original_width)
+    end)
+
+    it("renders a divider plus one row per queue entry", function()
         local h = setup_history(3)
         h:add_pending_queue_entry("follow_up", "first queued", "first queued")
         h:add_pending_queue_entry("steer", "second queued", "second queued")
         local virt_lines = status_virt_lines(h)
         assert.is_not_nil(virt_lines)
-        assert.are.equal(3, #virt_lines) -- 1 blank + 2 rows
+        assert.are.equal(3, #virt_lines) -- 1 divider + 2 rows
         local row_text = ""
         for _, chunk in ipairs(virt_lines[2]) do
             row_text = row_text .. chunk[1]
@@ -129,7 +178,7 @@ describe("history queue status rendering", function()
 
         h:remove_pending_queue_entry("first queued")
         virt_lines = status_virt_lines(h)
-        assert.are.equal(2, #virt_lines) -- 1 blank + 1 row
+        assert.are.equal(2, #virt_lines) -- 1 divider + 1 row
 
         h:clear_pending_queue()
         assert.is_nil(status_virt_lines(h))

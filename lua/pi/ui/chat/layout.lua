@@ -325,11 +325,11 @@ end
 
 function Layout:_close_history_win()
     local hwin = self:history_win()
+    self._history:set_win(nil)
     if hwin then
         vim.api.nvim_win_close(hwin, false)
     end
     self._history_win = nil
-    self._history:set_win(nil)
 end
 
 function Layout:_close_prompt_win()
@@ -732,6 +732,7 @@ function Layout:hide()
 
     if self._mode == "buffer" then
         local buffer_win = self:history_win()
+        self._history:set_win(nil)
         if buffer_win then
             local target = self._return_buf
             if not target or not vim.api.nvim_buf_is_valid(target) then

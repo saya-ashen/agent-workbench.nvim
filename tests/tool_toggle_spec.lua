@@ -3,6 +3,7 @@
 -- fold state only controls window visibility.
 
 local Config = require("pi.config")
+local Chat = require("pi.ui.chat")
 local History = require("pi.ui.chat.history")
 
 local function pump(ms)
@@ -23,7 +24,7 @@ local function rows_with(buf, sub)
     return out
 end
 
-local function bash_collapsed(h, tab_id)
+local function bash_collapsed(h)
     local output = table.concat({
         "o1",
         "o2",
@@ -40,6 +41,18 @@ local function bash_collapsed(h, tab_id)
     pump()
     h:on_tool_end("bash", "b1", { content = { { type = "text", text = output } } }, false)
     pump(120)
+end
+
+local function bash_output_collapsed(h, id, count)
+    local output = {}
+    for i = 1, count do
+        output[i] = id .. "-" .. i
+    end
+    h:on_tool_start("bash", id, { command = "cmd" })
+    pump()
+    h:on_tool_end("bash", id, { content = { { type = "text", text = table.concat(output, "\n") } } }, false)
+    pump(120)
+    return output
 end
 
 local function end_alive(h, block)
@@ -61,6 +74,164 @@ describe("tool block expand/collapse round-trip", function()
     after_each(function()
         Config.options.render = { engine = "builtin" }
         require("pi.ui.render")._reset()
+    end)
+
+    it("expands output of exactly 30 lines inline", function()
+        local h = History.new(960)
+        bash_output_collapsed(h, "boundary", 30)
+        local block = h._tool_blocks.boundary
+        local history_buf = h:buf()
+
+        vim.api.nvim_win_set_buf(0, history_buf)
+        h:set_win(0)
+        local header_row = vim.api.nvim_buf_get_extmark_by_id(history_buf, h:ns(), block.icon_extmark, {})[1]
+        vim.api.nvim_win_set_cursor(0, { header_row + 1, 0 })
+
+        assert.is_true(h:toggle_tool_block())
+        assert.are.equal(history_buf, vim.api.nvim_get_current_buf())
+        assert.is_true(block.expanded)
+    end)
+
+    it("opens output longer than 30 lines in a read-only split", function()
+        local h = History.new(961)
+        local output = bash_output_collapsed(h, "long", 31)
+        local block = h._tool_blocks.long
+        local history_buf = h:buf()
+
+        vim.api.nvim_win_set_buf(0, history_buf)
+        h:set_win(0)
+        local header_row = vim.api.nvim_buf_get_extmark_by_id(history_buf, h:ns(), block.icon_extmark, {})[1]
+        vim.api.nvim_win_set_cursor(0, { header_row + 1, 0 })
+
+        assert.is_true(h:open_tool_output_at_cursor())
+        local viewer_buf = vim.api.nvim_get_current_buf()
+        assert.is_true(viewer_buf ~= history_buf)
+        assert.are.same(output, lines_of(viewer_buf))
+        assert.are.equal("nofile", vim.bo[viewer_buf].buftype)
+        assert.is_false(vim.bo[viewer_buf].modifiable)
+        assert.is_true(vim.bo[viewer_buf].readonly)
+        assert.are.equal("Close tool output", vim.fn.maparg("q", "n", false, true).desc)
+        assert.is_false(block.expanded, "long block must stay collapsed in chat")
+
+        vim.api.nvim_win_close(0, true)
+    end)
+
+    it("opens long output from a floating history in a normal split", function()
+        local h = History.new(962)
+        local output = bash_output_collapsed(h, "float", 31)
+        local block = h._tool_blocks.float
+        local history_buf = h:buf()
+        local float_win = vim.api.nvim_open_win(history_buf, true, {
+            relative = "editor",
+            row = 1,
+            col = 1,
+            width = 40,
+            height = 8,
+        })
+        h:set_win(float_win)
+        local header_row = vim.api.nvim_buf_get_extmark_by_id(history_buf, h:ns(), block.icon_extmark, {})[1]
+        vim.api.nvim_win_set_cursor(float_win, { header_row + 1, 0 })
+
+        assert.is_true(h:open_tool_output_at_cursor())
+        local viewer_win = vim.api.nvim_get_current_win()
+        assert.are.equal("", vim.api.nvim_win_get_config(viewer_win).relative)
+        assert.are.same(output, lines_of(vim.api.nvim_win_get_buf(viewer_win)))
+        assert.is_false(block.expanded)
+
+        vim.api.nvim_win_close(viewer_win, true)
+        vim.api.nvim_win_close(float_win, true)
+    end)
+
+    it("previews and opens a long batch child from the real buffer layout", function()
+        local chat = Chat.new(vim.api.nvim_get_current_tabpage(), "buffer", {})
+        chat:show()
+        vim.cmd("stopinsert")
+        local h = chat._history
+        local output = {}
+        for i = 1, 31 do
+            output[i] = "item-" .. i
+        end
+        local batch_lines = {
+            "Batch: 2/2 succeeded",
+            "",
+            "## 1. read",
+            "Status: completed",
+            "short-1",
+            "short-2",
+            "",
+            "## 2. read",
+            "Status: completed",
+        }
+        vim.list_extend(batch_lines, output)
+        h:on_tool_start("tool_batch", "batch", { calls = { {}, {} } })
+        pump()
+        h:on_tool_end("tool_batch", "batch", {
+            content = { { type = "text", text = table.concat(batch_lines, "\n") } },
+            details = {
+                items = {
+                    { toolName = "read", args = { path = "/tmp/short.md" }, isError = false },
+                    { toolName = "read", args = { path = "/tmp/example.md" }, isError = false },
+                },
+            },
+        }, false)
+        pump(200)
+
+        local parent = h._tool_blocks.batch
+        local first = h._tool_blocks["batch:batch:1"]
+        local block = h._tool_blocks["batch:batch:2"]
+        local history_win = chat._layout:history_win()
+        local first_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), first.icon_extmark, {})[1]
+        local first_header = vim.api.nvim_buf_get_lines(h:buf(), first_row, first_row + 1, false)[1]
+        local header_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.icon_extmark, {})[1]
+        local header = vim.api.nvim_buf_get_lines(h:buf(), header_row, header_row + 1, false)[1]
+        assert.is_false(parent.foldable)
+        assert.is_true(first.foldable)
+        assert.is_nil(first.preview_extmark)
+        assert.is_truthy(first_header:find("󰈙", 1, true))
+        assert.is_truthy(first_header:find("/tmp/short.md", 1, true))
+        assert.is_true(block.foldable)
+        assert.is_false(block.expanded)
+        assert.is_truthy(header:find("󰈙", 1, true))
+        assert.is_truthy(header:find("read", 1, true))
+        assert.is_truthy(header:find("/tmp/example.md", 1, true))
+        assert.is_nil(header:find("## 1.", 1, true))
+        assert.is_true(vim.api.nvim_win_call(history_win, function()
+            return vim.fn.foldclosed(header_row + 1) ~= -1
+        end))
+        assert.is_nil(block.preview_extmark)
+
+        vim.api.nvim_set_current_win(history_win)
+        vim.api.nvim_win_set_cursor(history_win, { header_row + 1, 0 })
+        vim.fn.maparg("zo", "n", false, true).callback()
+        assert.is_false(block.expanded)
+        assert.is_true(block.preview_expanded)
+        assert.is_true(vim.api.nvim_win_call(history_win, function()
+            return vim.fn.foldclosed(header_row + 1) ~= -1
+        end))
+        local preview = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.preview_extmark, { details = true })
+        local preview_lines = preview[3].virt_lines
+        assert.are.equal(5, #preview_lines)
+        assert.is_truthy(preview_lines[1][1][1]:find("item%-1"))
+        assert.is_truthy(preview_lines[4][1][1]:find("item%-4"))
+        assert.is_truthy(preview_lines[5][1][1]:find("27 more lines", 1, true))
+        assert.are.equal(header, vim.api.nvim_buf_get_lines(h:buf(), header_row, header_row + 1, false)[1])
+
+        vim.fn.maparg("zc", "n", false, true).callback()
+        assert.is_false(block.expanded)
+        assert.is_false(block.preview_expanded)
+        assert.is_nil(block.preview_extmark)
+        vim.fn.maparg("o", "n", false, true).callback()
+        assert.is_true(block.preview_expanded)
+        assert.is_not_nil(block.preview_extmark)
+
+        local tab_map = vim.fn.maparg("<Tab>", "n", false, true)
+        assert.are.equal("Open π block output", tab_map.desc)
+        tab_map.callback()
+
+        assert.are.equal("pi-tool-output", vim.bo.filetype)
+        assert.are.same(output, lines_of(vim.api.nvim_get_current_buf()))
+        vim.api.nvim_win_close(0, true)
+        chat:hide()
     end)
 
     for _, engine in ipairs({ "builtin", "render-markdown" }) do

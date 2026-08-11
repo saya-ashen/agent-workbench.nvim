@@ -2,6 +2,7 @@
 
 ## 2026-08-11
 
+- **FIXED:** Streaming history no longer repeatedly mutates folds or status extmarks, reducing output jitter; long tool output now uses title, preview, and read-only split states, with independent structured `tool_batch` child summaries.
 - **ADDED:** Native history folds now summarize messages, thinking, tool calls, and nested `tool_batch` items; prompt winbar shows live model, thinking, context, cwd, and run state.
 - **ADDED:** Prompt completion now opens automatically for local/backend slash commands and `@` mentions; local `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort` controls execute without backend round-trips.
 - **CHANGED:** Expanded prompt statusline is disabled by default; busy and queue feedback follows latest history output, while abort hint/confirmation remains visible in prompt.

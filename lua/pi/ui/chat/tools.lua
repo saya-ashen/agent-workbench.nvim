@@ -710,6 +710,10 @@ function M.extract_tool_sections(history, block)
         end
     end
 
+    if block.batch_child and output_lines[#output_lines] and output_lines[#output_lines]:match("^```+$") then
+        table.remove(output_lines)
+    end
+
     return input_lines, output_lines, has_output
 end
 
