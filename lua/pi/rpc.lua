@@ -56,6 +56,7 @@
 ---| "set_model"
 ---| "cycle_model"
 ---| "get_available_models"
+---| "get_available_thinking_levels"
 ---| "set_session_name"
 ---| "extension_ui_response"
 ---| "get_tree"

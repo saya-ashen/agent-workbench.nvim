@@ -699,7 +699,7 @@ When visible, each thinking block renders as a **single header line** with an in
 
 ### Thinking levels
 
-Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. pi2.nvim exposes the backend's six thinking levels:
+Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. pi2.nvim exposes the backend's thinking levels (commonly these six):
 
 ```
 off | minimal | low | medium | high | xhigh
@@ -710,7 +710,7 @@ off | minimal | low | medium | high | xhigh
 Two ways to change it mid-session:
 
 - **Cycle**: `:PiCycleThinking` / `pi.cycle_thinking_level()` — steps to the next level in the list. Handy for a single key you can tap repeatedly.
-- **Pick**: `:PiSelectThinking` / `pi.select_thinking_level()` — opens a picker (`vim.ui.select`) with all six levels.
+- **Pick**: `:PiSelectThinking` / `pi.select_thinking_level()` — opens a picker (`vim.ui.select`) with the levels the **current model actually supports** (fetched via the RPC `get_available_thinking_levels` command); if the fetch fails it falls back to the full built-in list.
 
 Both operations require an active session with a reasoning-capable model; on a non-reasoning model they warn _"Current model does not support thinking"_ and leave state unchanged.
 
