@@ -306,6 +306,19 @@ local function on_list_cursor_moved()
     end
 end
 
+--- Scroll the diff float from the file list (normal-mode motion in the
+--- float's context), keeping focus in the list.
+---@param keys string normal-mode keys, e.g. "<C-f>"
+function M._scroll_diff(keys)
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+    local lhs = vim.api.nvim_replace_termcodes(keys, true, false, true)
+    vim.api.nvim_win_call(win, function()
+        vim.cmd("silent normal! " .. lhs)
+    end)
+end
+
 --- Open the review panel: one outer float (border/title/background) framing
 --- two inner borderless floats — the file list and the selected file's diff.
 --- All three share the PiFloat background, so the panel reads as one UI.
@@ -441,6 +454,18 @@ function M.render(rendered, opts)
     vim.keymap.set("n", "q", M.close, { buffer = list_buf, nowait = true, desc = "Close diff review" })
     vim.keymap.set("n", "<CR>", list_jump, { buffer = list_buf, nowait = true, desc = "Jump to file" })
     vim.keymap.set("n", "o", list_jump, { buffer = list_buf, nowait = true, desc = "Jump to file" })
+    vim.keymap.set("n", "<C-f>", function()
+        M._scroll_diff("<C-f>")
+    end, { buffer = list_buf, nowait = true, desc = "Scroll diff forward" })
+    vim.keymap.set("n", "<C-b>", function()
+        M._scroll_diff("<C-b>")
+    end, { buffer = list_buf, nowait = true, desc = "Scroll diff backward" })
+    vim.keymap.set("n", "<C-d>", function()
+        M._scroll_diff("<C-d>")
+    end, { buffer = list_buf, nowait = true, desc = "Scroll diff half page down" })
+    vim.keymap.set("n", "<C-u>", function()
+        M._scroll_diff("<C-u>")
+    end, { buffer = list_buf, nowait = true, desc = "Scroll diff half page up" })
     vim.api.nvim_create_autocmd("CursorMoved", {
         buffer = list_buf,
         callback = on_list_cursor_moved,

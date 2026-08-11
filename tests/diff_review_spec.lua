@@ -210,11 +210,6 @@ describe("diff_review render", function()
         assert.are.equal("editor", shell_cfg.relative)
         assert.are.equal(8, #shell_cfg.border) -- rounded border, expanded
         assert.is_true(vim.wo[shell_win].winfixbuf)
-        -- the container must sit below the inner floats: a focusable=false
-        -- float draws above focusable=true floats with the same zindex and
-        -- would hide the diff float (issue #16 follow-up)
-        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(list_win).zindex)
-        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(float_win).zindex)
 
         -- focus stays in the file list float
         local list_win = vim.api.nvim_get_current_win()
@@ -224,6 +219,11 @@ describe("diff_review render", function()
         assert.is_true(vim.wo[list_win].winfixbuf)
 
         local float_win = assert(M._float_win())
+        -- the container must sit below the inner floats: a focusable=false
+        -- float draws above focusable=true floats with the same zindex and
+        -- would hide the diff float (issue #16 follow-up)
+        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(list_win).zindex)
+        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(float_win).zindex)
         for _, w in ipairs({ list_win, float_win }) do
             local cfg = vim.api.nvim_win_get_config(w)
             assert.are.equal("editor", cfg.relative)
@@ -287,5 +287,50 @@ describe("diff_review render", function()
         M.render(M.parse_sections(SAMPLE))
         M._reset()
         assert.is_false(M.is_open())
+    end)
+
+    it("scrolls the diff float from the file list, keeping focus there", function()
+        -- a diff much longer than the float height
+        local body = {}
+        for i = 1, 200 do
+            body[#body + 1] = "+line " .. i
+        end
+        M.render({
+            {
+                path = "big.txt",
+                abs = vim.fn.fnamemodify("big.txt", ":p"),
+                deleted = false,
+                status = "M",
+                body = body,
+            },
+        })
+
+        local float_win = assert(M._float_win())
+        local function viewport_top()
+            return vim.api.nvim_win_call(float_win, function()
+                return vim.fn.line("w0")
+            end)
+        end
+
+        assert.are.equal(1, viewport_top())
+        M._scroll_diff("<C-f>")
+        assert.is_true(viewport_top() > 1, "<C-f> should scroll the diff float down")
+        local scrolled = viewport_top()
+        M._scroll_diff("<C-b>")
+        assert.is_true(viewport_top() < scrolled, "<C-b> should scroll the diff float back up")
+
+        -- focus stays in the file list
+        local cur = vim.api.nvim_get_current_win()
+        assert.are.equal("pi-diff-review", vim.bo[vim.api.nvim_win_get_buf(cur)].filetype)
+
+        -- the paging keymap on the list buffer really scrolls the float
+        M._scroll_diff("<C-b>")
+        local top = viewport_top()
+        vim.api.nvim_feedkeys(vim.keycode("<C-f>"), "x", false)
+        vim.wait(200, function()
+            return viewport_top() > top
+        end, 10)
+        assert.is_true(viewport_top() > top, "<C-f> keymap should scroll the diff float")
+        assert.are.equal("pi-diff-review", vim.bo[vim.api.nvim_win_get_buf(vim.api.nvim_get_current_win())].filetype)
     end)
 end)

@@ -10,7 +10,7 @@ What the plugin does bind on its own:
 - `<Tab>` block expand/collapse and `gf` open-file-under-cursor in the history buffer.
 - `dd` / `x` to remove an entry in the attachments buffer.
 - The [diff review](diff-review.md) keys inside the diff tab.
-- The `:PiDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff and `<CR>`/`o` jumps to its first changed line; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
+- The `:PiDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff, `<CR>`/`o` jumps to its first changed line, `<C-f>`/`<C-b>`/`<C-d>`/`<C-u>` scroll the diff on the right; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
 - The [sessions overview](sessions.md#sessions-overview-pisessions) keys inside the list.
 
 ## Key specs

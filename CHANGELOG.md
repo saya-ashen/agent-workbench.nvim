@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-11
+
+- **FIXED:** `:PiDiff` showed the file list but not the diff content. The panel's outer container float (`focusable=false`) drew above the inner `focusable=true` floats at the same zindex, so Neovim skipped drawing the fully covered, non-focused diff float — the diff area showed whatever window was underneath (e.g. the chat panel). The container now opens at `zindex` 40, below the inner floats' default 50 (#16).
+- **ADDED:** `:PiDiff` long diffs are now paged without leaving the file list: `<C-f>`/`<C-b>` page the diff area, `<C-d>`/`<C-u>` scroll it by half a page. Inside the diff area itself, all native scrolling still works (#16).
+
 ## 2026-08-10
 
 - **ADDED:** `:PiDiff` / `pi.diff_review()` — session diff review. Opens one floating panel: an outer border and background frame the file list (`pi-diff-review` filetype, one `A`/`M`/`D` row per file changed by the current session — `session.changed_files`) on the left and the selected file's unified diff (`diff` filetype) on the right, so the whole review reads as a single UI. Moving the cursor in the list previews each file; `<CR>`/`o` jumps to the file — from the list to its first changed line, from the diff area to the exact line under the cursor (per-hunk line tracking; removed lines land on the deletion point, deleted files have no target) — and closes the review; `q` closes; closing any of the panel's windows closes the rest; re-running refreshes. Files the agent created render as full-file additions (git `--no-index`); files outside the git repo are skipped and counted in the list hint; hunk context follows `'diffopt' context:`. Sizing via the new `diff_review` config (`width`/`height`/`border` for the panel, `list.position`/`list.width` for the list area). Highlight groups: `PiDiffReviewFile`, `PiDiffReviewHint`, `PiDiffReviewFloatTitle` (#16).
