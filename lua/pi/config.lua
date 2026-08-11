@@ -179,7 +179,7 @@
 ---@class pi.AbortConfig
 ---@field enabled? boolean Enable double-<Esc> to abort the running agent (default: true)
 ---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
----@field message? string Hint echoed on the first <Esc>, after the "π │ " prefix (default: "Press <Esc> again to abort")
+---@field message? string Hint shown in the statusline center on the first <Esc> (default: "Press <Esc> again to abort")
 
 ---@class pi.TreeConfig
 ---@field enabled? boolean Enable :PiTree session-tree navigation (default: true). Injects the bundled pi extension (extensions/tree.ts) into every RPC process; requires a pi version whose extension API exposes ctx.navigateTree.

@@ -178,7 +178,7 @@ require("pi").setup({
         enabled = true,
         -- Window in ms for the second <Esc> to count.
         timeout = 1500,
-        -- Hint echoed (after the "π │ " prefix) on the first <Esc>.
+        -- Hint shown in the statusline center on the first <Esc>.
         message = "Press <Esc> again to abort",
     },
 
