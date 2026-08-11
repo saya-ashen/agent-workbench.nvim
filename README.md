@@ -299,7 +299,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 **Agent control**
 
-- [Double-`<Esc>` abort](doc/usage.md#aborting-with-double-esc) — a second `<Esc>` within a timeout aborts the running turn, with a persistent statusline hint.
+- [Double-`<Esc>` abort](doc/usage.md#aborting-with-double-esc) — a second `<Esc>` within a timeout aborts the running turn — and, since the same gesture stays live during an auto-retry, cancels a "Retrying…" backoff too — with a persistent statusline hint.
 
 **UI & rendering**
 
