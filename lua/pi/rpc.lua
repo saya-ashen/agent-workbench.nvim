@@ -44,6 +44,7 @@
 ---| "steer"
 ---| "follow_up"
 ---| "abort"
+---| "abort_retry"
 ---| "bash"
 ---| "abort_bash"
 ---| "new_session"

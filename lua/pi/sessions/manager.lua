@@ -235,10 +235,13 @@ local function reapply_pinned_model(session)
 end
 
 --- Central event handler for a session.
+--- Route a raw RPC event into the session's chat and companion modules.
+--- Exposed (not just local) so the retry/abort wiring is unit-testable with a
+--- fake session; the RPC handler calls it for every decoded message.
 ---@param session pi.Session
 ---@param msg pi.RpcEvent
 ---@return boolean handled
-local function handle_event(session, msg)
+function M.handle_event(session, msg)
     local t = msg.type
     local chat = session.chat
 
@@ -335,8 +338,10 @@ local function handle_event(session, msg)
             chat:flush_compaction_queue(msg.willRetry == true)
         end
     elseif t == "auto_retry_start" then
+        chat:set_retrying(true)
         chat:set_status({ type = "agent", text = "Retrying…" })
     elseif t == "auto_retry_end" then
+        chat:set_retrying(false)
         if msg.success == false then
             require("pi.ui.sessions").mark_error(session)
             chat:set_status(nil)
@@ -452,7 +457,7 @@ finish_compaction_rebuild = function(session, flush_queue, will_retry)
             session._compaction_event_queue = active_queue
             return
         end
-        handle_event(session, queued_msg)
+        M.handle_event(session, queued_msg)
     end
 end
 
@@ -532,7 +537,7 @@ function M.get_or_create(opts)
     }
 
     rpc:set_handler(function(msg)
-        handle_event(session, msg)
+        M.handle_event(session, msg)
     end)
 
     sessions[tab] = session

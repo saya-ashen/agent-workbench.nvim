@@ -155,6 +155,17 @@ function M.abort_bash()
     end
 end
 
+--- Cancel an in-progress auto-retry backoff (the "Retrying…" state). Only
+--- takes effect while the core is between retry attempts; the retry is
+--- cancelled and the failed turn ends. Sent by the double-<Esc> abort gesture
+--- during the retry window.
+function M.abort_retry()
+    local session = require("pi.sessions.manager").get()
+    if session and session.rpc:is_running() then
+        session.rpc:send({ type = "abort_retry" })
+    end
+end
+
 --- Stop the process and close the chat.
 function M.stop()
     require("pi.sessions.manager").stop()
