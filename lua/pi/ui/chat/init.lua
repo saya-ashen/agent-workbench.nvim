@@ -91,8 +91,8 @@ function Chat.new(tab, mode, agent, history_name)
     self._prompt:set_on_bash_mode_change(function(is_bash)
         self._layout:set_bash_mode(is_bash)
     end)
-    -- The history owns the busy/queue state (it drives the shared spinner
-    -- timer for tool headers); the prompt statusline renders it.
+    -- History owns busy/queue rendering at latest output; statusline still keeps
+    -- the same busy state for prompt winbar and API consumers.
     local statusline = self._prompt:statusline()
     self._history:set_status_listener(function(model)
         statusline:set_busy(model)
@@ -950,6 +950,13 @@ function Chat:_send_message(queue_type)
             self:_send_bash(text, command, exclude)
             return
         end
+    end
+
+    -- Local controls mirror agent-client's built-in slash commands. Backend
+    -- extension, prompt, and skill commands continue through the normal RPC path.
+    if require("pi.slash_commands").execute(text) then
+        self._prompt:clear_text()
+        return
     end
 
     -- A bare "/tree" opens the session-tree navigator locally instead of

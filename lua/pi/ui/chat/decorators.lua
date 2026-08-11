@@ -3,7 +3,7 @@
 local M = {}
 
 local FilesCache = require("pi.cache.files")
-local CommandsCache = require("pi.cache.commands")
+local SlashCommands = require("pi.slash_commands")
 
 local ns = vim.api.nvim_create_namespace("pi-prompt-decorators")
 
@@ -26,7 +26,7 @@ function M.update(buf)
         local cmd_token = lines[1]:match("^(/%S+)")
         if cmd_token then
             local name = cmd_token:sub(2)
-            local matches = CommandsCache.match(name)
+            local matches = SlashCommands.match(name)
             for _, cmd in ipairs(matches) do
                 if cmd.name == name then
                     vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {

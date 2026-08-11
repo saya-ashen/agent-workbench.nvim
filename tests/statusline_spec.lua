@@ -13,6 +13,7 @@ describe("statusline", function()
 
     before_each(function()
         saved_statusline_cfg = Config.options.statusline
+        Config.options.statusline = vim.tbl_deep_extend("force", {}, saved_statusline_cfg, { enabled = true })
         buf = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_win_set_buf(0, buf)
         sl = StatusLine.new(buf, 1, function()
@@ -100,6 +101,18 @@ describe("statusline", function()
         assert.is_not_nil(text:find("Working", 1, true))
     end)
 
+    it("keeps abort feedback when expanded statusline is disabled", function()
+        Config.options.statusline.enabled = false
+        sl:render()
+        assert.are.equal(0, sl:virt_line_count())
+
+        sl:set_abort_hint("Press <Esc> again to abort")
+        assert.is_not_nil(status_row():find("Press <Esc>", 1, true))
+
+        sl:clear_abort_hint()
+        assert.are.equal(0, sl:virt_line_count())
+    end)
+
     it("shows the queue count only when non-zero", function()
         assert.is_nil(status_row():find("⏵", 1, true))
         sl:set_queue_count(2)
@@ -111,6 +124,7 @@ describe("statusline", function()
 
     it("center wins over a wide left group (left is truncated)", function()
         Config.options.statusline = vim.tbl_deep_extend("force", {}, saved_statusline_cfg, {
+            enabled = true,
             layout = {
                 left = {
                     function()

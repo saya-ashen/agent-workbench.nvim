@@ -161,6 +161,7 @@
 ---@field queue? pi.StatusLineComponentConfig
 
 ---@class pi.StatusLineConfig
+---@field enabled? boolean Render statusline virtual rows below prompt (default false)
 ---@field layout pi.StatusLineLayout
 ---@field components? pi.StatusLineComponents
 
@@ -338,6 +339,7 @@ local defaults = {
         },
     },
     statusline = {
+        enabled = false,
         layout = {
             left = { "context", "  ", "attention", "  ", "queue" },
             center = { "spinner" },

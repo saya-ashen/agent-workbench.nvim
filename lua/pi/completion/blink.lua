@@ -2,6 +2,7 @@
 --- Register in blink config: module = "pi.completion.blink"
 
 local Matcher = require("pi.completion")
+local SlashCommands = require("pi.slash_commands")
 local FilesCache = require("pi.cache.files")
 
 ---@type table<string, vim.lsp.protocol.CompletionItemKind>
@@ -52,17 +53,16 @@ function source:get_completions(ctx, callback)
         local slash_col = find_trigger(line, col, 47) -- /
         if slash_col and slash_col == 1 then
             local prefix = line:sub(2, col)
-            local items = Matcher.complete_commands(prefix, function(cmd, is_fuzzy)
+            local items = vim.tbl_map(function(cmd)
                 return {
                     label = "/" .. cmd.name,
                     kind = source_kinds[cmd.source] or vim.lsp.protocol.CompletionItemKind.Function,
                     insertText = "/" .. cmd.name,
                     filterText = "/" .. cmd.name,
-                    sortText = (is_fuzzy and "1" or "0") .. cmd.name,
-                    score_offset = is_fuzzy and -10 or 0,
+                    sortText = cmd.name,
                     labelDetails = { description = cmd.description or "" },
                 }
-            end)
+            end, SlashCommands.match(prefix))
             callback({ items = items, is_incomplete_forward = true, is_incomplete_backward = true })
             return
         end

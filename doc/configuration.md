@@ -94,9 +94,10 @@ require("pi").setup({
         },
     },
 
-    -- Status line in the prompt window
+    -- Optional expanded status line below the prompt (winbar remains active).
     statusline = {
-        -- Components rendered in the prompt statusline.
+        enabled = false,
+        -- Components rendered when enabled.
         -- Entries are built-in component names, literal separators,
         -- or custom component functions.
         layout = {

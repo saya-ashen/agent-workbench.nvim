@@ -149,7 +149,7 @@ require("pi").setup({
 
 ## Draft persistence
 
-While [prompt history](#prompt-history) remembers what you've *sent*, draft persistence makes sure you don't lose what you're *typing*. The unsent prompt is saved to `stdpath("data")/pi/draft.txt` as you edit (debounced) and restored into the prompt the next time Neovim starts — so a crash or restart no longer costs you a half-written message. Sending or clearing the prompt removes the stored draft. To avoid surprises, a draft is restored at most once per Neovim process (an in-session `:PiNewSession` won't re-restore a stale draft).
+While [prompt history](#prompt-history) remembers what you've _sent_, draft persistence makes sure you don't lose what you're _typing_. The unsent prompt is saved to `stdpath("data")/pi/draft.txt` as you edit (debounced) and restored into the prompt the next time Neovim starts — so a crash or restart no longer costs you a half-written message. Sending or clearing the prompt removes the stored draft. To avoid surprises, a draft is restored at most once per Neovim process (an in-session `:PiNewSession` won't re-restore a stale draft).
 
 Disable it under `prompt.draft`:
 
@@ -233,15 +233,18 @@ Output is trimmed and capped at 256 KB per provider (larger payloads are truncat
 
 ## Slash commands
 
-Slash commands come from the **pi backend**, not from pi2.nvim. They cover three sources:
+Slash commands come from pi2.nvim's local controls and the **pi backend**. Local controls mirror pi's TUI commands: `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort`. Backend commands cover three sources:
 
+- **Local controls** — handled directly by pi2.nvim and mapped to existing APIs.
 - **Extension commands** — registered by pi extensions (e.g. `/permission-toggle-auto-accept`).
 - **Prompt templates** — reusable prompt snippets, expanded server-side before being sent to the LLM.
 - **Skills** — invoked as `/skill:name`, also expanded server-side.
 
-pi2.nvim fetches the available command list from the running session over RPC and refreshes it periodically, so the set of `/commands` you can use depends on which extensions, templates, and skills the backend has loaded for the current session.
+pi2.nvim fetches backend command list from running session over RPC and merges it with local controls. Backend set refreshes periodically, so extension/template/skill commands depend on current session.
 
-To invoke a command, type it on the **first line** of the prompt:
+A local command with arguments uses them when pi2.nvim supports direct execution. Unsupported arguments are ignored while command still runs locally; built-in command names are never forwarded to backend as prompts.
+
+To invoke a backend command, type it on the **first line** of the prompt:
 
 ```
 /permission-toggle-auto-accept
@@ -259,7 +262,7 @@ One command is handled locally instead of being sent: a bare `/tree` opens the [
 
 That said, this only applies to the explicit `/command` invocation path. Skills in particular are surfaced to the model as part of the system context: per the [Agent Skills spec](https://agentskills.io/specification), each skill's `name` and `description` are loaded at startup for _all_ available skills ("progressive disclosure"), and the full `SKILL.md` body is only loaded once the model decides to activate that skill. As a result, most models will pick up the right skill even when you _mention_ it inline ("please use the `commit` skill to write the message"), without you having to invoke `/skill:commit` explicitly. How reliably this works depends on the model and on how much other context it's juggling, so for anything load-bearing it's still safer to invoke the command explicitly on the first line.
 
-While typing, the prompt buffer highlights `/commands` in real time, but **only if the command name actually matches one in the backend's command list**. If you don't see the highlight, either the command doesn't exist, you have a typo, or the cache hasn't been populated yet (it's fetched the first time the chat opens and refreshed every 30 seconds).
+While typing, the prompt buffer highlights matching local and backend `/commands` in real time. Backend commands still require the command cache to be populated; it is fetched the first time chat opens and refreshed every 30 seconds.
 
 You can also invoke a command programmatically from Lua, without going through the prompt buffer:
 
@@ -288,13 +291,13 @@ Note that `pi.invoke` requires an active session — if no chat is running for t
 
 The π prompt buffer ships with completion for both `@mentions` and `/commands` out of the box. Two integrations are provided:
 
-**1. Built-in `completefunc` (always on).** Every π prompt buffer has a `completefunc` set, so completion works without any extra configuration. If you don't use a completion plugin, trigger it manually in insert mode with:
+**1. Built-in completion (always on).** Every π prompt buffer has both `completefunc` and `omnifunc` set. Typing `/` on the first line or `@` anywhere opens the completion popup automatically, without extra configuration. You can also trigger the same source manually in insert mode with:
 
 ```
 <C-x><C-u>
 ```
 
-This is the default Vim user-defined completion key. It will:
+It will:
 
 - Complete `@path` mentions against project files (resolved relative to the current working directory), plus [dynamic mention providers](#dynamic-mentions) (`@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix`, and any custom `mention_providers`) ahead of file matches.
 - Complete `/commands` against the backend's command list — but only when the cursor is on the first line of the prompt and that line starts with `/`.
@@ -393,9 +396,9 @@ The toggle key is registered as a permanent buffer-local mapping on the prompt b
 
 ## Statusline
 
-π renders a configurable status line pinned to the bottom of the prompt buffer. It's where session-level info lives — current model, thinking level, context usage, token counts, cost, pending attention, the busy spinner, and anything else you want to surface from your extensions.
+π keeps session status data available to prompt winbar and Lua components. Live spinner, rotating verb, elapsed time, and thinking marker render after latest history output while agent runs. Separate status line pinned to bottom of prompt buffer is disabled by default because winbar already shows running state, model, thinking level, context usage, and cwd. Double-`<Esc>` abort hint and transient `Aborted` confirmation still use bottom row when needed. Set `statusline.enabled = true` to restore expanded bottom row with token counts, cost, pending attention, spinner, and extension components.
 
-The layout is split into **left**, **center**, and **right** groups. Each group is just an array of items, and items can be:
+The expanded layout is split into **left**, **center**, and **right** groups. Each group is just an array of items, and items can be:
 
 - **A built-in component name** — a string matching one of the built-ins listed below.
 - **A literal separator** — any other string, rendered between two _visible_ components as-is. If the next component is hidden, the separator is dropped too, so `{ "a", "  ", "b" }` automatically collapses to just `a` when `b` has nothing to show.
@@ -404,6 +407,7 @@ The layout is split into **left**, **center**, and **right** groups. Each group 
 ```lua
 require("pi").setup({
     statusline = {
+        enabled = true,
         layout = {
             left   = { "context", "  ", "cost", "  ", "attention", "  ", "queue" },
             center = { "spinner" },
@@ -684,7 +688,7 @@ All three take effect immediately and persist for the current session. The activ
 
 ### Per-tab model pinning
 
-The pi backend persists every model switch to its global settings, and fresh conversations resolve their initial model from those settings — so out of the box, picking a model in one tab changes what every *new* conversation starts with, in every other tab too. π pins the model per tab to keep sessions independent: each tab remembers its current model and reapplies it after `:PiNewSession`, so another session's switch never leaks into this tab's next conversation. The pin updates only when *you* switch the model in this tab (via the commands above).
+The pi backend persists every model switch to its global settings, and fresh conversations resolve their initial model from those settings — so out of the box, picking a model in one tab changes what every _new_ conversation starts with, in every other tab too. π pins the model per tab to keep sessions independent: each tab remembers its current model and reapplies it after `:PiNewSession`, so another session's switch never leaks into this tab's next conversation. The pin updates only when _you_ switch the model in this tab (via the commands above).
 
 - A brand-new tab still starts from pi's normal resolution (global default / configured model scope).
 - A resumed session (`:PiResume` / `:PiContinue`) adopts the model stored in its session file, as resolved by the backend.
@@ -754,7 +758,7 @@ When pi's `edit` or `write` tool modifies a file that is currently open in a Neo
 The behavior is controlled by `reload.mode`:
 
 | Mode | Behavior |
-|------|----------|
+| ------ | ---------- |
 | `"silent"` (default) | Reload unmodified buffers silently. Buffers with unsaved user changes are left untouched. |
 | `"notify"` | Same as silent, plus a `vim.notify` message listing which files were reloaded and which were skipped. |
 | `false` | Disabled — buffers are never touched. |
@@ -767,7 +771,7 @@ require("pi").setup({
 })
 ```
 
-A buffer is considered *modified* when `vim.bo[buf].modified` is true (i.e. the user has unsaved changes). pi2.nvim never overwrites unsaved work — modified buffers are always skipped regardless of mode. Paths are canonicalized (symlinks resolved) before matching, so a file reported through a symlinked path still hits the right buffer.
+A buffer is considered _modified_ when `vim.bo[buf].modified` is true (i.e. the user has unsaved changes). pi2.nvim never overwrites unsaved work — modified buffers are always skipped regardless of mode. Paths are canonicalized (symlinks resolved) before matching, so a file reported through a symlinked path still hits the right buffer.
 
 ## Startup block
 

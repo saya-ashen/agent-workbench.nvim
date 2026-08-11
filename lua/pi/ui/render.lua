@@ -22,7 +22,9 @@ local function warn_missing(engine)
     end
     warned_missing[engine] = true
     vim.notify(
-        ("pi.nvim: render.engine = '%s' but renderer is not installed; falling back to builtin rendering."):format(engine),
+        ("pi.nvim: render.engine = '%s' but renderer is not installed; falling back to builtin rendering."):format(
+            engine
+        ),
         vim.log.levels.WARN
     )
 end

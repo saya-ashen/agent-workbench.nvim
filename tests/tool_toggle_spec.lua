@@ -94,7 +94,11 @@ describe("tool block expand/collapse round-trip", function()
                 assert.is_true(changed, "second toggle (collapse) must report a change")
                 assert.is_false(b.expanded, "collapsed after second toggle")
                 assert.is_true(end_alive(h, b), "end_extmark alive after round-trip")
-                assert.are.equal(line_count, vim.api.nvim_buf_line_count(buf), "folding must not replace transcript lines")
+                assert.are.equal(
+                    line_count,
+                    vim.api.nvim_buf_line_count(buf),
+                    "folding must not replace transcript lines"
+                )
                 assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
             end)
 

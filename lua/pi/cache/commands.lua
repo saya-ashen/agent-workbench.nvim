@@ -10,7 +10,7 @@
 ---@class pi.SlashCommand
 ---@field name string command name (invoke with /name)
 ---@field description? string human-readable description
----@field source "extension"|"prompt"|"skill"
+---@field source "builtin"|"extension"|"prompt"|"skill"
 ---@field sourceInfo? pi.SourceInfo structured source metadata from pi RPC
 
 local M = {}

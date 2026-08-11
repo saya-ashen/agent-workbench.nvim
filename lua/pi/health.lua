@@ -135,7 +135,7 @@ M.check = function()
     if pcall(require, "blink.cmp") then
         vim.health.ok("blink.cmp found (prompt completion)")
     else
-        vim.health.info("blink.cmp not found (optional, built-in completefunc still works)")
+        vim.health.info("blink.cmp not found (built-in automatic prompt completion is active)")
     end
 
     -- ── Bundled tree extension ────────────────────────────────────────

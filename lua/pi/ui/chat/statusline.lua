@@ -39,6 +39,7 @@
 ---@field _win_fn fun(): integer?
 ---@field _extmark_id integer?
 ---@field _virt_line_count integer
+---@field _on_change fun(state: pi.StatusLineState)?
 ---@field _state pi.StatusLineState
 local StatusLine = {}
 StatusLine.__index = StatusLine
@@ -303,6 +304,7 @@ function StatusLine.new(buf, tab, win_fn)
     self._win_fn = win_fn
     self._extmark_id = nil
     self._virt_line_count = 0
+    self._on_change = nil
     self._state = new_state()
     self:render()
     return self
@@ -313,6 +315,16 @@ end
 ---@return integer
 function StatusLine:virt_line_count()
     return self._virt_line_count
+end
+
+---@param callback fun(state: pi.StatusLineState)?
+function StatusLine:set_on_change(callback)
+    self._on_change = callback
+end
+
+---@return pi.StatusLineState
+function StatusLine:state()
+    return self._state
 end
 
 --- Update model, thinking level, auto-compaction from get_state response.
@@ -560,11 +572,24 @@ function StatusLine:render()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return
     end
+    if self._on_change then
+        self._on_change(self._state)
+    end
+
+    local sl_cfg = Config.options.statusline
+    local transient = self._state.abort_hint or self._state.aborted_notice
+    if sl_cfg and sl_cfg.enabled == false and not transient then
+        if self._extmark_id then
+            pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, self._extmark_id)
+            self._extmark_id = nil
+        end
+        self._virt_line_count = 0
+        return
+    end
 
     local win = self._win_fn()
     local width = win and text_area_width(win) or 80
 
-    local sl_cfg = Config.options.statusline
     local layout = sl_cfg and sl_cfg.layout or {}
     local left_names = layout.left or { "context" }
     local center_names = layout.center or { "spinner" }

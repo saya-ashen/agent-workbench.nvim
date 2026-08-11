@@ -11,7 +11,10 @@ describe("agent workspace", function()
     end)
 
     it("builds stable session URIs", function()
-        assert.are.equal("agent://project/session-123/transcript", Workspace.uri("/tmp/project", "/tmp/session-123.jsonl", 7))
+        assert.are.equal(
+            "agent://project/session-123/transcript",
+            Workspace.uri("/tmp/project", "/tmp/session-123.jsonl", 7)
+        )
         assert.are.equal("agent://project/new-7/transcript", Workspace.uri("/tmp/project", nil, 7))
         local project, session, resource = Workspace.parse("agent://project/session-123/transcript")
         assert.are.same({ "project", "session-123", "transcript" }, { project, session, resource })
@@ -69,10 +72,9 @@ describe("agent workspace", function()
         local prompt = Prompt.new(vim.api.nvim_get_current_tabpage(), attachments)
         local layout = Layout.new("buffer", history, prompt, attachments)
         local original = vim.api.nvim_get_current_buf()
-        vim.go.number = true
-        vim.go.relativenumber = true
         vim.wo.number = false
         vim.wo.relativenumber = true
+        vim.cmd("setglobal number relativenumber")
 
         assert.is_true(layout:show())
         local history_win = layout:history_win()
@@ -85,7 +87,39 @@ describe("agent workspace", function()
         assert.are.equal(">1", History.nvim_foldexpr(1))
         assert.are.equal(1, History.nvim_foldexpr(2))
         assert.are.equal("<1", History.nvim_foldexpr(3))
-        assert.is_not_nil(layout:prompt_win())
+        local prompt_win = layout:prompt_win()
+        assert.is_not_nil(prompt_win)
+        assert.are.equal(8, vim.api.nvim_win_get_height(prompt_win))
+        prompt:resize()
+        assert.are.equal(8, vim.api.nvim_win_get_height(prompt_win))
+        assert.is_truthy(vim.wo[prompt_win].winbar:find("󰍩 PROMPT", 1, true))
+        assert.is_truthy(vim.wo[prompt_win].winbar:find("idle", 1, true))
+        assert.are.equal(0, prompt:statusline():virt_line_count())
+
+        assert.are.equal("v:lua.require'pi.completion.omnifunc'.completefunc", vim.bo[prompt:buf()].omnifunc)
+        assert.are.equal("v:lua.require'pi.completion.omnifunc'.completefunc", vim.bo[prompt:buf()].completefunc)
+        local commands = require("pi.cache.commands")
+        commands.set({ { name = "review", description = "Review changes", source = "extension" } })
+        local omnifunc = require("pi.completion.omnifunc").completefunc
+        vim.api.nvim_buf_set_lines(prompt:buf(), 0, -1, false, { "/rev" })
+        vim.api.nvim_set_current_win(prompt_win)
+        vim.api.nvim_win_set_cursor(prompt_win, { 1, 4 })
+        assert.are.equal(0, omnifunc(1, ""))
+        assert.are.equal("/review", omnifunc(0, "/rev")[1].word)
+        commands.invalidate()
+
+        prompt:statusline():update_state({
+            model = { id = "test-model", contextWindow = 200000, reasoning = true },
+            thinkingLevel = "high",
+        })
+        prompt:statusline():add_usage({ input = 1000, output = 100 })
+        prompt:statusline():set_busy({ frame = "x", text = "Working", elapsed = "", thinking = false })
+        local prompt_winbar = vim.wo[prompt_win].winbar
+        assert.is_truthy(prompt_winbar:find("running", 1, true))
+        assert.is_truthy(prompt_winbar:find("model: test-model", 1, true))
+        assert.is_truthy(prompt_winbar:find("think: high", 1, true))
+        assert.is_truthy(prompt_winbar:find("ctx:", 1, true))
+        assert.are.equal(0, prompt:statusline():virt_line_count())
 
         layout:hide()
         assert.are.equal(original, vim.api.nvim_get_current_buf())

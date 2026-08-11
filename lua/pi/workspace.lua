@@ -10,7 +10,7 @@ local buffers = {}
 function M.project_key(cwd)
     local normalized = vim.fs.normalize(cwd)
     local name = vim.fs.basename(normalized)
-    return (name ~= "" and name or "root"):gsub("[^%w._-]", "-")
+    return ((name ~= "" and name or "root"):gsub("[^%w._-]", "-"))
 end
 
 ---@param session_file string?

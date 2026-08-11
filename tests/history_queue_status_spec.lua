@@ -1,8 +1,7 @@
--- Tests for the history-side of the statusline refactor:
--- * the history status extmark renders ONLY the pending-queue preview
---   (spinner/abort rows moved to the prompt statusline), with no bottom
+-- Tests for history-side live status rendering:
+-- * busy spinner and pending queue render after latest output, with no bottom
 --   padding and no whole-buffer scans on the hot path (G22);
--- * the busy display model and queue count are pushed to listeners.
+-- * busy display model and queue count are also pushed to listeners.
 
 local Config = require("pi.config")
 local History = require("pi.ui.chat.history")
@@ -45,19 +44,53 @@ describe("history queue status rendering", function()
         local marks = vim.api.nvim_buf_get_extmarks(h:buf(), ns, 0, -1, { details = true })
         for _, m in ipairs(marks) do
             if m[4].virt_lines then
-                return m[4].virt_lines
+                return m[4].virt_lines, m[2]
             end
         end
         return nil
     end
 
-    it("renders no status extmark when the queue is empty", function()
+    it("renders busy status after latest output", function()
+        Config.options.spinner = { refresh_rate = 1000, frames = { "x" } }
         local h = setup_history(5)
         h:set_status({ type = "agent", text = "Working…" })
         pump(50)
-        h:_update_status_extmark()
+        local virt_lines, anchor_row = status_virt_lines(h)
+        assert.is_not_nil(virt_lines)
+        assert.are.equal(vim.api.nvim_buf_line_count(h:buf()), anchor_row)
+        assert.are.equal(2, #virt_lines) -- 1 blank + 1 busy row
+        local text = ""
+        for _, chunk in ipairs(virt_lines[2]) do
+            text = text .. chunk[1]
+        end
+        assert.is_not_nil(text:find("x  Working…", 1, true))
+
+        h:set_status(nil)
+        pump(50)
         assert.is_nil(status_virt_lines(h))
         assert.are.equal(0, h._status_virt_line_count)
+    end)
+
+    it("reopens the active assistant fold while preserving busy status", function()
+        Config.options.spinner = { refresh_rate = 1000, frames = { "x" } }
+        local h = setup_history(5)
+        local anchor = vim.api.nvim_buf_set_extmark(h:buf(), h:ns(), 0, 0, {})
+        h._message_blocks = { { anchor = anchor, role = "assistant" } }
+        h._current_turn_first_agent_response_extmark_id = anchor
+        vim.wo.foldmethod = "manual"
+        vim.cmd("1,5fold")
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        assert.are.equal(1, vim.fn.foldclosed(1))
+
+        h:set_status({ type = "agent", text = "Working…" })
+        pump(50)
+
+        assert.are.equal(-1, vim.fn.foldclosed(1))
+        assert.is_not_nil(status_virt_lines(h))
+
+        h:set_status(nil)
+        pump(50)
+        vim.wo.foldmethod = "expr"
     end)
 
     it("never calls nvim_win_text_height on the append hot path (G22)", function()

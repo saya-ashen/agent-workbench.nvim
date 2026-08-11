@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-11
+
+- **ADDED:** Native history folds now summarize messages, thinking, tool calls, and nested `tool_batch` items; prompt winbar shows live model, thinking, context, cwd, and run state.
+- **ADDED:** Prompt completion now opens automatically for local/backend slash commands and `@` mentions; local `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort` controls execute without backend round-trips.
+- **CHANGED:** Expanded prompt statusline is disabled by default; busy and queue feedback follows latest history output, while abort hint/confirmation remains visible in prompt.
+
 ## 2026-08-10
 
 - **CHANGED:** `:PiSelectModelAll` now opens its picker under its own title — `Select model (all)` — instead of sharing `:PiSelectModel`'s `Select model`, so the two pickers are distinguishable at a glance.
@@ -49,7 +55,6 @@
 ## 2026-08-03
 
 - **ADDED:** `:PiSessions` / `pi.sessions()` — a live, read-only overview of all active π sessions (one per Neovim tab). Each row shows the tab number, the session's status as a single dot at the left edge whose color and animation encode the state (blinking while busy, slow-blinking while compacting, steady warning color when attention is needed, blinking green when a turn finished in another tab, blinking red when the last turn errored — both consumed when you enter the tab — steady dim idle, steady error exited), with the session name right after the dot — the backend session name set via `:PiSessionName`, falling back to the first user message, then `(unnamed)`. The list is a single shared buffer: every tab that opens it gets its own window on the same buffer, so one redraw updates every open view at once. Updates are event-driven (agent start/end, compaction, session create/teardown, attention requests, and `session_info_changed` name changes) — nothing polls. Keys: `<CR>`/`o` jump to a session's tab and open its chat, `r` re-fetches names, `q` closes. The window style is configurable via the new `sessions_list` config: `mode` (`"follow"` the tab's chat layout by default, or pinned `"side"`/`"float"`), `position`/`width`/`height` for the side split, `float` for the floating window, and `auto_open` to show the list whenever the chat opens (#54).
-
 
 ## 2026-08-02
 
@@ -140,6 +145,7 @@
 - **FIXED:** Show the assistant header before tool-only turns so tool calls do not appear under the user message.
 
 ## 2026-07-04
+
 - **FIXED:** Make chat timestamp format configurable with `timestamp_format` option and use a platform-specific default to avoid the GNU `%-d` flag on Windows.
 - **FIXED:** Use cross-platform path joining for session directories and file globbing (Windows compatibility).
 

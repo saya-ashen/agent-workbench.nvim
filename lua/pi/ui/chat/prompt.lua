@@ -19,10 +19,12 @@ local Config = require("pi.config")
 local Keys = require("pi.keys")
 local Decorators = require("pi.ui.chat.decorators")
 local Draft = require("pi.draft")
+
+local blink_auto_insert_wrapped = false
 local Paste = require("pi.paste")
 local StatusLine = require("pi.ui.chat.statusline")
 
-Prompt.HEIGHT = 5
+Prompt.HEIGHT = 8
 Prompt.MAX_HEIGHT = 15
 
 ---@param name string
@@ -41,9 +43,6 @@ local function window_text_rows(win)
         return info[1].height
     end
     local height = vim.api.nvim_win_get_height(win)
-    if vim.wo[win].winbar ~= "" then
-        height = height - 1
-    end
     return math.max(height, 1)
 end
 
@@ -113,6 +112,61 @@ function Prompt.new(tab, attachments)
     end
 
     vim.bo[self._buf].completefunc = "v:lua.require'pi.completion.omnifunc'.completefunc"
+    vim.bo[self._buf].omnifunc = "v:lua.require'pi.completion.omnifunc'.completefunc"
+    vim.api.nvim_set_option_value("completeopt", "menuone,noselect", { buf = self._buf })
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    local use_blink = blink_ok and type(blink.add_filetype_source) == "function" and type(blink.show) == "function"
+    if use_blink then
+        vim.b[self._buf].pi_prompt_completion = true
+        local config_ok, blink_config = pcall(require, "blink.cmp.config")
+        local selection = config_ok
+            and blink_config.completion
+            and blink_config.completion.list
+            and blink_config.completion.list.selection
+        if selection and not blink_auto_insert_wrapped then
+            local original = selection.auto_insert
+            selection.auto_insert = function(context)
+                if vim.b[0].pi_prompt_completion then
+                    return false
+                end
+                return type(original) == "function" and original(context) or original
+            end
+            blink_auto_insert_wrapped = true
+        end
+        pcall(blink.add_filetype_source, Ft.prompt, "omni")
+        if type(blink.resubscribe) == "function" then
+            blink.resubscribe()
+        end
+    end
+    vim.api.nvim_create_autocmd("TextChangedI", {
+        buffer = self._buf,
+        callback = function()
+            if vim.api.nvim_get_current_buf() ~= self._buf or vim.fn.pumvisible() == 1 then
+                return
+            end
+            local line = vim.api.nvim_get_current_line()
+            local cursor = vim.fn.col(".") - 1
+            local completefunc = require("pi.completion.omnifunc").completefunc
+            local start = completefunc(1, "")
+            if start < 0 then
+                return
+            end
+            local base = line:sub(start + 1, cursor)
+            local items = completefunc(0, base)
+            if #items == 0 then
+                return
+            end
+            if use_blink then
+                vim.schedule(function()
+                    if vim.api.nvim_get_current_buf() == self._buf and vim.fn.pumvisible() == 0 then
+                        blink.show({ providers = { "omni" } })
+                    end
+                end)
+            else
+                vim.fn.complete(start + 1, items)
+            end
+        end,
+    })
     Decorators.attach(self._buf)
 
     Keys.bind_wrapped_line_navigation(self._buf)
@@ -184,6 +238,11 @@ end
 ---@return pi.StatusLine
 function Prompt:statusline()
     return self._statusline
+end
+
+---@param cb fun(state: pi.StatusLineState)?
+function Prompt:set_on_status_change(cb)
+    self._statusline:set_on_change(cb)
 end
 
 ---@param cb fun(is_bash: boolean)
@@ -266,13 +325,10 @@ function Prompt:resize()
         return
     end
     local visual_lines = vim.api.nvim_win_text_height(self._win, {}).all
-    -- Subtract status line virt_lines (padding + status) so padding doesn't
-    -- prevent the window from shrinking. Add 1 back for the status line itself.
-    local content_lines = visual_lines - self._statusline:virt_line_count() + 1
+    local status_rows = self._statusline:virt_line_count() > 0 and 1 or 0
+    -- Remove virtual padding, but keep one row when the optional statusline is visible.
+    local content_lines = visual_lines - self._statusline:virt_line_count() + status_rows
     local target_height = math.max(Prompt.HEIGHT, math.min(content_lines, Prompt.MAX_HEIGHT))
-    if vim.wo[self._win].winbar ~= "" then
-        target_height = target_height + 1
-    end
     local current_height = vim.api.nvim_win_get_height(self._win)
     if target_height ~= current_height then
         if self._layout == "float" then
@@ -339,12 +395,9 @@ function Prompt:content_height()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return Prompt.HEIGHT
     end
-    local line_count = vim.api.nvim_buf_line_count(self._buf) + 1 -- +1 for status line
-    local target_height = math.max(Prompt.HEIGHT, math.min(line_count, Prompt.MAX_HEIGHT))
-    if self._win and vim.api.nvim_win_is_valid(self._win) and vim.wo[self._win].winbar ~= "" then
-        target_height = target_height + 1
-    end
-    return target_height
+    local status_rows = self._statusline:virt_line_count() > 0 and 1 or 0
+    local line_count = vim.api.nvim_buf_line_count(self._buf) + status_rows
+    return math.max(Prompt.HEIGHT, math.min(line_count, Prompt.MAX_HEIGHT))
 end
 
 return Prompt

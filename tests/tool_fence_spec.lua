@@ -186,13 +186,13 @@ describe("tool output fence wrapping", function()
             -- Fence lines must come in pairs (no orphans)
             local fence_count = 0
             for _, l in ipairs(lines) do
-                if l:match("^%s*`+$") then
+                if l:match("^%s*`+[%w_-]*%s*$") then
                     fence_count = fence_count + 1
                 end
             end
             assert.is_true(fence_count % 2 == 0, ("orphan fence: %d fence lines (odd)"):format(fence_count))
-            assert.is_true(#rows_with(buf, "line10") == 1, "last output line remains in buffer")
-            assert.is_true(#rows_with(buf, "line1") == 1, "first output line remains in buffer")
+            assert.is_true(#rows_exact(buf, "line10") == 1, "last output line remains in buffer")
+            assert.is_true(#rows_exact(buf, "line1") == 1, "first output line remains in buffer")
             assert.is_true(#rows_with(buf, "…9 lines") == 0, "no synthetic preview state")
         end)
 
@@ -216,7 +216,7 @@ describe("tool output fence wrapping", function()
             local buf = h:buf()
             local fence_count = 0
             for _, l in ipairs(lines_of(buf)) do
-                if l:match("^%s*`+$") then
+                if l:match("^%s*`+[%w_-]*%s*$") then
                     fence_count = fence_count + 1
                 end
             end

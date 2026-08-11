@@ -13,6 +13,7 @@
 ---@field _attachments pi.ChatAttachments
 ---@field _has_attention boolean
 ---@field _bash_mode boolean
+---@field _prompt_state pi.StatusLineState?
 local Layout = {}
 Layout.__index = Layout
 
@@ -102,6 +103,37 @@ local function clear_winbar(win)
     vim.wo[win].winbar = ""
 end
 
+---@param value any
+---@return string
+local function winbar_text(value)
+    return (tostring(value or ""):gsub("%%", "%%%%"))
+end
+
+---@param count number
+---@return string
+local function format_tokens(count)
+    if count < 1000 then
+        return tostring(count)
+    elseif count < 1000000 then
+        return (("%.1fk"):format(count / 1000):gsub("%.0k$", "k"))
+    end
+    return (("%.1fM"):format(count / 1000000):gsub("%.0M$", "M"))
+end
+
+---@param state pi.StatusLineState
+---@return string
+local function context_text(state)
+    local total = state.model_context_window
+    if not total or total <= 0 then
+        return "ctx: ?"
+    end
+    if not state.context_tokens then
+        return "ctx: -/" .. format_tokens(total)
+    end
+    local percent = math.floor((state.context_tokens / total) * 100 + 0.5)
+    return ("ctx: %s/%s (%d%%)"):format(format_tokens(state.context_tokens), format_tokens(total), percent)
+end
+
 --- Update prompt title styling to reflect pending attention.
 ---@param has_attention boolean
 function Layout:refresh_prompt_attention(has_attention)
@@ -147,15 +179,52 @@ function Layout:_refresh_prompt_chrome()
         return
     end
 
-    local side_cfg = Config.resolve_side_layout()
-    if side_cfg.panels.prompt.winbar then
-        local title_hl = "PiChatPromptWinbarTitle"
-        if self._bash_mode then
-            title_hl = "PiChatPromptWinbarBashTitle"
-        elseif self._has_attention then
-            title_hl = "PiChatPromptWinbarAttentionTitle"
-        end
-        set_winbar(pwin, title, "PiChatPromptWinbar", title_hl)
+    if self._mode == "side" and not Config.resolve_side_layout().panels.prompt.winbar then
+        clear_winbar(pwin)
+        return
+    end
+
+    local state = self._prompt_state or self._prompt:statusline():state()
+    local title_hl = "PiChatPromptWinbarTitle"
+    if self._bash_mode then
+        title_hl = "PiChatPromptWinbarBashTitle"
+    elseif self._has_attention then
+        title_hl = "PiChatPromptWinbarAttentionTitle"
+    end
+
+    local width = vim.api.nvim_win_get_width(pwin)
+    local title_text = self._bash_mode and (prompt_cfg.bash_title or "bash") or prompt_cfg.title
+    local running = state.busy ~= nil
+    local state_hl = running and "PiSessionsListBusy" or "PiSessionsListDone"
+    local state_icon = running and "󰔟" or "󰄬"
+    local model = state.model_id or "no model"
+    local thinking = state.thinking_level or "off"
+    local details
+    local cwd
+    if width >= 100 then
+        details = ("model: %s  think: %s  %s"):format(model, thinking, context_text(state))
+        cwd = " " .. vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
+    elseif width >= 72 then
+        details = ("model: %s  think: %s  %s"):format(model, thinking, context_text(state))
+    elseif width >= 48 then
+        details = ("model: %s  %s"):format(model, context_text(state))
+    else
+        details = "model: " .. model
+    end
+
+    local winbar = ("%%#PiChatPromptWinbar# %%#%s#󰍩 %s  %%#%s#%s %s  %%#PiStatusLine#%%<%s"):format(
+        title_hl,
+        winbar_text(title_text):upper(),
+        state_hl,
+        state_icon,
+        running and "running" or "idle",
+        winbar_text(details)
+    )
+    if cwd then
+        winbar = winbar .. "%=" .. winbar_text(cwd) .. " "
+    end
+    if vim.wo[pwin].winbar ~= winbar then
+        vim.wo[pwin].winbar = winbar
     end
 end
 
@@ -178,6 +247,12 @@ function Layout.new(mode, history, prompt, attachments)
     self._attachments = attachments
     self._has_attention = false
     self._bash_mode = false
+    self._prompt_state = prompt:statusline():state()
+
+    prompt:set_on_status_change(function(state)
+        self._prompt_state = state
+        self:_refresh_prompt_chrome()
+    end)
 
     attachments:set_on_change(function()
         self:_refresh_attachments()
@@ -524,8 +599,7 @@ function Layout:_open_in_side_layout()
     self._history:set_win(self._history_win)
 
     local prompt_winbar = panels.prompt.winbar
-    local prompt_h = Prompt.HEIGHT + (prompt_winbar and 1 or 0)
-    vim.cmd("belowright " .. prompt_h .. "split")
+    vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
     self._prompt_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(self._prompt_win, self._prompt:buf())
     set_win_opts(self._prompt_win, function(win)

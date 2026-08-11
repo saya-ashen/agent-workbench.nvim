@@ -4,6 +4,7 @@
 local M = {}
 
 local Matcher = require("pi.completion")
+local SlashCommands = require("pi.slash_commands")
 
 ---@param findstart integer
 ---@param base string
@@ -36,13 +37,14 @@ function M.completefunc(findstart, base)
     -- /command completion
     if base:byte(1) == 47 then -- /
         local prefix = base:sub(2)
-        return Matcher.complete_commands(prefix, function(cmd, _is_fuzzy)
-            local detail = cmd.source
-            if cmd.description then
-                detail = detail .. ": " .. cmd.description
-            end
-            return { word = "/" .. cmd.name, kind = "c", menu = "[Pi]", info = detail }
-        end)
+        return vim.tbl_map(function(cmd)
+            return {
+                word = "/" .. cmd.name,
+                abbr = "/" .. cmd.name,
+                menu = "[" .. cmd.source .. "]",
+                info = cmd.description or "",
+            }
+        end, SlashCommands.match(prefix))
     end
 
     -- @mention completion: dynamic providers first, then project files.
