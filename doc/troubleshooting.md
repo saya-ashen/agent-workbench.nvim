@@ -73,3 +73,10 @@ A rough triage checklist for common symptoms:
 | Session doesn't continue with `:PiContinue` | Are you in the same cwd as when the session was started? Sessions are cwd-scoped — see [Sessions](sessions.md). |
 | Statusline component shows stale data | The statusline is pushed from RPC events; if they stopped flowing, `rpc.log` will show the gap. |
 | Unhandled event warning | pi2.nvim doesn't yet know about a new event type the backend is sending. Please [open an issue](https://github.com/zgs225/pi2.nvim/issues) with the event name and a snippet of `rpc.log`. |
+| `:PiTree` shows "Failed to decode RPC message: Found too many nested data structures" | The `get_tree` response for a very long session (roughly 500+ messages) is deeper than Neovim's built-in JSON decoder allows. See [Deep RPC payloads](#deep-rpc-payloads) below. |
+
+## Deep RPC payloads
+
+Neovim's `vim.json` (the bundled lua-cjson library) hard-caps JSON nesting at 1000 levels, which cannot be raised at runtime. The pi backend nests the session tree one level **per message**, so `get_tree` responses for long sessions — and with it `:PiTree` — used to fail with `Failed to decode RPC message: Found too many nested data structures (1001) at character N`, and the tree picker never opened.
+
+Since 2026-08-11 pi2.nvim ships its own depth-tolerant JSON decoder (`pi.json`) as a fallback: incoming RPC lines that cjson refuses are re-decoded with it, so `:PiTree` works for sessions up to roughly 4000 messages (the fallback's defensive depth cap). Only when both decoders fail does the warning still appear — normally a sign of a genuinely malformed line; enable [RPC debug logging](#rpc-debug-logging) and check `rpc.log` in that case.

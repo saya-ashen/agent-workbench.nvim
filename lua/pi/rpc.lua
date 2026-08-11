@@ -121,6 +121,7 @@ local Config = require("pi.config")
 local Cli = require("pi.cli")
 local Notify = require("pi.notify")
 local CommandsCache = require("pi.cache.commands")
+local Json = require("pi.json")
 
 local DEBUG_OVERRIDE = nil ---@type boolean?
 
@@ -188,7 +189,15 @@ local function log(tag, msg)
         return
     end
     local ts = os.date("%H:%M:%S")
-    local json = type(msg) == "string" and msg or vim.json.encode(msg)
+    local json
+    if type(msg) == "string" then
+        json = msg
+    else
+        local ok_encode, encoded = pcall(vim.json.encode, msg)
+        -- Deep messages (e.g. a 1000+ level get_tree tree) exceed cjson's
+        -- encode nesting cap too; log a depth-bounded inspect instead.
+        json = ok_encode and encoded or vim.inspect(msg, { depth = 8 })
+    end
     file:write(string.format("[%s] [%s] %s\n\n\n", ts, tag, json))
     file:close()
 end
@@ -389,13 +398,24 @@ function Rpc:_decode_line(line)
     local ok, msg = pcall(vim.json.decode, line)
     if ok and msg then
         self:_dispatch(msg)
-    else
-        local err = tostring(msg)
-        log("ERROR", "Failed to decode: " .. err .. " | " .. line)
-        vim.schedule(function()
-            Notify.warn("Failed to decode RPC message: " .. err)
-        end)
+        return
     end
+
+    -- vim.json (lua-cjson) hard-caps nesting at depth 1000, so deep payloads
+    -- such as the get_tree response for a session with ~500+ messages fail to
+    -- decode. Retry with the depth-tolerant decoder (pi.json) before giving up.
+    local cjson_err = tostring(msg)
+    local decoded, fallback_err = Json.decode(line)
+    if decoded ~= nil then
+        self:_dispatch(decoded)
+        return
+    end
+
+    local err = fallback_err and (cjson_err .. " (fallback: " .. fallback_err .. ")") or cjson_err
+    log("ERROR", "Failed to decode: " .. err .. " | " .. line)
+    vim.schedule(function()
+        Notify.warn("Failed to decode RPC message: " .. err)
+    end)
 end
 
 ---@param data string[]?

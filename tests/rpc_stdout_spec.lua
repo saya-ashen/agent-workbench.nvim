@@ -105,3 +105,54 @@ describe("rpc stdout reassembly", function()
         assert.is_true(ms < 800, string.format("large-line reassembly took %.1f ms (O(n^2) regression?)", ms))
     end)
 end)
+
+describe("rpc deep-payload decode", function()
+    --- Build a get_tree response JSON with a linear chain of `n` messages —
+    --- exactly what pi emits: one {entry, children} level per message. A
+    --- 1500-message chain is 3000 JSON levels, far beyond cjson's 1000 cap.
+    ---@param n integer
+    ---@return string
+    local function deep_tree_json(n)
+        local sb = {}
+        sb[#sb + 1] = '{"type":"response","command":"get_tree","success":true,"data":{"tree":['
+        for i = 1, n do
+            sb[#sb + 1] = '{"entry":{"type":"message","id":"m'
+                .. i
+                .. '","parentId":'
+                .. (i == 1 and "null" or ('"m' .. (i - 1) .. '"'))
+                .. ',"message":{"role":"user","content":"message number '
+                .. i
+                .. '"}},"children":['
+        end
+        sb[#sb + 1] = '{"entry":{"type":"message","id":"m'
+            .. (n + 1)
+            .. '","parentId":"m'
+            .. n
+            .. '","message":{"role":"assistant","content":"done"}},"children":[]}'
+        for _ = 1, n do
+            sb[#sb + 1] = "]}"
+        end
+        sb[#sb + 1] = '],"leafId":"m' .. (n + 1) .. '"}}'
+        return table.concat(sb)
+    end
+
+    it("decodes a get_tree response deeper than cjson's 1000-level cap", function()
+        local out = {}
+        local rpc = make_rpc(out)
+        local line = deep_tree_json(1500)
+        -- cjson itself must refuse the line, otherwise this spec pins nothing.
+        assert.is_false(pcall(vim.json.decode, line))
+        rpc:_on_stdout({ line, "" })
+        assert.equals(1, #out)
+        assert.equals("response", out[1].type)
+        assert.equals("get_tree", out[1].command)
+        assert.equals("m1501", out[1].data.leafId)
+    end)
+
+    it("does not dispatch a line both decoders reject", function()
+        local out = {}
+        local rpc = make_rpc(out)
+        rpc:_on_stdout({ "{not json", "" })
+        assert.equals(0, #out)
+    end)
+end)
