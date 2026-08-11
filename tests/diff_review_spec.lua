@@ -210,6 +210,11 @@ describe("diff_review render", function()
         assert.are.equal("editor", shell_cfg.relative)
         assert.are.equal(8, #shell_cfg.border) -- rounded border, expanded
         assert.is_true(vim.wo[shell_win].winfixbuf)
+        -- the container must sit below the inner floats: a focusable=false
+        -- float draws above focusable=true floats with the same zindex and
+        -- would hide the diff float (issue #16 follow-up)
+        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(list_win).zindex)
+        assert.is_true(shell_cfg.zindex < vim.api.nvim_win_get_config(float_win).zindex)
 
         -- focus stays in the file list float
         local list_win = vim.api.nvim_get_current_win()

@@ -321,6 +321,9 @@ local function open_review_windows()
     local row0 = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - 1 - total_h) / 2))
 
     -- Outer container: draws the panel border/title and the shared background.
+    -- zindex below the inner floats (default 50): in Neovim, a
+    -- focusable=false float draws above focusable=true floats with the same
+    -- zindex, which would make the container cover (and hide) the diff float.
     local sb = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(sb, "pi://diff-review")
     vim.bo[sb].buftype = "nofile"
@@ -336,6 +339,7 @@ local function open_review_windows()
         row = row0,
         style = "minimal",
         focusable = false,
+        zindex = 40,
         border = cfg.border or "rounded",
         title = " diff review ",
         title_pos = "center",
