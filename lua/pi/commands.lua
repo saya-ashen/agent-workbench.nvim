@@ -84,6 +84,10 @@ function M.setup()
         Pi.sessions()
     end, { desc = "Toggle π sessions overview list" })
 
+    vim.api.nvim_create_user_command("PiDiff", function()
+        Pi.diff_review()
+    end, { desc = "Review the git diff of every file changed in the current session" })
+
     vim.api.nvim_create_user_command("PiToggleThinking", function()
         Pi.toggle_thinking()
     end, { desc = "Toggle π thinking visibility" })

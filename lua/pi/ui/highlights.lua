@@ -8,6 +8,7 @@ M.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT =
 M.CHAT_PROMPT_BASH_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiChatPromptFloatBashTitle"
 M.CHAT_ATTACHMENTS_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiChatAttachmentsFloatTitle"
 M.SESSIONS_LIST_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiSessionsListFloatTitle"
+M.DIFF_REVIEW_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiDiffReviewFloatTitle"
 M.DIFF_WINHIGHLIGHT = "WinBar:PiDiffWinbar,WinBarNC:PiDiffWinbar"
 
 --- Clear the Pi* groups we previously installed as defaults.
@@ -208,6 +209,9 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiSessionsListExited", { default = true, fg = diagnostic_error.fg })
     vim.api.nvim_set_hl(0, "PiSessionsListPending", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiSessionsListFloatTitle", { default = true, fg = title.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewFile", { default = true, fg = title.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewHint", { default = true, fg = comment.fg, italic = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewFloatTitle", { default = true, fg = title.fg, bold = true })
 end
 
 function M.setup()

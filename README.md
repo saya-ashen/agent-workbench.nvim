@@ -244,6 +244,7 @@ require("pi").setup({
 | `:PiNewSession` | Start a new conversation in the current tab/session |
 | `:PiTree` | Navigate the session tree: jump back to any past conversation point |
 | `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
+| `:PiDiff` | Review the git diff of every file changed by the current session in one panel: file list + diff |
 | `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
 | `:PiToggleThinking` | Show or hide thinking blocks |
 | `:PiCycleThinking` | Cycle to the next thinking level |
@@ -268,7 +269,7 @@ Detailed guides live in [`doc/`](doc/):
 | --- | --- |
 | [doc/usage.md](doc/usage.md) | Chat & layouts, prompt (submit/queue/abort), direct bash mode (`!`), prompt history & drafts, `@mentions`, slash commands, completion, attachments, zen mode, statusline, navigation, quickfix, tool blocks, models, thinking, markdown rendering, buffer reload, startup block |
 | [doc/sessions.md](doc/sessions.md) | One session per tab, storage & cwd scoping, continue/resume, session tree (`:PiTree`), sessions overview (`:PiSessions`), compaction |
-| [doc/diff-review.md](doc/diff-review.md) | Two-way diff review of agent edits, review notes, permission-extension protocol reference |
+| [doc/diff-review.md](doc/diff-review.md) | Two-way diff review of agent edits, review notes, permission-extension protocol reference, session diff review (`:PiDiff`) |
 | [doc/attention.md](doc/attention.md) | Attention queue, dialogs, notifications, queue inspection API |
 | [doc/extensions.md](doc/extensions.md) | Extension UI routing, startup announcements, `on_widget` custom blocks, adapting non-upstream RPC backends |
 | [doc/configuration.md](doc/configuration.md) | Full annotated defaults + project trust |
