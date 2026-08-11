@@ -1236,7 +1236,7 @@ function History:win()
     return nil
 end
 
----@alias pi.Status { type: "agent", text: string } | { type: "compaction" }
+---@alias pi.Status { type: "agent", text: string } | { type: "compaction" } | { type: "summary", text: string }
 
 ---@param status pi.Status?
 function History:set_status(status)

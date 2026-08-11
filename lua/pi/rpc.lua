@@ -16,6 +16,10 @@
 ---| "auto_compaction_end"
 ---| "auto_retry_start"
 ---| "auto_retry_end"
+---| "summarization_retry_scheduled"
+---| "summarization_retry_attempt_start"
+---| "summarization_retry_finished"
+---| "agent_settled"
 ---| "extension_ui_request"
 ---| "extension_error"
 ---| "bash_execution_update"
@@ -92,6 +96,12 @@
 ---@field data? table
 ---@field code? integer
 ---@field error? string
+---@field errorMessage? string
+---@field attempt? integer
+---@field maxAttempts? integer
+---@field delayMs? integer
+---@field source? string summarization_retry_attempt_start: "compaction" | "branchSummary"
+---@field reason? string compaction summarization reason: "manual" | "threshold" | "overflow"
 ---@field id? string
 ---@field method? string
 ---@field message? string|{ stopReason?: string, errorMessage?: string, [string]: any }
