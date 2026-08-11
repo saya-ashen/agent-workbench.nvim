@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-08-11
+
+- **FIXED:** `:PiTree` failed on long sessions with `Failed to decode RPC message: Found too many nested data structures (1001)` and never opened the picker. Neovim's `vim.json` (lua-cjson) hard-caps JSON nesting at 1000 levels — a compile-time constant no runtime option can raise — and pi's `get_tree` response nests one level per session message, so any session of roughly 500+ messages exceeded the cap and the whole response was dropped. Incoming RPC lines that cjson refuses are now re-decoded with a new depth-tolerant decoder (`pi.json`, up to an 8000-level defensive cap, semantics matching `vim.json`: `null`→`vim.NIL`, `{}`→`vim.empty_dict()`, surrogate pairs in `\u` escapes), so `:PiTree` works for sessions up to ~4000 messages. The RPC debug log also no longer crashes when it tries to serialize a deep message.
 ## 2026-08-10
 
 - **CHANGED:** `:PiSelectModelAll` now opens its picker under its own title — `Select model (all)` — instead of sharing `:PiSelectModel`'s `Select model`, so the two pickers are distinguishable at a glance.
