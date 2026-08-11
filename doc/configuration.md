@@ -98,7 +98,7 @@ require("pi").setup({
         -- Entries are built-in component names, literal separators,
         -- or custom component functions.
         layout = {
-            left = { "context", "  ", "attention", "  ", "queue" },
+            left = { "context", "  ", "attention", "  ", "queue", "  ", "compaction" },
             -- Centered group; has placement priority over left/right.
             center = { "spinner" },
             right = { "model", "   ", "thinking" },

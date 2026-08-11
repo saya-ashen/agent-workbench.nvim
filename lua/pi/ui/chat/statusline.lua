@@ -185,12 +185,14 @@ function builtin.context(state)
     return text
 end
 
---- (auto)
+--- 󰏗 — auto-compaction enabled (hidden when disabled).
+--- Uses the same glyph as the compaction summary label (`labels.compaction`),
+--- so the status marker and the history blocks share one icon.
 function builtin.compaction(state)
-    if state.auto_compaction then
-        return "(auto)"
+    if not state.auto_compaction then
+        return nil
     end
-    return nil
+    return Config.options.labels.compaction
 end
 
 --- 󰵚 / 󰵚 2

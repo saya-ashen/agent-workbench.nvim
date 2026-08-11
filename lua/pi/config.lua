@@ -350,7 +350,7 @@ local defaults = {
     },
     statusline = {
         layout = {
-            left = { "context", "  ", "attention", "  ", "queue" },
+            left = { "context", "  ", "attention", "  ", "queue", "  ", "compaction" },
             center = { "spinner" },
             right = { "model", "   ", "thinking" },
         },
