@@ -114,16 +114,22 @@ M.check = function()
     end
 
     local render_engine = Config.options.render and Config.options.render.engine or "builtin"
-    if pcall(require, "render-markdown") then
-        vim.health.ok("render-markdown.nvim found")
-    elseif render_engine == "render-markdown" then
-        vim.health.warn('render-markdown.nvim not found but `render.engine = "render-markdown"` is set', {
-            'Install render-markdown.nvim or set `render.engine = "builtin"`',
+    if pcall(require, "markview") then
+        vim.health.ok("markview.nvim found")
+    elseif render_engine == "markview" then
+        vim.health.warn('markview.nvim not found but `render.engine = "markview"` is set', {
+            'Install markview.nvim or set `render.engine = "builtin"`',
         })
     else
-        vim.health.info(
-            'render-markdown.nvim not found (optional, only needed for `render.engine = "render-markdown"`)'
-        )
+        vim.health.info('markview.nvim not found (optional, only needed for `render.engine = "markview"`)')
+    end
+
+    if pcall(require, "render-markdown") then
+        vim.health.ok("render-markdown.nvim found (legacy renderer)")
+    elseif render_engine == "render-markdown" then
+        vim.health.warn('render-markdown.nvim not found but `render.engine = "render-markdown"` is set', {
+            'Install render-markdown.nvim, use markview, or set `render.engine = "builtin"`',
+        })
     end
 
     if pcall(require, "blink.cmp") then

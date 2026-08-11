@@ -56,14 +56,15 @@ local PromptHistory = require("pi.prompt_history")
 ---@param tab pi.TabId
 ---@param mode pi.LayoutMode
 ---@param agent pi.ChatAgent
+---@param history_name? string
 ---@return pi.Chat
-function Chat.new(tab, mode, agent)
+function Chat.new(tab, mode, agent, history_name)
     local self = setmetatable({}, Chat)
     self._tab = tab
     self._agent = agent
     self._attachments = Attachments.new()
     self._prompt = Prompt.new(tab, self._attachments)
-    self._history = History.new(tab)
+    self._history = History.new(tab, history_name)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
     self._streaming = false
@@ -122,7 +123,7 @@ function Chat:_set_keymaps()
     vim.api.nvim_create_autocmd("WinEnter", {
         buffer = hbuf,
         callback = function()
-            if self._layout:mode() == "float" then
+            if self._layout:mode() ~= "side" then
                 return
             end
 
@@ -134,7 +135,7 @@ function Chat:_set_keymaps()
 
             local entered_win = vim.api.nvim_get_current_win()
             vim.schedule(function()
-                if self._layout:mode() == "float" then
+                if self._layout:mode() ~= "side" then
                     return
                 end
                 if vim.api.nvim_get_current_win() ~= entered_win then
@@ -291,18 +292,43 @@ function Chat:_set_keymaps()
         end,
     })
 
-    -- Toggle collapsible blocks (system preamble, compaction summaries, tool blocks, thinking blocks)
-    vim.keymap.set("n", "<Tab>", function()
-        if self._history:toggle_startup_block() then
-            return
-        elseif self._history:toggle_compaction_block() then
-            return
-        elseif self._history:toggle_thinking_block() then
-            return
-        elseif self._history:toggle_tool_block() then
-            return
+    local function set_block(expanded)
+        local kind, current = self._history:block_state_at_cursor()
+        if not kind then
+            return false
         end
-    end, { buffer = hbuf, desc = "Toggle block under cursor" })
+        if kind == "tool" then
+            vim.cmd.normal({ expanded and "zo" or "zc", bang = true })
+            return true
+        end
+        return self._history:set_block_expanded_at_cursor(expanded ~= nil and expanded or not current)
+    end
+
+    local function toggle_block()
+        local kind, expanded = self._history:block_state_at_cursor()
+        if not kind then
+            return false
+        end
+        if kind == "tool" then
+            vim.cmd.normal({ "za", bang = true })
+            return true
+        end
+        return self._history:set_block_expanded_at_cursor(not expanded)
+    end
+
+    for _, lhs in ipairs({ "<Tab>", "za", "<CR>" }) do
+        vim.keymap.set("n", lhs, toggle_block, {
+            buffer = hbuf,
+            silent = true,
+            desc = "Toggle π block under cursor",
+        })
+    end
+    vim.keymap.set("n", "zo", function()
+        set_block(true)
+    end, { buffer = hbuf, silent = true, desc = "Expand π block under cursor" })
+    vim.keymap.set("n", "zc", function()
+        set_block(false)
+    end, { buffer = hbuf, silent = true, desc = "Collapse π block under cursor" })
 
     -- Open the file referenced under the cursor (tool path lines, @mentions,
     -- path:line) in an editor window. gf has no default use on a nofile chat
@@ -413,6 +439,45 @@ end
 ---@return boolean
 function Chat:is_visible()
     return self._layout:is_visible()
+end
+
+---@return pi.ChatHistory
+function Chat:history()
+    return self._history
+end
+
+---@return integer
+function Chat:history_buf()
+    return self._history:buf()
+end
+
+---@param history pi.ChatHistory
+function Chat:attach_history(history)
+    if self._history == history then
+        return
+    end
+    local was_visible = self:is_visible()
+    if was_visible then
+        self:hide()
+    end
+    self._history = history
+    self._layout:set_history(history)
+    local statusline = self._prompt:statusline()
+    history:set_status_listener(function(model)
+        statusline:set_busy(model)
+    end)
+    history:set_queue_listener(function(count)
+        statusline:set_queue_count(count)
+    end)
+    self._keymaps_set = false
+    if was_visible then
+        self:show()
+    end
+end
+
+---@param name string
+function Chat:set_history_name(name)
+    self._history:set_name(name)
 end
 
 ---@return integer

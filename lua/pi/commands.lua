@@ -3,7 +3,7 @@
 local M = {}
 
 ---@type table<string, string[]>
-local flag_values = { layout = { "side", "float" } }
+local flag_values = { layout = { "buffer", "side", "float" } }
 
 ---@param args string
 ---@return pi.SessionCreateOpts
@@ -11,7 +11,7 @@ local function parse_flags(args)
     ---@type pi.SessionCreateOpts
     local flags = {}
     local layout = args:match("layout=(%S+)")
-    if layout == "side" or layout == "float" then
+    if layout == "buffer" or layout == "side" or layout == "float" then
         flags.layout = layout
     end
     return flags
@@ -54,7 +54,7 @@ function M.setup()
 
     vim.api.nvim_create_user_command("PiToggleLayout", function()
         Pi.toggle_layout()
-    end, { desc = "Toggle π layout (side/float)" })
+    end, { desc = "Toggle π layout (buffer/float)" })
 
     vim.api.nvim_create_user_command("PiAbort", function()
         Pi.abort()

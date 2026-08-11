@@ -5,6 +5,9 @@
 ---@field _history_win integer?
 ---@field _prompt_win integer?
 ---@field _attachments_win integer?
+---@field _return_win integer?
+---@field _return_buf integer?
+---@field _return_opts table<string, any>?
 ---@field _history pi.ChatHistory
 ---@field _prompt pi.ChatPrompt
 ---@field _attachments pi.ChatAttachments
@@ -23,6 +26,45 @@ local FLOAT_ZINDEX = 10
 
 -- Capture editor options to inherit in π windows.
 local editor_foldcolumn = vim.wo.foldcolumn
+
+local BUFFER_WINDOW_OPTIONS = {
+    "wrap",
+    "linebreak",
+    "signcolumn",
+    "foldcolumn",
+    "foldenable",
+    "foldmethod",
+    "foldexpr",
+    "foldtext",
+    "foldlevel",
+    "list",
+    "conceallevel",
+    "concealcursor",
+    "winfixbuf",
+    "number",
+    "relativenumber",
+    "cursorline",
+    "winbar",
+    "winhighlight",
+}
+
+---@param win integer
+---@return table<string, any>
+local function capture_win_opts(win)
+    local opts = {}
+    for _, name in ipairs(BUFFER_WINDOW_OPTIONS) do
+        opts[name] = vim.wo[win][name]
+    end
+    return opts
+end
+
+---@param win integer
+---@param opts table<string, any>
+local function restore_win_opts(win, opts)
+    for name, value in pairs(opts) do
+        vim.wo[win][name] = value
+    end
+end
 
 ---@param win integer
 ---@param extra? fun(win: integer)
@@ -128,6 +170,9 @@ function Layout.new(mode, history, prompt, attachments)
     self._history_win = nil
     self._prompt_win = nil
     self._attachments_win = nil
+    self._return_win = nil
+    self._return_buf = nil
+    self._return_opts = nil
     self._history = history
     self._prompt = prompt
     self._attachments = attachments
@@ -139,6 +184,11 @@ function Layout.new(mode, history, prompt, attachments)
     end)
 
     return self
+end
+
+---@param history pi.ChatHistory
+function Layout:set_history(history)
+    self._history = history
 end
 
 ---@param after_win integer
@@ -412,6 +462,44 @@ local function resolve_float_size(float_cfg)
     return width, total_height
 end
 
+function Layout:_open_in_buffer_layout()
+    self._return_win = vim.api.nvim_get_current_win()
+    self._return_buf = vim.api.nvim_get_current_buf()
+    self._return_opts = capture_win_opts(self._return_win)
+    local global_number = vim.go.number
+    local global_relativenumber = vim.go.relativenumber
+    self._history_win = self._return_win
+
+    vim.api.nvim_win_set_buf(self._history_win, self._history:buf())
+    set_win_opts(self._history_win, function(win)
+        vim.wo[win].winfixbuf = false
+        vim.wo[win].number = global_number
+        vim.wo[win].relativenumber = global_relativenumber
+        vim.wo[win].foldenable = true
+        vim.wo[win].foldmethod = "expr"
+        vim.wo[win].foldexpr = "v:lua.require'pi.ui.chat.history'.nvim_foldexpr(v:lnum)"
+        vim.wo[win].foldtext = "v:lua.require'pi.ui.chat.history'.nvim_foldtext()"
+        vim.wo[win].foldlevel = 0
+        vim.wo[win].foldcolumn = "1"
+        if Render.engine() == "builtin" then
+            vim.wo[win].conceallevel = 0
+        end
+    end)
+    clear_winbar(self._history_win)
+    self._history:set_win(self._history_win)
+
+    vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
+    self._prompt_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(self._prompt_win, self._prompt:buf())
+    set_win_opts(self._prompt_win, function(win)
+        vim.wo[win].winfixheight = true
+        vim.wo[win].virtualedit = "onemore"
+    end)
+    set_winbar(self._prompt_win, Config.options.panels.prompt.title, "PiChatPromptWinbar")
+    self._prompt:set_layout("buffer")
+    self._prompt:set_win(self._prompt_win)
+end
+
 function Layout:_open_in_side_layout()
     local side_cfg = Config.resolve_side_layout()
     local panels = side_cfg.panels
@@ -522,7 +610,7 @@ function Layout:on_resize()
         local float_cfg = Config.resolve_float_layout()
         local width, total_height = resolve_float_size(float_cfg)
         self:_reposition_float_stack(width, total_height, float_cfg)
-    else
+    elseif self._mode == "side" then
         if self._history_win and vim.api.nvim_win_is_valid(self._history_win) then
             vim.api.nvim_win_set_width(self._history_win, resolve_side_width())
         end
@@ -534,7 +622,9 @@ function Layout:show()
     if self._history_win and vim.api.nvim_win_is_valid(self._history_win) then
         return false
     end
-    if self._mode == "float" then
+    if self._mode == "buffer" then
+        self:_open_in_buffer_layout()
+    elseif self._mode == "float" then
         self:_open_in_float_layout()
     else
         self:_open_in_side_layout()
@@ -565,7 +655,25 @@ function Layout:hide()
 
     self:_close_attachments_win()
     self:_close_prompt_win()
-    self:_close_history_win()
+
+    if self._mode == "buffer" then
+        local buffer_win = self:history_win()
+        if buffer_win then
+            local target = self._return_buf
+            if not target or not vim.api.nvim_buf_is_valid(target) then
+                target = vim.api.nvim_create_buf(true, false)
+            end
+            vim.api.nvim_win_set_buf(buffer_win, target)
+            restore_win_opts(buffer_win, self._return_opts or {})
+        end
+        self._history_win = nil
+        self._history:set_win(nil)
+        self._return_win = nil
+        self._return_buf = nil
+        self._return_opts = nil
+    else
+        self:_close_history_win()
+    end
 end
 
 ---@return pi.LayoutMode
@@ -602,7 +710,7 @@ function Layout:set_mode(mode)
 end
 
 function Layout:toggle()
-    self:set_mode(self._mode == "side" and "float" or "side")
+    self:set_mode(self._mode == "float" and "buffer" or "float")
 end
 
 ---@return boolean

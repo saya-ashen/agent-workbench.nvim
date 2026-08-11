@@ -1,91 +1,124 @@
---- Optional markdown rendering for the chat history via render-markdown.nvim.
---
--- pi.nvim's built-in rendering ("builtin") draws agent prose with treesitter
--- markdown highlights plus custom extmarks for tables, labels and tool blocks.
--- When `opts.render.engine = "render-markdown"`, pi additionally lets
--- render-markdown.nvim render the history buffer (headings, lists, code-block
--- chrome, links, ...) for a richer presentation.
---
--- render-markdown is an OPTIONAL dependency: pi never hard-requires it. If the
--- engine is requested but the plugin is missing, pi warns once and falls back
--- to builtin rendering. The user's own render-markdown configuration is left
--- untouched — pi only appends its history filetype to the active file_types.
+--- Markdown rendering adapter for Pi chat history.
 
 local M = {}
 
 local Config = require("pi.config")
 local Ft = require("pi.filetypes")
 
-local warned_missing = false
+local warned_missing = {}
+local markview_scheduled = {}
+local markview_paused = {}
 
----@return string engine "builtin"|"render-markdown"
+---@return string engine "builtin"|"markview"|"render-markdown"
 function M.engine()
     local render = Config.options.render
     return (render and render.engine) or "builtin"
 end
 
---- Make render-markdown available and responsible for the history filetype,
---- without clobbering any configuration the user already applied.
----@return boolean ok whether render-markdown is usable
-local function ensure_render_markdown()
-    -- If a plugin manager (lazy.nvim) owns render-markdown but hasn't loaded it
-    -- yet (e.g. gated on ft), force-load it so its module and plugin/ exist.
-    if package.loaded["render-markdown"] == nil then
-        local ok_lazy, lazy = pcall(require, "lazy")
-        if ok_lazy then
-            pcall(lazy.load, { plugins = { "render-markdown.nvim" } })
-        end
+---@param engine string
+local function warn_missing(engine)
+    if warned_missing[engine] then
+        return
     end
+    warned_missing[engine] = true
+    vim.notify(
+        ("pi.nvim: render.engine = '%s' but renderer is not installed; falling back to builtin rendering."):format(engine),
+        vim.log.levels.WARN
+    )
+end
 
-    local ok, rm = pcall(require, "render-markdown")
+---@param plugin string
+local function lazy_load(plugin)
+    local ok, lazy = pcall(require, "lazy")
+    if ok then
+        pcall(lazy.load, { plugins = { plugin } })
+    end
+end
+
+---@return table?
+local function ensure_markview()
+    if package.loaded.markview == nil then
+        lazy_load("markview.nvim")
+    end
+    local ok, markview = pcall(require, "markview")
     if not ok then
-        if not warned_missing then
-            warned_missing = true
-            vim.notify(
-                "pi.nvim: render.engine = 'render-markdown' but render-markdown.nvim is not installed; "
-                    .. "falling back to builtin rendering.",
-                vim.log.levels.WARN,
-                { title = "π" }
-            )
-        end
+        warn_missing("markview")
+        return nil
+    end
+    return markview
+end
+
+---@return boolean
+local function ensure_render_markdown()
+    if package.loaded["render-markdown"] == nil then
+        lazy_load("render-markdown.nvim")
+    end
+    local ok, renderer = pcall(require, "render-markdown")
+    if not ok then
+        warn_missing("render-markdown")
         return false
     end
 
-    -- Register pi's history filetype. If render-markdown is already set up we
-    -- extend its live file_types list (preserving the user's config); otherwise
-    -- run a minimal setup so the filetype is handled.
     local state = require("render-markdown.state")
     if type(state.file_types) == "table" then
         if not vim.tbl_contains(state.file_types, Ft.history) then
             table.insert(state.file_types, Ft.history)
         end
     else
-        rm.setup({ file_types = { "markdown", Ft.history } })
+        renderer.setup({ file_types = { "markdown", Ft.history } })
     end
     return true
 end
 
---- Attach the configured render engine to a freshly created history buffer.
---- No-op for the builtin engine.
 ---@param buf integer
-function M.attach_history(buf)
-    if M.engine() ~= "render-markdown" then
+local function render_markview(buf)
+    if markview_paused[buf] or markview_scheduled[buf] then
         return
     end
-    if not ensure_render_markdown() then
+    markview_scheduled[buf] = true
+    vim.schedule(function()
+        markview_scheduled[buf] = nil
+        if markview_paused[buf] or not vim.api.nvim_buf_is_valid(buf) then
+            return
+        end
+        local markview = ensure_markview()
+        if not markview or type(markview.render) ~= "function" then
+            return
+        end
+        if type(markview.clear) == "function" then
+            pcall(markview.clear, buf)
+        end
+        vim.b[buf].pi_markview = pcall(markview.render, buf)
+    end)
+end
+
+---@param buf integer
+function M.refresh_history(buf)
+    if M.engine() == "markview" then
+        render_markview(buf)
+    end
+end
+
+---@param buf integer
+function M.attach_history(buf)
+    local engine = M.engine()
+    if engine == "markview" then
+        if not ensure_markview() then
+            return
+        end
+        vim.api.nvim_create_autocmd("TextChanged", {
+            buffer = buf,
+            callback = function()
+                render_markview(buf)
+            end,
+        })
+        render_markview(buf)
+        return
+    end
+    if engine ~= "render-markdown" or not ensure_render_markdown() then
         return
     end
 
-    -- render-markdown auto-attaches via its FileType autocmd once the history
-    -- filetype is registered above. Attach explicitly as well (idempotent) so
-    -- buffers that predate registration are covered. pcall'd because this is an
-    -- internal API that may move between versions; the FileType autocmd remains
-    -- the primary, version-stable attach path.
-    --
-    -- From here render-markdown drives rendering itself through its standard
-    -- TextChanged/CursorMoved hooks (the same mechanism codecompanion.nvim
-    -- relies on for streamed chat buffers): pi's writes toggle 'modifiable' and
-    -- fire TextChanged, which render-markdown re-renders in response to.
     vim.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then
             return
@@ -97,57 +130,60 @@ function M.attach_history(buf)
     end)
 end
 
----@return any? manager the render-markdown core manager, if usable
-local function rm_manager()
+---@return any?
+local function render_markdown_manager()
     local ok, manager = pcall(require, "render-markdown.core.manager")
     return ok and manager or nil
 end
 
---- Pause render-markdown rendering for the history buffer.
----
--- render-markdown re-renders the whole buffer on every TextChanged. During a
--- session replay pi makes hundreds of buffer edits, so leaving it active makes
--- each edit re-parse the growing buffer — O(n^2) overall, which hangs loading
--- of large sessions. Disabling the buffer makes render-markdown's autocmds bail
--- out cheaply until resume_history() re-enables and renders once.
 ---@param buf integer
 function M.pause_history(buf)
-    if M.engine() ~= "render-markdown" or not vim.api.nvim_buf_is_valid(buf) then
+    if not vim.api.nvim_buf_is_valid(buf) then
         return
     end
-    local manager = rm_manager()
-    if manager then
-        pcall(manager.set_buf, buf, false)
+    if M.engine() == "markview" then
+        markview_paused[buf] = true
+        local markview = ensure_markview()
+        if markview and type(markview.clear) == "function" then
+            pcall(markview.clear, buf)
+        end
+        return
+    end
+    if M.engine() == "render-markdown" then
+        local manager = render_markdown_manager()
+        if manager then
+            pcall(manager.set_buf, buf, false)
+        end
     end
 end
 
---- Re-enable render-markdown for the history buffer and render it once.
----
--- The re-enable is deferred one scheduler tick: replay applies its buffer edits
--- via vim.schedule(), and set_replaying(false) runs synchronously right after
--- the replay loop — i.e. *before* those edits land. Re-enabling immediately
--- would let every still-queued edit re-render the whole buffer again. Deferring
--- puts the re-enable after the pending edits, so rendering happens once.
 ---@param buf integer
 function M.resume_history(buf)
-    if M.engine() ~= "render-markdown" or not vim.api.nvim_buf_is_valid(buf) then
+    if not vim.api.nvim_buf_is_valid(buf) then
         return
     end
-    vim.schedule(function()
-        if not vim.api.nvim_buf_is_valid(buf) then
-            return
-        end
-        local manager = rm_manager()
-        if manager then
-            -- set_buf(buf, true) re-enables and triggers a single full render.
-            pcall(manager.set_buf, buf, true)
-        end
-    end)
+    if M.engine() == "markview" then
+        markview_paused[buf] = nil
+        render_markview(buf)
+        return
+    end
+    if M.engine() == "render-markdown" then
+        vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(buf) then
+                return
+            end
+            local manager = render_markdown_manager()
+            if manager then
+                pcall(manager.set_buf, buf, true)
+            end
+        end)
+    end
 end
 
---- Reset module state (used by tests).
 function M._reset()
-    warned_missing = false
+    warned_missing = {}
+    markview_scheduled = {}
+    markview_paused = {}
 end
 
 return M

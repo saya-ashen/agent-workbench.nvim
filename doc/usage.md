@@ -28,13 +28,13 @@ Related pages: [Sessions](sessions.md) · [Diff review](diff-review.md) · [Atte
 
 ## Chat & layouts
 
-The chat is rendered in one of two layouts.
+The chat opens in a full-width `buffer` layout by default: history fills current editor window and prompt uses a small bottom split. `side` and `float` remain available through `layout.default` or `:Pi layout=side|float`.
+
+**Full buffer** keeps agent history in current editor window, with prompt in bottom split. This makes transcript navigation and block folding behave like normal Neovim buffer work.
 
 **Floating window** opens π as a centered floating window over the editor. Good for the parts of the workflow where the conversation _is_ the work — planning, brainstorming, debugging out loud, writing specs — and you don't need the code visible at the same time. Having the chat comfortably wide and centered is much easier on your neck than spending forty minutes craned toward a side panel on the right.
 
-**Side panel** opens π as a vertical split anchored to the left or right edge of the editor (or to the bottom). Good for the parts of the workflow where the code _is_ the subject of the conversation — exploring an unfamiliar codebase, doing a review, asking targeted questions about specific files or regions, pulling things into the chat with `@mentions`. You want both the code and the agent on screen at the same time.
-
-Pick a default with `layout.default = "side" | "float"`, or override per-invocation with `:Pi layout=side` / `:Pi layout=float`. Side dimensions live under `layout.side` (`position` is `"left"`, `"right"`, or `"bottom"`, plus `width`); float dimensions live under `layout.float` (`width`, `height`, `border`). Both `side` and `float` also accept a function returning the table, which lets you compute size based on screen dimensions or other state at open time.
+**Side panel** opens π as a vertical split anchored to the left or right edge of the editor (or to the bottom).
 
 Each chat contains three panels:
 
@@ -46,9 +46,21 @@ Each chat contains three panels:
 
 The filetype names are stable — you can target them from your own `FileType` autocmds (see [Keymaps](keymaps.md) for an example). Input and info dialog buffers use the stable `pi-dialog` filetype, so completion plugins can be disabled there without affecting the prompt.
 
-Use `:PiToggleLayout` to swap `side` ↔ `float` without losing the conversation, and `:PiToggleChat` to hide and re-show the chat windows. Neither stops the agent. To actually shut down the underlying `pi --mode rpc` process for the current tab, use `:PiStop`.
+Use `:PiToggleLayout` to swap `buffer` ↔ `float` without losing conversation, and `:PiToggleChat` to hide and re-show chat windows. `side` remains available through explicit layout selection. Neither stops agent. To shut down underlying `pi --mode rpc`, use `:PiStop`.
 
 Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string; defaults: `π`, `prompt`, `attached`). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars. The prompt panel has an extra `panels.prompt.bash_title`: while the prompt text starts with `!` (direct bash mode, see below), the prompt title switches to this string and is drawn with the `PiChatPromptWinbarBashTitle` / `PiChatPromptFloatBashTitle` highlight groups (a distinct foreground color, derived from `WarningMsg` by default) so it's obvious you're about to run a shell command rather than message the agent.
+
+### Block folding
+
+History uses normal editor-window line-number settings and exposes native `foldmethod=expr` structure with a one-column fold gutter. Completed tool output stays complete in the transcript buffer; native window folds control visibility without replacing content.
+
+History blocks support local-plugin style normal-mode controls:
+
+- `<Tab>` or `za`: toggle block under cursor
+- `zo`: expand block
+- `zc`: collapse block
+
+Controls apply to startup, thinking, compaction, and tool blocks.
 
 ## Prompt
 
@@ -718,19 +730,20 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 
 ## Markdown rendering
 
-By default the chat history is rendered through [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim): rendered headings, list bullets, code-block chrome and links. Tool output is fenced so shell content is not misparsed as markdown. If you prefer pi's original **builtin** renderer — treesitter markdown highlights plus custom drawing for tables, message labels and tool blocks — opt out:
+By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim): headings, list bullets, code blocks, links, and inline Markdown. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
 
 ```lua
 require("pi").setup({
     render = {
-        engine = "builtin", -- default: "render-markdown"
+        engine = "builtin", -- default: "markview"
     },
 })
 ```
 
 Notes:
 
-- render-markdown.nvim is a dependency of the default renderer; add it to your plugin spec (see [Installation](../README.md#installation)). If `engine = "render-markdown"` is active but the plugin is missing, pi warns once and falls back to the builtin renderer.
+- markview.nvim is dependency of default renderer; add it to plugin spec (see [Installation](../README.md#installation)). Missing markview triggers one warning and builtin fallback.
+- `render-markdown` remains supported for existing configurations.
 - pi only appends its `pi-chat-history` filetype to render-markdown's active `file_types`; your existing render-markdown configuration is left untouched.
 - render-markdown drives the rendering through its standard event hooks, so it stays in sync as the agent streams. The `markdown`/`markdown_inline` treesitter parsers it needs ship with Neovim ≥ 0.10.
 
@@ -760,7 +773,7 @@ A buffer is considered *modified* when `vim.bo[buf].modified` is true (i.e. the 
 
 At the top of every π chat history, pi2.nvim renders a **startup block** — a summary of what the agent has available in the current session. It lives just above the first message and is always in the history buffer.
 
-By default the block is fully expanded. Set `expand_startup_details = false` to have it start collapsed, and toggle it at any time with either:
+By default the block starts collapsed with a compact summary. Set `expand_startup_details = true` to start with full details, and toggle it at any time with either:
 
 - `<Tab>` on the block in the history buffer (the same `<Tab>` that expands/collapses tool blocks under the cursor).
 - `:PiToggleStartupDetails` / `pi.toggle_startup_details()`.

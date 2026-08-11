@@ -1,15 +1,6 @@
--- Regression: a tool block must round-trip expand → collapse.
---
--- Root cause (pre-existing, engine-independent): the footer anchor extmark
--- (block.end_extmark) is created single-line by on_tool_end, but the
--- set_lines() call inside _maybe_collapse_tool shifts the footer row and
--- Neovim's boundary gravity mutates it into a *multi-line* extmark
--- (end_row = 1, spanning past the buffer end).  A subsequent
--- clear_namespace(inner_start, footer_row) — used by the expand path — then
--- deletes that multi-line extmark, so the next toggle can no longer resolve
--- the footer row and the collapse becomes a silent no-op.
---
--- Symptom reported by the user: "expand works, but collapsing again does not".
+-- Regression: a tool block must round-trip through native folds without
+-- replacing transcript lines. Complete output stays addressable in buffer;
+-- fold state only controls window visibility.
 
 local Config = require("pi.config")
 local History = require("pi.ui.chat.history")
@@ -94,6 +85,7 @@ describe("tool block expand/collapse round-trip", function()
                 bash_collapsed(h)
                 local b = h._tool_blocks["b1"]
                 local buf = h:buf()
+                local line_count = vim.api.nvim_buf_line_count(buf)
 
                 h:_set_tool_block_expanded(b, true)
                 assert.is_true(b.expanded, "expanded after first toggle")
@@ -102,8 +94,8 @@ describe("tool block expand/collapse round-trip", function()
                 assert.is_true(changed, "second toggle (collapse) must report a change")
                 assert.is_false(b.expanded, "collapsed after second toggle")
                 assert.is_true(end_alive(h, b), "end_extmark alive after round-trip")
-                -- Collapsed summary is back in the buffer.
-                assert.is_true(#rows_with(buf, "…9 lines") == 1, "collapsed summary restored")
+                assert.are.equal(line_count, vim.api.nvim_buf_line_count(buf), "folding must not replace transcript lines")
+                assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
             end)
 
             it("round-trips through the cursor-driven toggle_tool_block", function()
@@ -128,7 +120,7 @@ describe("tool block expand/collapse round-trip", function()
                 cursor_on_header()
                 assert.is_true(h:toggle_tool_block(), "collapse via <Tab> must work")
                 assert.is_false(b.expanded)
-                assert.is_true(#rows_with(buf, "…9 lines") == 1)
+                assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
             end)
         end)
     end

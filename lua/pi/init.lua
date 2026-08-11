@@ -102,7 +102,7 @@ function M.toggle_chat()
     session.chat:toggle()
 end
 
---- Toggle between side and float layout. No-op if no session exists.
+--- Toggle between buffer and float layout. No-op if no session exists.
 --- If given, callback runs after pi has switched layouts, focused the new
 --- prompt window, and requested insert mode.
 ---@param cb? fun(layout: pi.LayoutMode)

@@ -37,8 +37,9 @@ require("pi").setup({
     -- Extra blank line between conversation turns (pure whitespace, no drawn rule).
     turn_separator = true,
     -- Default expand/collapse state for the startup block
-    -- (skills, extensions, startup announcements).
-    expand_startup_details = true,
+    -- (skills, extensions, startup announcements). The native fold
+    -- also starts closed in history windows.
+    expand_startup_details = false,
     -- Format string passed to os.date for chat message timestamps.
     timestamp_format = Os.is_windows() and "%b %#d %Y, %H:%M" or "%b %-d %Y, %H:%M",
 
@@ -70,8 +71,9 @@ require("pi").setup({
 
     -- Chat layout
     layout = {
-        -- Default layout when opening the chat: "side" or "float".
-        default = "side",
+        -- Default "buffer" uses full-width history with a bottom prompt split.
+        -- "side" and "float" remain available as explicit alternatives.
+        default = "buffer",
         side = {
             -- Side panel position: "left", "right", or "bottom".
             position = "right",
@@ -282,9 +284,8 @@ require("pi").setup({
 
     -- Markdown rendering of the chat history.
     render = {
-        -- "render-markdown" (default, delegates to render-markdown.nvim)
-        -- or "builtin" (treesitter + custom drawing).
-        engine = "render-markdown",
+        -- "markview" (default), "render-markdown", or "builtin".
+        engine = "markview",
     },
 
     -- Verb pairs for status messages, picked randomly per run.

@@ -197,7 +197,7 @@ end
 ---@return integer? next_insert_at  advanced insertion cursor (nil when appending)
 local function render_input(history, lines, lang, insert_at)
     local fenced = lines
-    if Render.engine() == "render-markdown" then
+    if Render.engine() ~= "builtin" then
         local max_run = 0
         for _, line in ipairs(lines) do
             local run = line:match("^(`+)")
@@ -248,8 +248,8 @@ local function render_output(history, text, insert_at, lang)
 
     local auto_closed = false
 
-    if Render.engine() == "render-markdown" then
-        -- Wrap output in a fenced code block so render-markdown.nvim treats
+    if Render.engine() ~= "builtin" then
+        -- Wrap output in a fenced code block so markdown renderer treats
         -- it as literal code (prevents "# comment" → heading, etc.).
         -- Fence nesting: pick a fence one backtick longer than the longest
         -- backtick run at the start of any output line (minimum 3).
@@ -567,7 +567,7 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
 
     -- When render-markdown is active, wrap visible input in a code fence
     -- to prevent markdown parsing (e.g. shell comments → headings).
-    if Render.engine() == "render-markdown" and #visible_input > 0 then
+    if Render.engine() ~= "builtin" and #visible_input > 0 then
         local max_run = 0
         for _, line in ipairs(visible_input) do
             local run = line:match("^(`+)")
@@ -608,7 +608,7 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
 
         -- When render-markdown is active, wrap visible output in a code fence
         -- to prevent markdown parsing (e.g. setext headings from === lines).
-        if Render.engine() == "render-markdown" and #visible_output > 0 then
+        if Render.engine() ~= "builtin" and #visible_output > 0 then
             local max_run = 0
             for _, line in ipairs(visible_output) do
                 local run = line:match("^(`+)")
@@ -674,7 +674,7 @@ function M.extract_tool_sections(history, block)
     -- When the render-markdown engine is active, render_input() wraps tool
     -- input in a fenced code block (```lang / ```).  Strip these display-only
     -- fence artifacts so the collapsed view sees the raw input lines.
-    if Render.engine() == "render-markdown" and #input_lines >= 2 then
+    if Render.engine() ~= "builtin" and #input_lines >= 2 then
         local first = input_lines[1]
         local last = input_lines[#input_lines]
         if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then
@@ -700,7 +700,7 @@ function M.extract_tool_sections(history, block)
     -- collapsed summary as an orphan ``` that render-markdown misparses as a
     -- new code-block start, bleeding its background colour into surrounding
     -- lines (inline tools, headers, etc.).
-    if Render.engine() == "render-markdown" and #output_lines >= 2 then
+    if Render.engine() ~= "builtin" and #output_lines >= 2 then
         local first = output_lines[1]
         local last = output_lines[#output_lines]
         if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then

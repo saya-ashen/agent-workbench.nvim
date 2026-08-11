@@ -28,7 +28,7 @@
 ---@field border string|string[]
 ---@field win? vim.api.keyset.win_config Extra options passed to nvim_open_win
 
----@alias pi.LayoutMode "side"|"float"
+---@alias pi.LayoutMode "buffer"|"side"|"float"
 
 ---@class pi.LayoutConfig
 ---@field default pi.LayoutMode|fun(): pi.LayoutMode
@@ -66,7 +66,7 @@
 ---@field enabled? boolean Persist the unsent prompt and restore it once after a restart (default: true)
 
 ---@class pi.RenderConfig
----@field engine? string Markdown renderer for the chat history: "render-markdown" (default, requires render-markdown.nvim) or "builtin" (treesitter + custom extmarks)
+---@field engine? string Markdown renderer for chat history: "markview" (default), "render-markdown", or "builtin"
 
 ---@class pi.DiffKeys
 ---@field accept pi.KeySpecs
@@ -298,7 +298,7 @@ local defaults = {
     spinner = "robot",
     show_thinking = true,
     turn_separator = true,
-    expand_startup_details = true,
+    expand_startup_details = false,
     timestamp_format = Os.is_windows() and "%b %#d %Y, %H:%M" or "%b %-d %Y, %H:%M",
     panels = {
         history = { title = "π" },
@@ -321,7 +321,7 @@ local defaults = {
         error = "",
     },
     layout = {
-        default = "side",
+        default = "buffer",
         side = {
             position = "right",
             width = 80,
@@ -441,7 +441,7 @@ local defaults = {
         },
     },
     render = {
-        engine = "render-markdown",
+        engine = "markview",
     },
     verbs = {
         use_defaults = true,

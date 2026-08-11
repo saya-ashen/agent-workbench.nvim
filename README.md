@@ -117,7 +117,7 @@ https://github.com/user-attachments/assets/f210246a-2427-4fdb-b679-eeb6ceae4538
 
 - Neovim 0.10+
 - `pi` in `$PATH`
-- [`MeanderingProgrammer/render-markdown.nvim`](https://github.com/MeanderingProgrammer/render-markdown.nvim) for the default chat-history renderer (`render.engine = "render-markdown"`)
+- [`OXY2DEV/markview.nvim`](https://github.com/OXY2DEV/markview.nvim) for the default chat-history renderer (`render.engine = "markview"`)
 
 Optional but useful:
 
@@ -136,7 +136,7 @@ The easiest way to install `pi2.nvim` is to hand the job to an AI coding agent (
 > **For the agent:** install the `pi2.nvim` Neovim plugin for the user by following these steps.
 >
 > 1. **Detect the plugin manager.** Read the user's Neovim config (usually `init.lua` under `stdpath("config")`, e.g. `~/.config/nvim/init.lua`) and find which plugin manager is in use — `lazy.nvim`, the built-in `vim.pack` (Neovim 0.11+), `packer.nvim`, etc. Follow that manager's spec conventions; if you can't tell which one is used, ask the user.
-> 2. **Add the plugin and its dependency.** Add `zgs225/pi2.nvim` together with `MeanderingProgrammer/render-markdown.nvim`, which the default history renderer (`render.engine = "render-markdown"`) requires. Optionally add `HakonHarnes/img-clip.nvim` (needed only for `:PiPasteImage` clipboard-image paste). Use the specs under [Installing manually](#installing-manually) as a reference for the two most common managers.
+> 2. **Add the plugin and its dependency.** Add `zgs225/pi2.nvim` together with `OXY2DEV/markview.nvim`, which the default history renderer (`render.engine = "markview"`) requires. Optionally add `HakonHarnes/img-clip.nvim` (needed only for `:PiPasteImage` clipboard-image paste). Use the specs under [Installing manually](#installing-manually) as a reference for the two most common managers.
 > 3. **Recommended setup.** Ensure `require("pi").setup()` runs after the plugin loads. The defaults are a good first install — do not add options the user hasn't asked for. See [Configuration](#configuration) for the full option list, and [Keymaps](doc/keymaps.md) for a recommended mapping set; if the user already has `<Leader>` conventions, adapt to them rather than introducing new ones.
 > 4. **Verify with the healthcheck.** After installing, run `:checkhealth pi` and confirm it reports OK: the `pi` executable is in `$PATH`, the pi backend version is compatible, Neovim is 0.10+, and the default renderer's dependencies resolve. Fix anything it flags — e.g. install `pi`, or set `cli = { bin = "/absolute/path/to/pi" }` if it isn't on `$PATH`.
 
@@ -147,8 +147,8 @@ The easiest way to install `pi2.nvim` is to hand the job to an AI coding agent (
 ```lua
 vim.pack.add({
     "https://github.com/zgs225/pi2.nvim",
-    -- Default chat-history renderer (render.engine = "render-markdown"):
-    "https://github.com/MeanderingProgrammer/render-markdown.nvim",
+    -- Default chat-history renderer (render.engine = "markview"):
+    "https://github.com/OXY2DEV/markview.nvim",
 })
 
 -- if you're fine with defaults:
@@ -167,11 +167,11 @@ require("pi").setup({
 {
     "zgs225/pi2.nvim",
 
-    -- render-markdown.nvim powers the default chat-history renderer
-    -- (render.engine = "render-markdown"); img-clip.nvim is optional and
+    -- markview.nvim powers default chat-history renderer
+    -- (render.engine = "markview"); img-clip.nvim is optional and
     -- required only for `:PiPasteImage` (clipboard image paste).
     dependencies = {
-        "MeanderingProgrammer/render-markdown.nvim",
+        "OXY2DEV/markview.nvim",
         "HakonHarnes/img-clip.nvim",
     },
 
@@ -186,6 +186,23 @@ require("pi").setup({
     },
 }
 ```
+
+## Local development
+
+Run Neovim directly from this checkout without changing your Nix or plugin-manager configuration:
+
+```sh
+./scripts/nvim-dev
+```
+
+Pass normal Neovim arguments through the script:
+
+```sh
+./scripts/nvim-dev --clean
+./scripts/nvim-dev path/to/project
+```
+
+The script prepends this repository to `runtimepath` and runs `require("pi").setup()`.
 
 ## Quick start
 
@@ -207,9 +224,9 @@ require("pi").setup({
         { match = "sonnet", latest = true },
     },
 
-    -- Chat placement: "side" (default) or "float", left/right/bottom, sizing.
+    -- Chat placement: "buffer" (default), "side", or "float".
     layout = {
-        default = "side",
+        default = "buffer",
         side = { position = "right", width = 80 },
     },
 
@@ -304,7 +321,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 - [Redesigned tool & thinking blocks](doc/usage.md#tool-blocks) — fold indicators + indentation, silent success, animated spinners, single-line thinking headers with rolling preview.
 - [Status line in the prompt](doc/usage.md#statusline) — busy spinner with elapsed time, context/cost/token usage, queue count, and abort hints pinned to the prompt window.
-- [`render-markdown.nvim` engine](doc/usage.md#markdown-rendering) — the default renderer, with a builtin treesitter fallback.
+- [`markview.nvim` engine](doc/usage.md#markdown-rendering) — the default renderer, with builtin and legacy render-markdown fallbacks.
 
 **Navigation & layout**
 

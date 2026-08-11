@@ -163,17 +163,11 @@ describe("tool output fence wrapping", function()
             assert.is_true(#rows_with(buf, "# heading-like") == 1, "content preserved")
         end)
 
-        -- Regression: collapsed view must not leak orphan fence lines.
-        -- When output_visible < #actual_output, the collapsed summary shows
-        -- "…N lines" + the last visible line(s).  The render-markdown engine
-        -- intentionally wraps the visible output in a paired code fence to
-        -- prevent setext-heading misparsing (e.g. === lines).  The key
-        -- invariant is that fences always come in pairs — an odd count means
-        -- an orphan leaked from the expanded view's render_output() fences.
-        it("collapsed view has no orphan fence lines", function()
-            -- Use a NON-expanded history so _maybe_collapse_tool fires.
+        -- Regression: folding must preserve complete fenced content in buffer.
+        -- Markdown fences remain paired while native folds control visibility.
+        it("native fold keeps complete fenced output", function()
             local h = History.new(TAB)
-            -- 10 lines of output → exceeds bash output_visible (1) → collapses
+            -- 10 lines exceed bash output_visible and become a closed native fold.
             local output = table.concat({
                 "line1",
                 "line2",
@@ -197,10 +191,9 @@ describe("tool output fence wrapping", function()
                 end
             end
             assert.is_true(fence_count % 2 == 0, ("orphan fence: %d fence lines (odd)"):format(fence_count))
-            -- The visible output line should be real content, not a fence
-            assert.is_true(#rows_with(buf, "line10") == 1, "last real output line visible")
-            -- Summary count should reflect 10 real lines minus 1 visible = 9
-            assert.is_true(#rows_with(buf, "…9 lines") == 1, "correct collapsed count")
+            assert.is_true(#rows_with(buf, "line10") == 1, "last output line remains in buffer")
+            assert.is_true(#rows_with(buf, "line1") == 1, "first output line remains in buffer")
+            assert.is_true(#rows_with(buf, "…9 lines") == 0, "no synthetic preview state")
         end)
 
         it("collapsed view for inline+block pair has no orphan fences", function()
