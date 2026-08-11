@@ -24,7 +24,7 @@ require("pi").setup({
     -- Defaults to $PI_CODING_AGENT_DIR or ~/.pi/agent.
     agent_dir = nil,
     -- Preferred models for cycling and the :PiSelectModel picker.
-    -- Each entry is either a string (exact ID) or a table:
+    -- Each entry is either a string (exact ID or "provider/modelId") or a table:
     --   { match = "opus", latest = true }
     --   { match = "gpt-5.3-codex", exact = true } or just "gpt-5.3-codex"
     models = nil,

@@ -212,13 +212,13 @@
 ---@field cancel? pi.KeySpecs
 
 --- A preferred model entry for cycling/selection.
---- String: exact model ID.
+--- String: exact model ID, or canonical "provider/modelId" reference.
 --- Table: substring match with optional latest resolution.
 ---@alias pi.ModelEntry string|pi.ModelSpec
 
 ---@class pi.ModelSpec
 ---@field match string Substring to match against model IDs (case-insensitive), or exact ID when `exact` is true
----@field exact? boolean If true, `match` is treated as an exact model ID (case-sensitive) instead of a substring
+---@field exact? boolean If true, `match` is treated as an exact model ID or "provider/modelId" (case-sensitive) instead of a substring
 ---@field latest? boolean If true, pick the model whose ID sorts last among matches
 
 ---@class pi.DialogConfig

@@ -2,6 +2,8 @@
 
 ## 2026-08-11
 
+- **ADDED:** `models` entries (the configured cycle/select shortlist) now accept a canonical `provider/modelId` reference — e.g. `"opencode-go/deepseek-v4-flash"` — in both the plain-string and `exact = true` forms, so model IDs that exist under several providers can be pinned to one provider instead of matching every copy. This mirrors the `--models`/`enabledModels` scoping syntax pi itself uses.
+
 - **FIXED:** the double-`<Esc>` abort gesture was dead during the auto-retry backoff (the "Retrying…" state between `agent_end` and the retry's `agent_start`): the gesture only armed while streaming, and `_streaming` is false across the whole backoff window (default 2s/4s/8s… exponential), so an unrecoverable model error could not be interrupted by keyboard until the retry attempt actually started streaming. The gesture now stays live during retries via a dedicated `_retrying` state (kept separate from `_streaming`), and the second `<Esc>` sends the precise `abort_retry` RPC command — which only cancels the backoff, so the retry is cancelled and the failed turn ends — mirroring the TUI's retry escape handler. `:PiAbort` already worked during retries (core `abort()` includes `abortRetry()`); new `pi.abort_retry()` exposes the same command for scripts (#87).
 
 - **CHANGED:** `:PiSelectThinking` / `pi.select_thinking_level()` now lists only the thinking levels the current model actually supports (fetched via the RPC `get_available_thinking_levels` command) instead of the hardcoded six-level list — no more picking a level the model rejects. If the backend fetch fails the picker falls back to the built-in list with a warning; on a model with no thinking support it warns instead of opening a picker (#81).

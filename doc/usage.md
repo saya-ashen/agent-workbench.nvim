@@ -638,10 +638,14 @@ Each entry is one of:
 ```lua
 require("pi").setup({
     models = {
-        -- 1. Plain string — exact model ID match (case-sensitive).
+        -- 1. Plain string — exact model ID match (case-sensitive), or a
+        --    canonical "provider/modelId" reference to disambiguate IDs
+        --    that exist under several providers.
         "gpt-5.3-codex",
+        "opencode-go/deepseek-v4-flash",
 
-        -- 2. Exact match (equivalent to the bare string form).
+        -- 2. Exact match (equivalent to the bare string form; also accepts
+        --    the "provider/modelId" form).
         { match = "gpt-5.3-codex", exact = true },
 
         -- 3. Substring match (case-insensitive), all hits included in order.
@@ -656,7 +660,7 @@ require("pi").setup({
 })
 ```
 
-Entries are resolved at each cycle/select call against the backend's current model list. A warning is logged if an entry matches nothing.
+Entries are resolved at each cycle/select call against the backend's current model list. A warning is logged if an entry matches nothing. A bare ID that exists under several providers matches every copy (one entry per provider); use the `provider/modelId` form to pin an entry to a specific provider.
 
 ### Cycling and selecting
 
