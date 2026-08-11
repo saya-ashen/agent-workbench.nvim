@@ -644,8 +644,10 @@ require("pi").setup({
         "gpt-5.3-codex",
         "opencode-go/deepseek-v4-flash",
 
-        -- 2. Exact match (equivalent to the bare string form; also accepts
-        --    the "provider/modelId" form).
+        -- 2. Exact match (same as the bare string form for IDs that exist
+        --    under a single provider; also accepts the "provider/modelId"
+        --    form). For an ID duplicated across providers it takes only the
+        --    first matching copy.
         { match = "gpt-5.3-codex", exact = true },
 
         -- 3. Substring match (case-insensitive), all hits included in order.
@@ -660,7 +662,7 @@ require("pi").setup({
 })
 ```
 
-Entries are resolved at each cycle/select call against the backend's current model list. A warning is logged if an entry matches nothing. A bare ID that exists under several providers matches every copy (one entry per provider); use the `provider/modelId` form to pin an entry to a specific provider.
+Entries are resolved at each cycle/select call against the backend's current model list. A warning is logged if an entry matches nothing. In the plain-string form, a bare ID that exists under several providers matches every copy (one entry per provider); in the `exact = true` form it takes only the first matching copy. Either way, use the `provider/modelId` form to pin an entry to a specific provider.
 
 ### Cycling and selecting
 
