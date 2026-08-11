@@ -394,6 +394,37 @@ function M.compact(custom_instructions)
     end
 end
 
+--- Toggle automatic context compaction.
+--- Reads the backend's current setting via get_state, then sends
+--- set_auto_compaction with the inverted value. On success the statusline is
+--- refreshed so its `compaction` component (`(auto)`) reflects the new state.
+--- Session-level state is held by the backend, so there is no new config
+--- option. Silent no-op when there is no active session.
+function M.toggle_auto_compaction()
+    local Sessions = require("pi.sessions.manager")
+    local session = Sessions.get()
+    if not session or not session.rpc:is_running() then
+        return
+    end
+    session.rpc:send({ type = "get_state" }, function(res)
+        if not res.success or not res.data or res.data.autoCompactionEnabled == nil then
+            return
+        end
+        local enabled = not res.data.autoCompactionEnabled
+        session.rpc:send({ type = "set_auto_compaction", enabled = enabled }, function(res2)
+            if not res2.success then
+                vim.schedule(function()
+                    require("pi.notify").error("Toggle auto compaction failed: " .. (res2.error or "unknown error"))
+                end)
+                return
+            end
+            vim.schedule(function()
+                Sessions.refresh_state(session)
+            end)
+        end)
+    end)
+end
+
 --- Set or show the session display name.
 --- With no argument, shows the current name. With a name, sets it.
 ---@param name? string session name to set (nil to show current)

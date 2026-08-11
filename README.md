@@ -256,6 +256,7 @@ require("pi").setup({
 | `:PiAttachImage {path}` | Attach an image file to the prompt |
 | `:PiPasteImage` | Attach an image from the clipboard |
 | `:PiCompact [instructions]` | Ask π to compact the current conversation context |
+| `:PiToggleAutoCompaction` | Toggle automatic context compaction (statusline shows the auto-compaction icon while on) |
 | `:PiSessionName [name]` | Set or show the session display name |
 | `:PiToggleDebug` | Toggle RPC debug logging |
 

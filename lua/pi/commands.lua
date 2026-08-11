@@ -133,6 +133,10 @@ function M.setup()
         Pi.compact(instructions)
     end, { nargs = "?", desc = "Compact π conversation context" })
 
+    vim.api.nvim_create_user_command("PiToggleAutoCompaction", function()
+        Pi.toggle_auto_compaction()
+    end, { desc = "Toggle π automatic context compaction" })
+
     vim.api.nvim_create_user_command("PiSessionName", function(cmd)
         local name = cmd.args ~= "" and cmd.args or nil
         Pi.set_session_name(name)

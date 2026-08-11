@@ -109,6 +109,18 @@ describe("statusline", function()
         assert.is_nil(status_row():find("⏵", 1, true))
     end)
 
+    it("compaction is in the default layout and shows the label icon when auto-compaction is on", function()
+        local icon = Config.options.labels.compaction
+        assert.is_not_nil(icon)
+        -- Default layout (Config.options.statusline untouched by the test).
+        assert.is_nil(status_row():find(icon, 1, true))
+        sl:update_state({ autoCompactionEnabled = true })
+        local text = status_row()
+        assert.is_not_nil(text:find(icon, 1, true))
+        sl:update_state({ autoCompactionEnabled = false })
+        assert.is_nil(status_row():find(icon, 1, true))
+    end)
+
     it("center wins over a wide left group (left is truncated)", function()
         Config.options.statusline = vim.tbl_deep_extend("force", {}, saved_statusline_cfg, {
             layout = {

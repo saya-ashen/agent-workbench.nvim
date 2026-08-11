@@ -26,6 +26,8 @@ pi.diff_review()              -- review the git diff of every file changed this 
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens an
                               -- input dialog prefilled with the current name
 pi.compact(instructions?)     -- manually compact the current session (optional guidance)
+pi.toggle_auto_compaction()   -- flip automatic compaction on/off; the statusline
+                              -- `compaction` component (a 󰏗 icon) shows the state
 pi.changed_files()            -- string[]: files modified by edit/write tools this session
 
 -- Agent control

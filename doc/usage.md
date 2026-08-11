@@ -381,7 +381,7 @@ The toggle key is registered as a permanent buffer-local mapping on the prompt b
 
 ## Statusline
 
-π renders a configurable status line pinned to the bottom of the prompt buffer. It's where session-level info lives — current model, thinking level, context usage, token counts, cost, pending attention, the busy spinner, and anything else you want to surface from your extensions.
+π renders a configurable status line pinned to the bottom of the prompt buffer. It's where session-level info lives — current model, thinking level, context usage, token counts, cost, pending attention, auto-compaction state, the busy spinner, and anything else you want to surface from your extensions.
 
 The layout is split into **left**, **center**, and **right** groups. Each group is just an array of items, and items can be:
 
@@ -411,7 +411,7 @@ The **center** group is centered in the window and has placement priority: when 
 | `cache` | `R7.2M W416k` | Total prompt-cache read/write |
 | `cost` | `$7.665` | Session cost is greater than zero |
 | `context` | `63.9%/200k` | Current context window usage — percentage + total |
-| `compaction` | `(auto)` | Auto-compaction is enabled |
+| `compaction` | 󰏗 | Auto-compaction is enabled — the same icon as the compaction summary label |
 | `attention` | `󰵚` / `󰵚 2` | There's at least one pending attention request |
 | `model` | `claude-opus-4-6` | A model is active |
 | `thinking` | `xhigh` / `thinking off` | The current model supports reasoning |
