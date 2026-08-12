@@ -53,20 +53,20 @@ local function is_visual_mode(mode)
     return first == "v" or first == "V" or first == "\22"
 end
 
----@param tab pi.TabId
+---@param key integer
 ---@param attachments pi.ChatAttachments
 ---@return pi.ChatPrompt
-function Prompt.new(tab, attachments)
+function Prompt.new(key, attachments)
     local self = setmetatable({}, Prompt)
     self._win = nil
     self._attachments = attachments
-    self._tab = tab
+    self._tab = vim.api.nvim_get_current_tabpage()
     self._zen = false
     self._bash_mode = false
     self._on_bash_mode_change = nil
 
     local panel = Config.options.panels.prompt
-    local name = panel.name and panel.name(tab) or ("π-prompt | " .. tab)
+    local name = panel.name and panel.name(key) or ("π-prompt | " .. key)
     wipe_stale_buf(name)
     self._buf = vim.api.nvim_create_buf(false, true)
     vim.bo[self._buf].buftype = "nofile"
@@ -178,7 +178,7 @@ function Prompt.new(tab, attachments)
         end,
     })
 
-    self._statusline = StatusLine.new(self._buf, tab, function()
+    self._statusline = StatusLine.new(self._buf, self._tab, function()
         return self:win()
     end)
 
@@ -228,6 +228,12 @@ function Prompt.new(tab, attachments)
     })
 
     return self
+end
+
+---@param tab pi.TabId
+function Prompt:set_tab(tab)
+    self._tab = tab
+    self._statusline:set_tab(tab)
 end
 
 ---@return integer

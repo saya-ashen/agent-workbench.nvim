@@ -2,27 +2,61 @@
 
 π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and pi2.nvim gives you a few ways to navigate between them.
 
-## One chat per tab
+## Buffer-owned sessions
 
-pi2.nvim keeps **one live session per Neovim tabpage**. Two different tabs give you two independent conversations with their own history, prompt buffer, attachments, model, and thinking level. Closing the tab tears the session down, and nothing bleeds across tabs. This is the natural unit of work in Neovim, and it maps cleanly to "one agent per task" — e.g. one tab for an exploratory refactor and another for feature implementation, each with their own context.
+pi2.nvim binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and `pi --mode rpc` subprocess.
 
-Each session owns an underlying `pi --mode rpc` subprocess (one tab = one session = one process). The process lifecycle and how to stop/abort it are covered in [Health & debugging → Process lifecycle](troubleshooting.md#process-lifecycle).
+Use normal buffer commands to switch sessions:
+
+```vim
+:Pi
+:PiNewSession
+:bnext
+:bprevious
+:buffer <session-history-buffer>
+```
+
+Entering session History buffer switches the active chat view in the current tab, including prompt and attachments. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
+
+## Workspaces
+
+Each Neovim tab acts as one workspace. On setup, pi2.nvim fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:PiNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. Files and π sessions created there use that cwd. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:PiWorkspaces` opens a searchable picker.
+
+When `bufferline.nvim` owns the tabline, pi2.nvim appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs appear at the right as `index name session-count status`, remain visible even when bufferline's `show_tab_indicators` is false, and preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, pi2.nvim installs its built-in workspace tabline.
+
+Listed buffers are workspace-local by default. Switching tabs changes `buflisted` so bufferline-style plugins and `:bnext` / `:bprevious` show only current workspace buffers. Opening an existing buffer in another tab adds it to both workspaces. `:PiMoveBuffer {tab-number}` moves current ordinary buffer to another workspace; π History buffers stay with the workspace that created their session. Closing a workspace only removes its buffer memberships and never deletes buffers or stops sessions.
+
+```lua
+require("pi").setup({
+    workspace_bar = {
+        enabled = true,
+        show = "multiple", -- "multiple" | "always"
+        session_count = true,
+        status = true,
+    },
+    workspace_buffers = {
+        enabled = true,
+    },
+})
+```
 
 ## Session history as a buffer
 
-The rendered agent transcript is an unnamed, unlisted Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
+Sessions are loaded in two phases: pi2.nvim first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. After RPC `switch_session` and `get_messages` complete, an identical preview stays in place; only changed authoritative state triggers a rebuild. Unsupported or damaged files fall back to RPC-only loading.
+
+The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 
 ```text
 agent://<project>/<session-id>/transcript
 ```
 
-The URI starts as `agent://<project>/new-<tab>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. Keeping the buffer unnamed prevents file-tree plugins from treating the URI as a filesystem path. `:edit agent://.../transcript` reuses an existing resource or attaches current tab session and rebuilds it from persisted messages. History remains separate from prompt and attachment buffers.
+The URI starts as `agent://<project>/new-<id>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. The listed History buffer uses an internal `pi-session://...` name while the `agent://...` URI remains in the workspace registry. `:edit agent://.../transcript` reuses an existing resource or activates its session in the current tab. History remains separate from prompt and attachment buffers.
 
 ## Storage and scoping
 
-Session files are JSONL documents stored under:
+Sessions are JSONL documents stored under:
 
-```
+```text
 <agent_dir>/sessions/<encoded-cwd>/*.jsonl
 ```
 
@@ -40,15 +74,15 @@ There are three ways to open a chat — each honors the usual `layout=side|float
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:Pi` | `pi.show()` / `pi.toggle()` | Open the chat. If the current tab has no session yet, starts a fresh conversation. |
-| `:PiContinue` | `pi.continue_session()` | Load the **most recent** session for the current cwd. Skips the session currently live in another tab, so you can continue a different one. |
-| `:PiResume` | `pi.resume_session()` | Open a picker listing **all past sessions for the current cwd**, with their display names, timestamps, and message counts. |
+| `:Pi` | `pi.show()` / `pi.toggle()` | Open the chat. If current tab has no active session, starts one. |
+| `:PiContinue` | `pi.continue_session()` | Load the most recent session not already live in another buffer. |
+| `:PiResume` | `pi.resume_session()` | Pick any past session. Selecting a live session activates its existing buffer. |
 
 And mid-session management:
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:PiNewSession` | `pi.new_session()` | Discard the current session in this tab and start a fresh one. Extensions can cancel this via the `session_before_switch` hook (e.g. to warn about unsaved draft state). |
+| `:PiNewSession` | `pi.new_session()` | Create and activate a separate session buffer and RPC process. Existing sessions keep running. |
 | `:PiTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-pitree). |
 | `:PiSessions` | `pi.sessions()` | Toggle the live overview of all active sessions (name + busy/idle/attention). See [Sessions overview](#sessions-overview-pisessions). |
 | `:PiSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens an input dialog prefilled with the current name. Names appear in the `:PiResume` picker so you can identify long-running conversations at a glance. |
@@ -78,7 +112,7 @@ Requires a pi version whose extension API exposes `ctx.navigateTree` — on olde
 
 ## Sessions overview (:PiSessions)
 
-When you run several sessions across tabs, `:PiSessions` gives you a single dashboard of everything that is live. It lists **active sessions only** (one per Neovim tab, in tabline order) with:
+When you run several sessions, `:PiSessions` gives you a single dashboard of everything live. It lists active session buffers, including multiple sessions in one tab. Selecting a row activates that session in current tab.
 
 - a single **status dot** at the left edge, colored and animated per state: blinking yellow while the agent works (in a background tab), slow-blinking in the compaction color while compacting, steady warning color when the session needs your attention, blinking green when a turn finished while you were in another tab, blinking red when the last turn errored (both consumed — back to idle — when you enter the tab), steady dim when idle, steady error color if the process died,
 - the **session name** right after the dot: the backend session name (`:PiSessionName`), falling back to the first user message, then `(unnamed)`,

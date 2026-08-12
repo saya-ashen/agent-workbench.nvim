@@ -139,6 +139,158 @@ function M.parse(path)
     }
 end
 
+---@class pi.SessionPreview
+---@field messages table[] active-branch messages in the same shape as RPC get_messages
+---@field leaf_id string
+
+---@param entry table
+---@return table[]
+local function entry_messages(entry)
+    if entry.type == "message" and type(entry.message) == "table" then
+        local message = entry.message
+        if
+            (message.role == "user" or message.role == "assistant" or message.role == "toolResult")
+            and message.content == nil
+        then
+            message = vim.tbl_extend("force", message, { content = {} })
+        end
+        return { message }
+    end
+    if entry.type == "custom_message" then
+        return {
+            {
+                role = "custom",
+                customType = entry.customType,
+                content = entry.content or {},
+                display = entry.display,
+                details = entry.details,
+                timestamp = entry.timestamp,
+            },
+        }
+    end
+    if entry.type == "branch_summary" and type(entry.summary) == "string" and entry.summary ~= "" then
+        return {
+            {
+                role = "branchSummary",
+                summary = entry.summary,
+                fromId = entry.fromId,
+                timestamp = entry.timestamp,
+            },
+        }
+    end
+    if entry.type == "compaction" then
+        return {
+            {
+                role = "compactionSummary",
+                summary = entry.summary or "",
+                tokensBefore = entry.tokensBefore or 0,
+                timestamp = entry.timestamp,
+            },
+        }
+    end
+    return {}
+end
+
+--- Read the active conversation directly from a persisted v2/v3 session.
+--- This is a read-only preview; RPC remains authoritative after startup.
+---@param path string
+---@return pi.SessionPreview?
+function M.load_messages(path)
+    local file = io.open(path, "r")
+    if not file then
+        return nil
+    end
+
+    local header_line = file:read("*l")
+    local ok, header = pcall(vim.json.decode, header_line or "")
+    if not ok or type(header) ~= "table" or header.type ~= "session" or (tonumber(header.version) or 1) < 2 then
+        file:close()
+        return nil
+    end
+
+    local entries = {}
+    local by_id = {}
+    local leaf_id
+    for line in file:lines() do
+        local decoded, entry = pcall(vim.json.decode, line)
+        if not decoded or type(entry) ~= "table" or type(entry.id) ~= "string" or entry.id == "" then
+            file:close()
+            return nil
+        end
+        entries[#entries + 1] = entry
+        by_id[entry.id] = entry
+        leaf_id = entry.id
+    end
+    file:close()
+
+    if not leaf_id then
+        return { messages = {}, leaf_id = "" }
+    end
+
+    local path_entries = {}
+    local seen = {}
+    local current_id = leaf_id
+    while current_id do
+        if seen[current_id] then
+            return nil
+        end
+        seen[current_id] = true
+        local entry = by_id[current_id]
+        if not entry then
+            return nil
+        end
+        table.insert(path_entries, 1, entry)
+        current_id = type(entry.parentId) == "string" and entry.parentId or nil
+    end
+
+    local latest_compaction_index
+    for i, entry in ipairs(path_entries) do
+        if entry.type == "compaction" then
+            latest_compaction_index = i
+        end
+    end
+
+    local selected = path_entries
+    local retained_tail
+    if latest_compaction_index then
+        local compaction = path_entries[latest_compaction_index]
+        selected = { compaction }
+        if type(compaction.retainedTail) == "table" then
+            retained_tail = compaction.retainedTail
+        else
+            local keep = false
+            for i = 1, latest_compaction_index - 1 do
+                local entry = path_entries[i]
+                if entry.id == compaction.firstKeptEntryId then
+                    keep = true
+                end
+                if keep then
+                    selected[#selected + 1] = entry
+                end
+            end
+        end
+        for i = latest_compaction_index + 1, #path_entries do
+            selected[#selected + 1] = path_entries[i]
+        end
+    end
+
+    local messages = {}
+    for _, entry in ipairs(selected) do
+        for _, message in ipairs(entry_messages(entry)) do
+            messages[#messages + 1] = message
+        end
+        if entry.type == "compaction" and retained_tail then
+            for _, message in ipairs(retained_tail) do
+                if type(message) == "table" then
+                    messages[#messages + 1] = message
+                end
+            end
+        end
+    end
+
+    return { messages = messages, leaf_id = leaf_id }
+end
+
 --- List all sessions for the current cwd, sorted by modified time (newest first).
 ---@return pi.SessionInfo[]
 function M.list()

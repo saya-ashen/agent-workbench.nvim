@@ -19,9 +19,14 @@ pi.layout()                   -- "side" | "float" | nil
 -- Sessions
 pi.continue_session(opts?)    -- load the most recent session for the current cwd
 pi.resume_session(opts?)      -- pick a past session for the current cwd
-pi.new_session()              -- start a fresh conversation in the current tab
+pi.new_session()              -- create and activate a separate session buffer
 pi.tree()                     -- navigate the session tree (:PiTree)
 pi.sessions()                 -- toggle the live sessions overview (:PiSessions)
+pi.workspaces()               -- pick and switch a tab-backed workspace (:PiWorkspaces)
+pi.new_workspace()            -- select a directory and create a workspace (:PiNewWorkspace)
+pi.workspace_list()           -- workspace rows in tabline order
+pi.workspace_tabline()        -- built-in tabline rendering for integrations
+pi.move_buffer(tab_number)    -- move current ordinary buffer to another workspace
 pi.session_stats()            -- show the session stats dashboard (:PiSessionStats)
 pi.diff_review()              -- review the git diff of every file changed this session (:PiDiff)
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens an
@@ -36,7 +41,7 @@ pi.abort()                    -- cancel the current agent turn, keep the session
 pi.abort_bash()               -- cancel the running direct bash (!) command
 pi.abort_retry()              -- cancel the auto-retry backoff ("Retrying…" state); only
                               -- takes effect while the core is between retry attempts
-pi.stop()                     -- kill the RPC process and close the chat for the current tab
+pi.stop()                     -- stop current session and delete its History buffer
 
 -- Prompt input
 pi.send_mention(args?, opts?) -- insert an @-mention for the current buffer / selection
@@ -79,4 +84,4 @@ pi.goto_file_under_cursor()   -- open the file referenced on the history line un
 pi.toggle_debug()             -- toggle RPC debug logging for the current Neovim session
 ```
 
-Most functions are no-ops (or warn) when no session is active in the current tab — safe to bind unconditionally. See [Usage](usage.md) and [Keymaps](keymaps.md) for how these fit into a working setup.
+Most functions are no-ops (or warn) when no session is active in the current buffer/tab — safe to bind unconditionally. See [Usage](usage.md) and [Keymaps](keymaps.md) for how these fit into a working setup.

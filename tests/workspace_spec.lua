@@ -20,18 +20,18 @@ describe("agent workspace", function()
         assert.are.same({ "project", "session-123", "transcript" }, { project, session, resource })
     end)
 
-    it("uses an unlisted virtual history buffer with stable identity", function()
+    it("uses a listed virtual history buffer with stable identity", function()
         Config.options.render.engine = "builtin"
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/new-1")
         local buf = history:buf()
 
-        assert.is_false(vim.bo[buf].buflisted)
+        assert.is_true(vim.bo[buf].buflisted)
         assert.are.equal("nofile", vim.bo[buf].buftype)
-        assert.are.equal("", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal("pi-session://" .. buf, vim.api.nvim_buf_get_name(buf))
         assert.are.equal(buf, Workspace.buffer("agent://project/new-1"))
 
         history:set_name("agent://project/session-123")
-        assert.are.equal("", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal("pi-session://" .. buf, vim.api.nvim_buf_get_name(buf))
         assert.is_nil(Workspace.buffer("agent://project/new-1"))
         assert.are.equal(buf, Workspace.buffer("agent://project/session-123"))
 
@@ -85,6 +85,38 @@ describe("agent workspace", function()
         history:clear()
         assert.are.equal(0, #history._message_blocks)
         vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
+    it("opens over a scratch buffer whose wipe autocmd raises E367", function()
+        local Attachments = require("pi.ui.chat.attachments")
+        local Prompt = require("pi.ui.chat.prompt")
+        local Layout = require("pi.ui.chat.layout")
+        local attachments = Attachments.new()
+        local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/dashboard/transcript")
+        local prompt = Prompt.new(vim.api.nvim_get_current_tabpage(), attachments)
+        local layout = Layout.new("buffer", history, prompt, attachments)
+        local dashboard = vim.api.nvim_create_buf(false, true)
+        vim.bo[dashboard].bufhidden = "wipe"
+        vim.api.nvim_set_current_buf(dashboard)
+        local group = vim.api.nvim_create_augroup("PiDashboardCompatTest", { clear = true })
+        vim.api.nvim_create_autocmd("BufWipeout", {
+            group = group,
+            buffer = dashboard,
+            callback = function()
+                vim.api.nvim_del_augroup_by_id(group)
+                vim.api.nvim_del_augroup_by_id(group)
+            end,
+        })
+
+        assert.is_true(layout:show())
+        assert.are.equal(history:buf(), vim.api.nvim_win_get_buf(layout:history_win()))
+
+        layout:hide()
+        for _, buf in ipairs({ history:buf(), prompt:buf(), attachments:buf() }) do
+            if vim.api.nvim_buf_is_valid(buf) then
+                vim.api.nvim_buf_delete(buf, { force = true })
+            end
+        end
     end)
 
     it("restores editor buffer after hiding buffer layout", function()

@@ -479,16 +479,15 @@ function History.new(tab, name)
 
     local panel = Config.options.panels.history
     name = name or (panel.name and panel.name(tab)) or ("π-chat | " .. tab)
-    wipe_stale_buf(name)
     self._name = name
-    self._buf = vim.api.nvim_create_buf(false, true)
+    self._buf = vim.api.nvim_create_buf(true, true)
     vim.bo[self._buf].filetype = Ft.history
     vim.bo[self._buf].swapfile = false
     vim.bo[self._buf].bufhidden = "hide"
     vim.bo[self._buf].modifiable = false
-    -- Keep virtual URI out of buffer name: file-tree revealers treat names as paths.
-    -- Workspace registry still exposes URI identity to session/open logic.
-    vim.api.nvim_buf_set_name(self._buf, "")
+    -- Listed History buffers are session handles. Keep URI in registry to avoid
+    -- file-tree plugins treating agent:// names as filesystem paths.
+    vim.api.nvim_buf_set_name(self._buf, ("pi-session://%s"):format(self._buf))
     histories[self._buf] = self
     WorkspaceHistory.attach(self, name)
     vim.api.nvim_create_autocmd("BufWipeout", {
@@ -635,7 +634,7 @@ end
 
 --- Scroll to the last line with cursor at bottom of the window.
 function History:_scroll_to_bottom()
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if self._replaying or not self._win or not vim.api.nvim_win_is_valid(self._win) then
         return
     end
     vim.api.nvim_win_call(self._win, function()

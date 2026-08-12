@@ -229,6 +229,19 @@ describe("history queue status rendering", function()
         vim.api.nvim_win_set_width(0, original_width)
     end)
 
+    it("suppresses scrolling until replay finishes", function()
+        local h = setup_history(50)
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        h._replaying = true
+
+        h:_scroll_to_bottom()
+        assert.are.equal(1, vim.api.nvim_win_get_cursor(0)[1])
+
+        h._replaying = false
+        h:scroll_to_bottom()
+        assert.are.equal(50, vim.api.nvim_win_get_cursor(0)[1])
+    end)
+
     it("renders a divider plus one row per queue entry", function()
         local h = setup_history(3)
         h:add_pending_queue_entry("follow_up", "first queued", "first queued")

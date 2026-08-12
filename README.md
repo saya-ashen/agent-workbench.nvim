@@ -258,9 +258,12 @@ require("pi").setup({
 | `:PiAbortBash` | Abort the running direct bash (`!`) command |
 | `:PiStop` | Stop the RPC process and close the chat |
 | `:PiAttention` | Open the next queued attention request |
-| `:PiNewSession` | Start a new conversation in the current tab/session |
+| `:PiNewSession` | Create a separate session buffer and RPC process; existing sessions keep running |
 | `:PiTree` | Navigate the session tree: jump back to any past conversation point |
 | `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
+| `:PiWorkspaces` | Pick and switch a tab-backed workspace |
+| `:PiNewWorkspace` | Select a directory and create a workspace rooted there |
+| `:PiMoveBuffer {tab}` | Move current ordinary buffer to another workspace |
 | `:PiSessionStats` | Show the session stats dashboard: messages, tokens (with cache split), per-model cost breakdown, cache re-billed waste, context usage |
 | `:PiDiff` | Review the git diff of every file changed by the current session in one panel: file list + diff |
 | `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
@@ -287,7 +290,7 @@ Detailed guides live in [`doc/`](doc/):
 | Doc | What's inside |
 | --- | --- |
 | [doc/usage.md](doc/usage.md) | Chat & layouts, prompt (submit/queue/abort), direct bash mode (`!`), prompt history & drafts, `@mentions`, slash commands, completion, attachments, zen mode, statusline, navigation, quickfix, tool blocks, models, thinking, markdown rendering, buffer reload, startup block |
-| [doc/sessions.md](doc/sessions.md) | One session per tab, storage & cwd scoping, continue/resume, session tree (`:PiTree`), sessions overview (`:PiSessions`), compaction |
+| [doc/sessions.md](doc/sessions.md) | Tab-backed workspaces, buffer-owned sessions, storage & cwd scoping, continue/resume, session tree (`:PiTree`), sessions overview (`:PiSessions`), compaction |
 | [doc/diff-review.md](doc/diff-review.md) | Two-way diff review of agent edits, review notes, permission-extension protocol reference, session diff review (`:PiDiff`) |
 | [doc/attention.md](doc/attention.md) | Attention queue, dialogs, notifications, queue inspection API |
 | [doc/extensions.md](doc/extensions.md) | Extension UI routing, startup announcements, `on_widget` custom blocks, adapting non-upstream RPC backends |
@@ -336,7 +339,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 - [Sessions overview (`:PiSessions`)](doc/sessions.md#sessions-overview-pisessions) — a live, shared dashboard of every active session with animated status dots.
 - [Session tree navigation (`:PiTree`)](doc/sessions.md#session-tree-navigation-pitree) — jump back to any past conversation point, optionally summarizing the abandoned branch.
-- [Per-tab model pinning](doc/usage.md#per-tab-model-pinning) — model switches in one tab don't leak into other tabs' new sessions.
+- [Tab-backed workspaces](doc/sessions.md#workspaces) — each tab keeps one cwd, its own listed-buffer set, and its sessions; bufferline.nvim shows current workspace buffers plus native workspace tabs with session status.
 - [Auto-reload of open buffers](doc/usage.md#buffer-reload) — files modified by the agent reload in place; unsaved buffers are never touched.
 
 **Robustness fixes**

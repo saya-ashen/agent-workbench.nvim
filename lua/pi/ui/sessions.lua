@@ -21,7 +21,8 @@ local ns = vim.api.nvim_create_namespace("pi-sessions-list")
 ---@alias pi.SessionsListStatus "busy"|"compacting"|"idle"|"exited"
 
 ---@class pi.SessionsListRow
----@field tab pi.TabId
+---@field session_id integer
+---@field tab pi.TabId Last active tab, kept for compatibility in status events.
 ---@field status pi.SessionsListStatus
 ---@field attention integer pending attention request count
 ---@field done boolean last turn finished while the user was elsewhere
@@ -117,7 +118,7 @@ end
 
 --- Build display rows from live sessions.
 ---@param sessions pi.Session[]
----@param attention_count fun(tab: pi.TabId): integer
+---@param attention_count fun(tab: pi.TabId, session?: pi.Session): integer
 ---@param name_of fun(session: pi.Session): string?
 ---@param flags_of? fun(session: pi.Session): { done: boolean, error: boolean }
 ---@return pi.SessionsListRow[]
@@ -127,9 +128,10 @@ function M.build_rows(sessions, attention_count, name_of, flags_of)
     for _, session in ipairs(sessions) do
         local f = flags_of and flags_of(session) or nil
         out[#out + 1] = {
+            session_id = session.id or session.tab,
             tab = session.tab,
             status = M.status_of(session),
-            attention = attention_count(session.tab) or 0,
+            attention = attention_count(session.tab, session) or 0,
             done = f ~= nil and f.done == true,
             error = f ~= nil and f.error == true,
             name = name_of(session),
@@ -183,7 +185,7 @@ end
 ---@param session pi.Session
 function M.on_agent_end(session)
     local f = session_flags(session)
-    if not f.error and session.tab ~= current_tab() then
+    if not f.error and not require("pi.sessions.manager").is_current(session) then
         f.done = true
     end
     -- A finished turn may have produced the first user message or a backend
@@ -388,8 +390,8 @@ function M._render()
     local Attention = require("pi.attention")
     local sessions = Sessions.list()
 
-    rows = M.build_rows(sessions, function(tab)
-        return Attention.count(tab)
+    rows = M.build_rows(sessions, function(_, session)
+        return Attention.count_for_session(session)
     end, function(session)
         local name = resolve_name(session)
         -- A dead process will never answer the name fetch; stop showing the
@@ -466,8 +468,18 @@ refresh_current_markers = function()
         end
         current_matches[win] = nil
         if vim.api.nvim_win_is_valid(win) then
+            local manager = require("pi.sessions.manager")
+            local active = manager.get_for_tab and manager.get_for_tab(tab) or nil
+            if not active then
+                for _, session in ipairs(manager.list()) do
+                    if session.tab == tab then
+                        active = session
+                        break
+                    end
+                end
+            end
             for lnum, row in ipairs(rows) do
-                if row.tab == tab then
+                if active and row.session_id == (active.id or active.tab) then
                     -- Current-tab marker: the dot of the tab's own session
                     -- renders in the agent color, overriding the buffer-level
                     -- state color. Steady while idle; while busy it blinks
@@ -605,13 +617,19 @@ end
 
 -- Buffer & windows ------------------------------------------------------------
 
---- Find the live session owning a row's tab.
----@param tab pi.TabId
+--- Find live session owning a row.
+---@param id integer
 ---@return pi.Session?
-local function session_for_tab(tab)
-    local Sessions = require("pi.sessions.manager")
-    for _, session in ipairs(Sessions.list()) do
-        if session.tab == tab then
+local function session_for_id(id)
+    local manager = require("pi.sessions.manager")
+    if manager.get_by_id then
+        local session = manager.get_by_id(id)
+        if session then
+            return session
+        end
+    end
+    for _, session in ipairs(manager.list()) do
+        if session.id == id or session.tab == id then
             return session
         end
     end
@@ -621,14 +639,14 @@ end
 local function jump_under_cursor()
     local lnum = vim.api.nvim_win_get_cursor(0)[1]
     local row = rows[lnum]
-    if not row or not vim.api.nvim_tabpage_is_valid(row.tab) then
+    if not row then
         return
     end
-    local session = session_for_tab(row.tab)
+    local session = session_for_id(row.session_id)
     if not session then
         return
     end
-    vim.api.nvim_set_current_tabpage(row.tab)
+    require("pi.sessions.manager").activate(session)
     session.chat:ensure_shown_and_focus_prompt()
 end
 
@@ -639,10 +657,10 @@ end
 local function rename_under_cursor()
     local lnum = vim.api.nvim_win_get_cursor(0)[1]
     local row = rows[lnum]
-    if not row or not vim.api.nvim_tabpage_is_valid(row.tab) then
+    if not row then
         return
     end
-    local session = session_for_tab(row.tab)
+    local session = session_for_id(row.session_id)
     if not session then
         return
     end

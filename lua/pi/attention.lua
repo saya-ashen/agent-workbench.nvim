@@ -134,9 +134,6 @@ local function is_stale(session, entry, now)
     if not session.rpc:is_running() then
         return true
     end
-    if not vim.api.nvim_tabpage_is_valid(session.tab) then
-        return true
-    end
     return entry.expires_at ~= nil and now >= entry.expires_at
 end
 
@@ -168,20 +165,29 @@ local function build_state(current_tab)
         for _, entry in ipairs(pending_entries(session)) do
             if is_visible(session, entry, now) then
                 state.total_count = state.total_count + 1
-                local tab_state = state.tabs[session.tab]
+                local tab = session.tab
+                local tab_state = state.tabs[tab]
                 if not tab_state then
                     tab_state = {
                         count = 0,
                     }
-                    state.tabs[session.tab] = tab_state
+                    state.tabs[tab] = tab_state
                 end
                 tab_state.count = tab_state.count + 1
             end
         end
     end
 
-    local current = state.tabs[state.current_tab]
-    state.current_tab_count = current and current.count or 0
+    local current_session = require("pi.sessions.manager").get_for_tab(state.current_tab)
+    if current_session then
+        local count = 0
+        for _, entry in ipairs(pending_entries(current_session)) do
+            if is_visible(current_session, entry, now) then
+                count = count + 1
+            end
+        end
+        state.current_tab_count = count
+    end
     return state
 end
 
@@ -244,7 +250,7 @@ end
 ---@param session pi.Session
 ---@param entry pi.AttentionEntry
 local function notify_pending(session, entry)
-    local suffix = session.tab == vim.api.nvim_get_current_tabpage() and "" or " in another tab"
+    local suffix = require("pi.sessions.manager").is_current(session) and "" or " in another session"
     M.notify(
         session.tab,
         "Agent needs " .. kind_label(entry.kind) .. suffix .. " — run :PiAttention",
@@ -549,14 +555,13 @@ local function find_oldest_visible_entry_for_tab(tab)
     local best_index = nil ---@type integer?
     local best_entry = nil ---@type pi.AttentionEntry?
 
-    for _, session in ipairs(sessions()) do
-        if session.tab == tab then
-            for i, entry in ipairs(pending_entries(session)) do
-                if is_visible(session, entry) and (not best_entry or entry.seq < best_entry.seq) then
-                    best_session = session
-                    best_index = i
-                    best_entry = entry
-                end
+    local active = require("pi.sessions.manager").get_for_tab(tab)
+    if active then
+        for i, entry in ipairs(pending_entries(active)) do
+            if is_visible(active, entry) and (not best_entry or entry.seq < best_entry.seq) then
+                best_session = active
+                best_index = i
+                best_entry = entry
             end
         end
     end
@@ -581,8 +586,8 @@ local function open_pending_entry(session, index, entry, opts)
         return false, true
     end
 
-    if opts and opts.switch_tab and session.tab ~= vim.api.nvim_get_current_tabpage() then
-        vim.api.nvim_set_current_tabpage(session.tab)
+    if opts and opts.switch_tab then
+        require("pi.sessions.manager").activate(session)
     end
 
     if entry.open() then
@@ -653,8 +658,19 @@ function M.clear_session(session)
     request_redraw()
 end
 
---- Count active attention requests for a tab.
---- Pass nil or 0 for the current tab.
+---@param session pi.Session
+---@return integer
+function M.count_for_session(session)
+    local count = 0
+    for _, entry in ipairs(pending_entries(session)) do
+        if is_visible(session, entry) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+--- Count active attention requests for current tab's active session.
 ---@param tab? pi.TabId|0
 ---@return integer
 function M.count(tab)

@@ -49,6 +49,25 @@ local BUFFER_WINDOW_OPTIONS = {
     "winhighlight",
 }
 
+--- Some dashboard plugins wipe their scratch buffer while it is being
+--- replaced. A stale cleanup augroup can raise E367 and abort the switch even
+--- though the target window and buffer remain usable.
+---@param win integer
+---@param buf integer
+local function set_win_buf(win, buf)
+    local ok, err = pcall(vim.api.nvim_win_set_buf, win, buf)
+    if ok then
+        return
+    end
+    local message = tostring(err)
+    if not message:find("E367", 1, true) or not message:find("No such group", 1, true) then
+        error(err)
+    end
+    vim.api.nvim_win_call(win, function()
+        vim.cmd("noautocmd buffer " .. buf)
+    end)
+end
+
 ---@param win integer
 ---@return table<string, any>
 local function capture_win_opts(win)
@@ -77,7 +96,7 @@ local function set_win_opts(win, extra)
     vim.wo[win].foldenable = false
     vim.wo[win].list = false
     vim.wo[win].conceallevel = 2
-    vim.wo[win].winfixbuf = true
+    vim.wo[win].winfixbuf = false
     -- These options form the fingerprint used by pi.ui.winfix to detect
     -- windows inherited from pi. Keep in sync with has_pi_fingerprint().
     vim.wo[win].concealcursor = "nvic"
@@ -277,7 +296,7 @@ function Layout:_open_attachments_in_side_layout(after_win)
     vim.wo[self._attachments_win].winfixwidth = true
     vim.wo[self._attachments_win].signcolumn = "no"
     vim.wo[self._attachments_win].foldcolumn = editor_foldcolumn
-    vim.wo[self._attachments_win].winfixbuf = true
+    vim.wo[self._attachments_win].winfixbuf = false
     vim.wo[self._attachments_win].wrap = false
     -- Fingerprint options — see pi.ui.winfix
     vim.wo[self._attachments_win].concealcursor = "nvic"
@@ -313,7 +332,7 @@ function Layout:_open_attachments_in_float_layout(col, row, width, border)
     })
     vim.wo[self._attachments_win].winfixheight = true
     vim.wo[self._attachments_win].signcolumn = "yes"
-    vim.wo[self._attachments_win].winfixbuf = true
+    vim.wo[self._attachments_win].winfixbuf = false
     vim.wo[self._attachments_win].wrap = false
     vim.wo[self._attachments_win].winhighlight = Highlights.CHAT_ATTACHMENTS_WINHIGHLIGHT
     -- Fingerprint options — see pi.ui.winfix
@@ -545,7 +564,7 @@ function Layout:_open_in_buffer_layout()
     local global_relativenumber = vim.go.relativenumber
     self._history_win = self._return_win
 
-    vim.api.nvim_win_set_buf(self._history_win, self._history:buf())
+    set_win_buf(self._history_win, self._history:buf())
     set_win_opts(self._history_win, function(win)
         vim.wo[win].winfixbuf = false
         vim.wo[win].number = global_number
@@ -565,7 +584,7 @@ function Layout:_open_in_buffer_layout()
 
     vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
     self._prompt_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(self._prompt_win, self._prompt:buf())
+    set_win_buf(self._prompt_win, self._prompt:buf())
     set_win_opts(self._prompt_win, function(win)
         vim.wo[win].winfixheight = true
         vim.wo[win].virtualedit = "onemore"
@@ -583,7 +602,7 @@ function Layout:_open_in_side_layout()
     vim.cmd(vsplit_cmd .. " " .. w .. "vsplit")
 
     self._history_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(self._history_win, self._history:buf())
+    set_win_buf(self._history_win, self._history:buf())
     set_win_opts(self._history_win, function(win)
         vim.wo[win].winfixwidth = true
         -- Builtin engine: conceallevel=0 because treesitter markdown can't
@@ -601,7 +620,7 @@ function Layout:_open_in_side_layout()
     local prompt_winbar = panels.prompt.winbar
     vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
     self._prompt_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(self._prompt_win, self._prompt:buf())
+    set_win_buf(self._prompt_win, self._prompt:buf())
     set_win_opts(self._prompt_win, function(win)
         vim.wo[win].winfixwidth = true
         vim.wo[win].winfixheight = true
@@ -689,6 +708,85 @@ function Layout:on_resize()
             vim.api.nvim_win_set_width(self._history_win, resolve_side_width())
         end
     end
+end
+
+---@param entered_win integer
+---@param entered_buf integer
+function Layout:detach_for_buffer(entered_win, entered_buf)
+    if not self:is_visible() then
+        return
+    end
+
+    if self._mode == "buffer" and entered_win == self:history_win() then
+        self._history:set_win(nil)
+        self:_close_attachments_win()
+        self:_close_prompt_win()
+        self._history_win = nil
+        self._return_win = nil
+        self._return_buf = nil
+        self._return_opts = nil
+        vim.api.nvim_win_set_buf(entered_win, entered_buf)
+        return
+    end
+
+    if entered_win == self:prompt_win() or entered_win == self:attachments_win() then
+        local hwin = self:history_win()
+        if hwin then
+            vim.api.nvim_set_current_win(hwin)
+            vim.api.nvim_win_set_buf(hwin, entered_buf)
+        end
+        self:hide()
+    end
+end
+
+---@param other pi.ChatLayout
+function Layout:takeover(other)
+    if self == other then
+        return
+    end
+
+    self._mode = other._mode
+    self._history_win = other:history_win()
+    self._prompt_win = other:prompt_win()
+    self._attachments_win = other:attachments_win()
+    self._return_win = other._return_win
+    self._return_buf = other._return_buf
+    self._return_opts = other._return_opts
+
+    other._history:set_win(nil)
+    other._prompt:set_win(nil)
+    other._history_win = nil
+    other._prompt_win = nil
+    other._attachments_win = nil
+    other._return_win = nil
+    other._return_buf = nil
+    other._return_opts = nil
+
+    local hwin = self:history_win()
+    if hwin then
+        vim.wo[hwin].winfixbuf = false
+        set_win_buf(hwin, self._history:buf())
+        self._history:set_win(hwin)
+    end
+
+    local pwin = self:prompt_win()
+    if pwin then
+        vim.wo[pwin].winfixbuf = false
+        set_win_buf(pwin, self._prompt:buf())
+        self._prompt:set_layout(self._mode)
+        self._prompt:set_win(pwin)
+    end
+
+    if self._attachments:count() == 0 then
+        self:_close_attachments_win()
+    elseif self._attachments_win then
+        vim.wo[self._attachments_win].winfixbuf = false
+        set_win_buf(self._attachments_win, self._attachments:buf())
+    elseif pwin then
+        self:_refresh_attachments()
+    end
+
+    self:_refresh_prompt_chrome()
 end
 
 ---@return boolean opened true if a fresh open occurred

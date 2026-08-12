@@ -192,8 +192,23 @@ require("pi").setup({
         enabled = true,
     },
 
+    -- Workspace bar: each Neovim tab is a workspace backed by its tab-local cwd.
+    -- Uses bufferline.nvim's right custom area when available; otherwise the
+    -- built-in tabline is installed only when `tabline` is empty.
+    workspace_bar = {
+        enabled = true,
+        show = "multiple", -- "multiple" | "always"
+        session_count = true,
+        status = true,
+    },
+    -- Keep `buflisted` visibility local to each tab-backed workspace, so
+    -- bufferline and :bnext/:bprevious show only current workspace buffers.
+    workspace_buffers = {
+        enabled = true,
+    },
+
     -- Sessions overview (:PiSessions): a live list of all active sessions
-    -- (one per tab) — a status dot whose color/animation encodes the state
+    -- (multiple sessions may share one tab) — a status dot whose color/animation encodes the state
     -- (busy/compacting/attention/done/error/idle/exited) plus the session
     -- name. See doc/sessions.md for details.
     sessions_list = {

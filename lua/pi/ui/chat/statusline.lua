@@ -299,6 +299,12 @@ function StatusLine.new(buf, tab, win_fn)
     return self
 end
 
+---@param tab pi.TabId
+function StatusLine:set_tab(tab)
+    self._tab = tab
+    self:render()
+end
+
 --- Number of virt_lines currently rendered (padding + status).
 --- Used by Prompt:resize() to subtract padding from visual line count.
 ---@return integer

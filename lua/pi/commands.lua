@@ -84,6 +84,29 @@ function M.setup()
         Pi.sessions()
     end, { desc = "Toggle π sessions overview list" })
 
+    vim.api.nvim_create_user_command("PiWorkspaces", function()
+        Pi.workspaces()
+    end, { desc = "Select a π workspace tab" })
+
+    vim.api.nvim_create_user_command("PiNewWorkspace", function()
+        Pi.new_workspace()
+    end, { desc = "Create a π workspace after selecting its path" })
+
+    vim.api.nvim_create_user_command("PiMoveBuffer", function(cmd)
+        local workspace = tonumber(cmd.args)
+        if not workspace then
+            require("pi.notify").error("Workspace must be a tab number")
+            return
+        end
+        Pi.move_buffer(workspace)
+    end, {
+        nargs = 1,
+        complete = function()
+            return require("pi.workspace_buffers").complete_workspaces()
+        end,
+        desc = "Move current buffer to another π workspace",
+    })
+
     vim.api.nvim_create_user_command("PiSessionStats", function()
         Pi.session_stats()
     end, { desc = "Show π session stats dashboard (tokens, cost, context)" })

@@ -5,6 +5,31 @@ local M = {}
 ---@type table<string, integer>
 local buffers = {}
 
+---@return string
+function M.ensure_current()
+    local tabnr = vim.api.nvim_tabpage_get_number(0)
+    local cwd = vim.fn.getcwd(-1, tabnr)
+    if vim.fn.haslocaldir(-1, tabnr) == 0 then
+        vim.cmd("tcd " .. vim.fn.fnameescape(cwd))
+    end
+    return cwd
+end
+
+---@param tab? pi.TabId
+---@return string
+function M.cwd(tab)
+    tab = tab or vim.api.nvim_get_current_tabpage()
+    return vim.fn.getcwd(-1, vim.api.nvim_tabpage_get_number(tab))
+end
+
+---@param tab? pi.TabId
+---@return string
+function M.label(tab)
+    local cwd = M.cwd(tab)
+    local name = vim.fs.basename(cwd)
+    return name ~= "" and name or cwd
+end
+
 ---@param cwd string
 ---@return string
 function M.project_key(cwd)

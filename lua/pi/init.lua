@@ -32,6 +32,8 @@ function M.setup(opts)
     require("pi.ui.highlights").setup()
     require("pi.attention").setup_autocmds()
     require("pi.sessions.manager").setup_autocmds()
+    require("pi.ui.workspaces").setup()
+    require("pi.workspace_buffers").setup()
     require("pi.commands").setup()
     require("pi.ui.winfix").setup()
     require("pi.paste").setup()
@@ -220,6 +222,35 @@ end
 --- One shared buffer; each tab opens its own window on it.
 function M.sessions()
     require("pi.ui.sessions").toggle()
+end
+
+--- Select a tab-backed workspace.
+function M.workspaces()
+    require("pi.ui.workspaces").select()
+end
+
+--- Create a tab-backed workspace after prompting for its cwd.
+function M.new_workspace()
+    require("pi.ui.workspaces").create()
+end
+
+--- Return workspace rows in tabline order.
+---@return pi.WorkspaceRow[]
+function M.workspace_list()
+    return require("pi.ui.workspaces").list()
+end
+
+--- Render built-in workspace tabline content.
+---@return string
+function M.workspace_tabline()
+    return require("pi.ui.workspaces").tabline()
+end
+
+--- Move current buffer to another tab-backed workspace.
+---@param workspace integer
+---@return boolean
+function M.move_buffer(workspace)
+    return require("pi.workspace_buffers").move_current(workspace)
 end
 
 --- Review every file changed by the current session (:PiDiff): a floating

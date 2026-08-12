@@ -1,12 +1,5 @@
--- Per-tab model pin: a tab's model choice must survive :PiNewSession and must
--- not be clobbered by model switches made in other sessions.
---
--- Core persists every set_model/cycle_model to global settings, and resolves
--- a fresh session's model from those settings — so without the pin, another
--- tab's model selection would leak into this tab's next conversation. The
--- plugin keeps a per-tab pin (captured from get_state, updated on manual
--- switches) and reapplies it after new_session. These specs drive the session
--- manager against a stubbed Rpc: no real pi process, canned responses.
+-- Model pin is session-owned. Creating another History buffer starts a separate
+-- RPC session and does not mutate existing session's selected model.
 
 local Config = require("pi.config")
 local Rpc = require("pi.rpc")
@@ -82,7 +75,7 @@ local function install_stub()
 end
 
 local function restore_stub()
-    Sessions.stop()
+    Sessions._reset()
     Rpc.start = real_rpc.start
     Rpc.stop = real_rpc.stop
     Rpc.send = real_rpc.send
@@ -156,98 +149,25 @@ describe("session model pin", function()
         assert.are.same({ provider = "deepseek", id = "ds-flash" }, session.pinned_model)
     end)
 
-    it("reapplies the pinned model after a new session", function()
-        local session = Sessions.get_or_create()
+    it("creates a separate session without mutating existing model pin", function()
+        local first = Sessions.get_or_create({ layout = "buffer" })
         wait_or_fail(function()
-            return session.pinned_model ~= nil
+            return first.pinned_model ~= nil
         end, "initial pin was not captured")
-
-        Models.set(session, { provider = "kimi", id = "k2" })
+        Models.set(first, { provider = "kimi", id = "k2" })
         wait_or_fail(function()
-            return session.pinned_model and session.pinned_model.id == "k2"
+            return first.pinned_model and first.pinned_model.id == "k2"
         end, "pin was not updated by manual set")
 
         local from = #sent
-        Sessions.new_session()
-
-        local reapply
+        local second = Sessions.get_or_create({ new = true, layout = "buffer" })
+        assert.is_not.equal(first, second)
+        assert.is_true(first.rpc:is_running())
+        assert.is_true(second.rpc:is_running())
+        assert.are.same({ provider = "kimi", id = "k2" }, first.pinned_model)
+        assert.is_nil(select(1, find_after(from, "new_session")))
         wait_or_fail(function()
-            local _, new_idx = find_after(from, "new_session")
-            reapply = select(1, find_after(new_idx, "set_model"))
-            return reapply ~= nil
-        end, "pinned model was not reapplied after new_session")
-        assert.are.equal("kimi", reapply.provider)
-        assert.are.equal("k2", reapply.modelId)
-        -- The pin itself is unchanged.
-        assert.are.same({ provider = "kimi", id = "k2" }, session.pinned_model)
-    end)
-
-    it("silently resyncs the pin to core's choice when reapply fails", function()
-        local session = Sessions.get_or_create()
-        wait_or_fail(function()
-            return session.pinned_model ~= nil
-        end, "initial pin was not captured")
-
-        Models.set(session, { provider = "kimi", id = "k2" })
-        wait_or_fail(function()
-            return session.pinned_model and session.pinned_model.id == "k2"
-        end, "pin was not updated by manual set")
-
-        -- The pinned model becomes unusable; core falls back to its own choice.
-        responders.set_model = function()
-            return { type = "response", success = false, error = "Model not found: kimi/k2" }
-        end
-        responders.get_state = function()
-            return {
-                type = "response",
-                success = true,
-                data = { model = { provider = "core", id = "fallback" }, thinkingLevel = "off" },
-            }
-        end
-
-        local notes_before = #notes
-        Sessions.new_session()
-        wait_or_fail(function()
-            return session.pinned_model and session.pinned_model.id == "fallback"
-        end, "pin was not resynced after failed reapply")
-        assert.are.same({ provider = "core", id = "fallback" }, session.pinned_model)
-
-        -- Silent fallback: no new user-facing notifications from the reapply.
-        for i = notes_before + 1, #notes do
-            assert.is_not.equal(vim.log.levels.ERROR, notes[i].level, "unexpected error notification: " .. notes[i].msg)
-            assert.is_not.equal(
-                vim.log.levels.WARN,
-                notes[i].level,
-                "unexpected warning notification: " .. notes[i].msg
-            )
-        end
-    end)
-
-    it("still starts a new session when no pin was ever captured", function()
-        responders.get_state = nil -- never answered: pin stays nil
-        local session = Sessions.get_or_create()
-        assert.is_nil(session.pinned_model)
-
-        responders.get_state = function()
-            return {
-                type = "response",
-                success = true,
-                data = { model = { provider = "core", id = "chosen" }, thinkingLevel = "off" },
-            }
-        end
-
-        local from = #sent
-        Sessions.new_session()
-        wait_or_fail(function()
-            return find_after(from, "new_session") ~= nil
-        end, "new_session was not sent")
-
-        -- No pin -> no set_model reapply; the pin is captured from core's choice.
-        local _, new_idx = find_after(from, "new_session")
-        assert.is_nil(select(1, find_after(new_idx, "set_model")))
-        wait_or_fail(function()
-            return session.pinned_model ~= nil
-        end, "pin was not captured after new_session")
-        assert.are.same({ provider = "core", id = "chosen" }, session.pinned_model)
+            return second.pinned_model ~= nil
+        end, "second session pin was not captured")
     end)
 end)

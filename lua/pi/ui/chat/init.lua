@@ -58,13 +58,15 @@ local PromptHistory = require("pi.prompt_history")
 ---@param mode pi.LayoutMode
 ---@param agent pi.ChatAgent
 ---@param history_name? string
+---@param session_id? integer
 ---@return pi.Chat
-function Chat.new(tab, mode, agent, history_name)
+function Chat.new(tab, mode, agent, history_name, session_id)
     local self = setmetatable({}, Chat)
     self._tab = tab
+    self._session_id = session_id or tab
     self._agent = agent
     self._attachments = Attachments.new()
-    self._prompt = Prompt.new(tab, self._attachments)
+    self._prompt = Prompt.new(self._session_id, self._attachments)
     self._history = History.new(tab, history_name)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
@@ -460,6 +462,26 @@ function Chat:history()
     return self._history
 end
 
+---@param other pi.Chat
+function Chat:takeover_view(other)
+    self:set_tab(vim.api.nvim_get_current_tabpage())
+    self._layout:takeover(other._layout)
+    self:_set_keymaps()
+    self:refresh_prompt_attention()
+end
+
+---@param win integer
+---@param buf integer
+function Chat:detach_for_buffer(win, buf)
+    self._layout:detach_for_buffer(win, buf)
+end
+
+---@param tab pi.TabId
+function Chat:set_tab(tab)
+    self._tab = tab
+    self._prompt:set_tab(tab)
+end
+
 ---@return integer
 function Chat:history_buf()
     return self._history:buf()
@@ -497,6 +519,11 @@ end
 ---@return integer
 function Chat:prompt_buf()
     return self._prompt:buf()
+end
+
+---@return integer
+function Chat:attachments_buf()
+    return self._attachments:buf()
 end
 
 ---@return integer?
@@ -1168,6 +1195,14 @@ function Chat:set_replaying(replaying)
     else
         Render.resume_history(buf)
     end
+end
+
+--- Finish asynchronous replay writes, then reveal the final message once.
+function Chat:finish_replaying()
+    vim.schedule(function()
+        self:set_replaying(false)
+        self._history:scroll_to_bottom()
+    end)
 end
 
 ---@param timestamp? number

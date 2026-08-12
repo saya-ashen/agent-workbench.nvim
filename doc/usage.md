@@ -735,13 +735,9 @@ Three commands, each with a Lua API counterpart:
 
 All three take effect immediately and persist for the current session. The active model appears in the `model` statusline component (see [Statusline](#statusline)).
 
-### Per-tab model pinning
+### Session model state
 
-The pi backend persists every model switch to its global settings, and fresh conversations resolve their initial model from those settings — so out of the box, picking a model in one tab changes what every _new_ conversation starts with, in every other tab too. π pins the model per tab to keep sessions independent: each tab remembers its current model and reapplies it after `:PiNewSession`, so another session's switch never leaks into this tab's next conversation. The pin updates only when _you_ switch the model in this tab (via the commands above).
-
-- A brand-new tab still starts from pi's normal resolution (global default / configured model scope).
-- A resumed session (`:PiResume` / `:PiContinue`) adopts the model stored in its session file, as resolved by the backend.
-- If the pinned model becomes unavailable (auth revoked, model removed), π silently falls back to the backend's choice and adopts it as the new pin.
+Model changes apply to current session. A resumed session (`:PiResume` / `:PiContinue`) adopts model stored in its session file; a newly created session resolves its initial model from pi backend settings.
 
 Typical setup binds the three operations in the prompt buffer: a fast cycle key, a filtered picker, and an "all models" escape hatch. The [Keymaps](keymaps.md) example uses `<M-m>` / `<M-M>` for cycle and select.
 

@@ -8,9 +8,9 @@ The health check verifies:
 
 - **Neovim version** — 0.10 or newer.
 - **The `pi` executable** (from `cli.bin`, defaults to `"pi"`) exists and is in `$PATH`, and its version against the plugin's tracked range:
-    - minimum supported: `0.65.2`
-    - last validated: `0.79.3`
-    - older versions are a hard error; newer versions are reported as unvalidated (warning), not hard-failed.
+  - minimum supported: `0.65.2`
+  - last validated: `0.79.3`
+  - older versions are a hard error; newer versions are reported as unvalidated (warning), not hard-failed.
 - **Treesitter parsers** — `markdown` and `markdown_inline` (info-only; chat highlighting is limited without them).
 - **Optional plugins** — `img-clip.nvim` (clipboard image paste), `render-markdown.nvim` (warned when it's the configured engine but missing), `blink.cmp` (info-only).
 - **The bundled tree extension** — `extensions/tree.ts` exists when `tree.enabled` is on (`:PiTree` depends on it).
@@ -51,12 +51,12 @@ When filing an issue, attaching the relevant section of `rpc.log` is by far the 
 
 ## Process lifecycle
 
-Each π session owns an underlying `pi --mode rpc` subprocess. One tab = one session = one process. The lifecycle is:
+Each π session owns an underlying `pi --mode rpc` subprocess and a listed History buffer. Lifecycle:
 
-- **Spawned** lazily, the first time you open the chat in a tab (via `:Pi`, `:PiContinue`, `:PiResume`, `pi.toggle()`, etc.). There is no background daemon; nothing runs until you ask for it.
-- **Alive** as long as the tab is alive. Hiding the chat (`:PiToggleChat`) or switching away from the tab does **not** stop the process — the session keeps running in the background, and any queued [attention](attention.md) requests keep being tracked.
-- **Torn down** on `TabClosed` for the owning tab, or on `VimLeavePre` for all sessions at once. pi2.nvim sends the appropriate shutdown, waits briefly, and lets the child exit cleanly.
-- **Stopped explicitly** via `:PiStop` / `pi.stop()` — kills the RPC process for the current tab's session immediately and closes the chat windows. Use this when you want to reclaim resources without closing the tab, or to force a clean restart (a subsequent `:Pi` will spawn a fresh process).
+- **Spawned** when `:Pi`, `:PiNewSession`, `:PiContinue`, or `:PiResume` creates a session buffer. No background daemon runs before first session.
+- **Alive** while History buffer exists. Hiding chat, switching buffers, or closing a tab does **not** stop process.
+- **Torn down** by `:bdelete` / `:bwipeout` on History buffer, or by `VimLeavePre` for all sessions.
+- **Stopped explicitly** via `:PiStop` / `pi.stop()` — kills current session RPC and deletes its History buffer.
 - **Aborted** via `:PiAbort` / `pi.abort()` — cancels whatever the agent is currently doing mid-turn but keeps the session and process alive, so you can immediately send a new prompt. Different from `:PiStop`: abort stops the _agent_, stop kills the _process_.
 
 ## What to check when something's wrong

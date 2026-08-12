@@ -16,14 +16,17 @@
 ---@field id string
 
 ---@class pi.Session
----@field tab pi.TabId
+---@field id integer
+---@field tab pi.TabId Current or most recent view tab.
+---@field history_buf? integer
 ---@field rpc pi.Rpc
 ---@field chat pi.Chat
 ---@field attention pi.SessionAttention
----@field cwd string
+---@field workspace_tab pi.TabId Workspace tab that created this session.
+---@field cwd string Workspace cwd fixed when session is created.
 ---@field session_file? string
 ---@field uri string
----@field pinned_model? pi.ModelRef Model chosen in this tab. Reapplied after `new_session` so model switches made in other sessions (which core persists to global settings) don't leak into this tab's next conversation.
+---@field pinned_model? pi.ModelRef Model selected in this session.
 ---@field startup_announcements table<string, pi.StartupAnnouncement> Extension startup data (keys ending with `:startup`) shown in the system preamble. Process-level: persists across session switches.
 ---@field system_errors pi.SystemErrorEntry[]
 ---@field changed_files table<string, true> Set of file paths modified by edit/write tools during the current session.
@@ -33,6 +36,7 @@
 
 ---@class pi.SessionCreateOpts
 ---@field layout? pi.LayoutMode
+---@field new? boolean Create a separate session even when current tab already has one.
 
 local M = {}
 
@@ -42,7 +46,6 @@ local Config = require("pi.config")
 local Startup = require("pi.startup")
 local Notify = require("pi.notify")
 local Attention = require("pi.attention")
-local Dialog = require("pi.ui.dialog")
 local Extension = require("pi.ui.extension")
 local CommandsCache = require("pi.cache.commands")
 local Workspace = require("pi.workspace")
@@ -59,7 +62,7 @@ local function transcript_for(session, uri)
     if history and vim.api.nvim_buf_is_valid(history:buf()) then
         return history
     end
-    history = HistoryBuffer.new(session.tab, uri)
+    history = HistoryBuffer.new(session.id, uri)
     transcript_resources[uri] = history
     return history
 end
@@ -84,12 +87,23 @@ local function fetch_commands_and_show_startup_block(session)
     end)
 end
 
----@type table<pi.TabId, pi.Session>
+---@type table<integer, pi.Session>
 local sessions = {}
+---@type table<integer, pi.Session>
+local sessions_by_component = {}
+---@type table<pi.TabId, pi.Session>
+local active_by_tab = {}
+local next_session_id = 0
+local activating = false
 
 ---@return pi.TabId
 local function current_tab()
     return vim.api.nvim_get_current_tabpage()
+end
+
+---@return integer
+local function current_buf()
+    return vim.api.nvim_get_current_buf()
 end
 
 --- Events we've reviewed and deliberately choose not to handle.
@@ -122,6 +136,7 @@ local sessions_list_events = {
 ---@type fun(session: pi.Session, result: table, will_retry: boolean)?
 local rebuild_after_compaction
 local load_session
+local activate
 
 ---@type fun(session: pi.Session, flush_queue?: boolean, will_retry?: boolean)?
 local finish_compaction_rebuild
@@ -226,11 +241,14 @@ local function update_identity(session, state)
         session.session_file = state.sessionFile
     end
     local old_uri = session.uri
-    session.uri = Workspace.uri(session.cwd, session.session_file, session.tab)
+    session.uri = Workspace.uri(session.cwd, session.session_file, session.id)
     local history = session.chat:history()
     if session.chat:set_history_name(session.uri) then
         transcript_resources[old_uri] = nil
         transcript_resources[session.uri] = history
+    end
+    if vim.api.nvim_buf_is_valid(session.history_buf) then
+        vim.b[session.history_buf].pi_session_uri = session.uri
     end
 end
 
@@ -247,33 +265,6 @@ local function refresh_state_and_pin(session)
     end)
 end
 
---- Re-apply the tab's pinned model after a `new_session`.
---- Core resolves a fresh session's model from global settings — i.e. the last
---- model selected in *any* session — so without this, another tab's model
---- switch would leak into this tab's next conversation. On failure the pinned
---- model is no longer usable (auth revoked, model gone): fall back silently
---- and resync the pin to the model core chose.
----@param session pi.Session
-local function reapply_pinned_model(session)
-    local pin = session.pinned_model
-    if not pin then
-        refresh_state_and_pin(session)
-        return
-    end
-    local sent = session.rpc:send({ type = "set_model", provider = pin.provider, modelId = pin.id }, function(res)
-        vim.schedule(function()
-            if res.success then
-                M.refresh_state(session)
-            else
-                refresh_state_and_pin(session)
-            end
-        end)
-    end)
-    if not sent then
-        refresh_state_and_pin(session)
-    end
-end
-
 --- Central event handler for a session.
 --- Route a raw RPC event into the session's chat and companion modules.
 --- Exposed (not just local) so the retry/abort wiring is unit-testable with a
@@ -287,6 +278,7 @@ function M.handle_event(session, msg)
 
     if sessions_list_events[t] then
         require("pi.ui.sessions").request_refresh()
+        require("pi.ui.workspaces").refresh()
     end
 
     -- NOTE: This compaction-specific rebuild gate should become a small
@@ -540,53 +532,128 @@ finish_compaction_rebuild = function(session, flush_queue, will_retry)
     end
 end
 
---- Get the session for the current tab. Returns nil if none exists.
+--- Get active session for current buffer or tab.
 ---@return pi.Session?
 function M.get()
-    local tab = current_tab()
-    return sessions[tab]
+    return sessions_by_component[current_buf()] or active_by_tab[current_tab()]
 end
 
---- List all active sessions in tabline order.
----
---- Tabpage handles reflect creation order, not position: a tab created while
---- tab 1 is current lands between tabs 1 and 2, and :tabmove reorders tabs
---- without touching handles. Sorting by handle would therefore disagree with
---- the tabline; rank by the visual order of nvim_list_tabpages() instead.
+---@param session pi.Session
+---@return boolean
+function M.is_current(session)
+    return active_by_tab[current_tab()] == session
+end
+
+---@param tab? pi.TabId
+---@return pi.Session?
+function M.get_for_tab(tab)
+    return active_by_tab[tab or current_tab()]
+end
+
+---@param id integer
+---@return pi.Session?
+function M.get_by_id(id)
+    return sessions[id]
+end
+
+---@param session pi.Session
+function M.activate(session)
+    activate(session)
+end
+
+--- List all active sessions in creation order.
 ---@return pi.Session[]
 function M.list()
-    ---@type table<pi.TabId, integer> visual position per tab
-    local rank = {}
-    for i, tab in ipairs(vim.api.nvim_list_tabpages()) do
-        rank[tab] = i
-    end
     ---@type pi.Session[]
     local result = {}
     for _, session in pairs(sessions) do
         result[#result + 1] = session
     end
+    ---@type table<pi.TabId, integer> visual position per tab
+    local rank = {}
+    for i, tab in ipairs(vim.api.nvim_list_tabpages()) do
+        rank[tab] = i
+    end
     table.sort(result, function(a, b)
-        -- A session whose tab was just closed can linger until the scheduled
-        -- cleanup runs; sort it last instead of crashing on a missing rank.
-        return (rank[a.tab] or math.huge) < (rank[b.tab] or math.huge)
+        local ar = rank[a.tab] or math.huge
+        local br = rank[b.tab] or math.huge
+        return ar == br and a.id < b.id or ar < br
     end)
     return result
 end
 
---- Get or create a session for the current tab.
+---@param session pi.Session
+local function register_components(session)
+    session.history_buf = session.chat:history_buf()
+    sessions_by_component[session.history_buf] = session
+    sessions_by_component[session.chat:prompt_buf()] = session
+    sessions_by_component[session.chat:attachments_buf()] = session
+    vim.b[session.history_buf].pi_session_id = session.id
+    vim.b[session.history_buf].pi_session_uri = session.uri
+    require("pi.workspace_buffers").assign(session.history_buf, session.workspace_tab)
+end
+
+---@param session pi.Session
+activate = function(session)
+    if activating or sessions[session.id] ~= session then
+        return
+    end
+    activating = true
+    local tab = current_tab()
+    local previous = active_by_tab[tab]
+    session.tab = tab
+    session.chat:set_tab(tab)
+    active_by_tab[tab] = session
+
+    if previous and previous ~= session and previous.chat:is_visible() then
+        session.chat:takeover_view(previous.chat)
+    elseif not session.chat:is_visible() then
+        session.chat:show()
+    end
+
+    require("pi.ui.sessions").clear_flags(session)
+    activating = false
+end
+
+---@param session pi.Session
+local function destroy_session(session)
+    if sessions[session.id] ~= session then
+        return
+    end
+    Attention.clear_session(session)
+    session.rpc:stop()
+    if session.chat:is_visible() then
+        session.chat:hide()
+    end
+    sessions[session.id] = nil
+    sessions_by_component[session.history_buf] = nil
+    sessions_by_component[session.chat:prompt_buf()] = nil
+    sessions_by_component[session.chat:attachments_buf()] = nil
+    for tab, active in pairs(active_by_tab) do
+        if active == session then
+            active_by_tab[tab] = nil
+        end
+    end
+    require("pi.ui.sessions").request_refresh()
+    require("pi.ui.workspaces").refresh()
+end
+
+--- Get or create active session for current tab.
 ---@param opts? pi.SessionCreateOpts
 ---@return pi.Session?
 function M.get_or_create(opts)
     opts = opts or {}
 
     local tab = current_tab()
-
-    local session = sessions[tab]
+    local workspace_cwd = Workspace.cwd(tab)
+    local session = not opts.new and active_by_tab[tab] or nil
     if session then
         return session
     end
 
-    local rpc = Rpc.new(tab)
+    next_session_id = next_session_id + 1
+    local id = next_session_id
+    local rpc = Rpc.new(id)
 
     if not rpc:start() then
         Notify.error("Failed to start process")
@@ -602,14 +669,16 @@ function M.get_or_create(opts)
         end,
     }
 
-    local cwd = vim.fn.getcwd()
-    local uri = Workspace.uri(cwd, nil, tab)
-    local chat = Chat.new(tab, layout, agent, uri)
+    local cwd = workspace_cwd
+    local uri = Workspace.uri(cwd, nil, id)
+    local chat = Chat.new(tab, layout, agent, uri, id)
     transcript_resources[uri] = chat:history()
 
     ---@type pi.Session
     session = {
+        id = id,
         tab = tab,
+        workspace_tab = tab,
         cwd = cwd,
         uri = uri,
         rpc = rpc,
@@ -624,8 +693,11 @@ function M.get_or_create(opts)
         M.handle_event(session, msg)
     end)
 
-    sessions[tab] = session
+    sessions[id] = session
+    register_components(session)
+    activate(session)
     require("pi.ui.sessions").request_refresh()
+    require("pi.ui.workspaces").refresh()
 
     -- Fetch available /commands for completion, highlighting, and system info
     fetch_commands_and_show_startup_block(session)
@@ -637,102 +709,47 @@ function M.get_or_create(opts)
     return session
 end
 
---- Remove and clean up a session for the current tab.
+--- Stop session owning current chat component.
 function M.stop()
-    local tab = current_tab()
-    local session = sessions[tab]
+    local session = M.get()
     if not session then
         return
     end
-
-    Attention.clear_session(session)
-    session.rpc:stop()
-    session.chat:hide()
-    session.chat:clear()
-
-    sessions[tab] = nil
-    require("pi.ui.sessions").request_refresh()
-end
-
----@param session pi.Session
-local function start_new_session(session)
-    if sessions[session.tab] ~= session or not session.rpc:is_running() then
-        return
-    end
-
-    Attention.begin_session_transition(session)
-    local sent = session.rpc:send({ type = "abort" }, function(abort_res)
-        if not abort_res.success then
-            vim.schedule(function()
-                Attention.end_session_transition(session, false)
-                Notify.error(abort_res.error or "Failed to abort current session")
-            end)
-            return
-        end
-        local sent_new = session.rpc:send({ type = "new_session" }, function(res)
-            local data = res.data or {}
-            vim.schedule(function()
-                if not res.success then
-                    Attention.end_session_transition(session, false)
-                    Notify.error(res.error or "Failed to start new session")
-                    return
-                end
-                if data.cancelled then
-                    Attention.end_session_transition(session, false)
-                    Notify.warn("New session was cancelled")
-                    return
-                end
-                Attention.end_session_transition(session, true)
-                require("pi.ui.sessions").invalidate(session)
-                require("pi.ui.sessions").clear_flags(session)
-                require("pi.ui.sessions").request_refresh()
-                session.startup_announcements = {}
-                session.system_errors = {}
-                session.changed_files = {}
-                session._pending_file_change_args = nil
-                session.chat:clear()
-                reapply_pinned_model(session)
-                session.session_file = nil
-                session.uri = Workspace.uri(session.cwd, nil, session.tab)
-                session.chat:attach_history(transcript_for(session, session.uri))
-                fetch_commands_and_show_startup_block(session)
-            end)
-        end)
-        if not sent_new then
-            vim.schedule(function()
-                Attention.end_session_transition(session, false)
-            end)
-        end
-    end)
-    if not sent then
-        Attention.end_session_transition(session, false)
+    local history_buf = session.history_buf
+    destroy_session(session)
+    if vim.api.nvim_buf_is_valid(history_buf) then
+        vim.api.nvim_buf_delete(history_buf, { force = true })
     end
 end
 
---- Start a new conversation in the current tab's session.
+--- Create a separate conversation buffer and RPC process.
 function M.new_session()
-    local session = M.get()
-    if not session or not session.rpc:is_running() then
-        return
+    local session = M.get_or_create({ new = true })
+    if session then
+        session.chat:ensure_shown_and_focus_prompt()
     end
-
-    if not session.chat:is_streaming() then
-        start_new_session(session)
-        return
-    end
-
-    Dialog.confirm({
-        title = "Start new session?",
-        message = "This opens a fresh session. You can resume the current conversation later.",
-    }, function(confirmed)
-        if not confirmed then
-            return
-        end
-        start_new_session(session)
-    end)
 end
 
 --- Replay messages from get_messages response into chat.
+---@param messages table[]
+---@return table[]
+local function comparable_messages(messages)
+    local comparable = vim.deepcopy(messages)
+    for _, message in ipairs(comparable) do
+        if message.role == "custom" or message.role == "branchSummary" or message.role == "compactionSummary" then
+            message.timestamp = nil
+        end
+    end
+    return comparable
+end
+
+---@param left table[]
+---@param right table[]
+---@return boolean
+local function messages_equal(left, right)
+    return vim.deep_equal(comparable_messages(left), comparable_messages(right))
+end
+
 ---@param session pi.Session
 ---@param messages table[]
 local function replay_messages(session, messages)
@@ -864,13 +881,13 @@ local function replay_messages(session, messages)
     if pending_agent_end then
         session.chat:on_agent_end()
     end
-    session.chat:set_replaying(false)
+    session.chat:finish_replaying()
 end
 
 ---@param session pi.Session
----@param _result table
+---@param _ table
 ---@param will_retry boolean
-rebuild_after_compaction = function(session, _result, will_retry)
+rebuild_after_compaction = function(session, _, will_retry)
     session._compaction_rebuilding = true
     session._compaction_event_queue = {}
     if will_retry then
@@ -953,7 +970,7 @@ end
 ---@return boolean
 function M.open_uri(uri, requested_buf)
     local project, session_key, resource = Workspace.parse(uri)
-    if resource ~= "transcript" or not project or project ~= Workspace.project_key(vim.fn.getcwd()) then
+    if resource ~= "transcript" or not project or project ~= Workspace.project_key(Workspace.cwd()) then
         Notify.error("Session URI belongs to another project: " .. uri)
         return false
     end
@@ -974,20 +991,17 @@ function M.open_uri(uri, requested_buf)
 
     local existing = Workspace.buffer(uri)
     if existing then
-        if requested_buf and vim.api.nvim_buf_is_valid(requested_buf) then
-            for _, win in ipairs(vim.api.nvim_list_wins()) do
-                if vim.api.nvim_win_get_buf(win) == requested_buf then
-                    vim.api.nvim_win_set_buf(win, existing)
-                end
-            end
-            if requested_buf ~= existing then
-                vim.api.nvim_buf_delete(requested_buf, { force = true })
-            end
+        local live = sessions_by_component[existing]
+        if live then
+            activate(live)
+        end
+        if requested_buf and vim.api.nvim_buf_is_valid(requested_buf) and requested_buf ~= existing then
+            vim.api.nvim_buf_delete(requested_buf, { force = true })
         end
         return true
     end
 
-    local session = M.get_or_create()
+    local session = M.get_or_create({ new = true })
     if not session then
         return false
     end
@@ -1000,11 +1014,20 @@ function M.open_uri(uri, requested_buf)
     return true
 end
 
---- Load a session by path: switch_session -> clear chat -> get_messages -> replay.
+--- Load a session by path: render a local read-only preview immediately, then
+--- let RPC switch sessions and replace the preview with authoritative messages.
 ---@param session pi.Session
 ---@param session_path string
 load_session = function(session, session_path)
     Attention.begin_session_transition(session)
+
+    local preview = require("pi.sessions.history").load_messages(session_path)
+    if preview then
+        session.changed_files = {}
+        session._pending_file_change_args = nil
+        session.chat:clear()
+        replay_messages(session, preview.messages)
+    end
 
     local sent_switch = session.rpc:send({ type = "switch_session", sessionPath = session_path }, function(msg)
         local data = msg.data or {}
@@ -1034,8 +1057,10 @@ load_session = function(session, session_path)
         vim.schedule(function()
             session.changed_files = {}
             session._pending_file_change_args = nil
-            session.chat:clear()
-            session.chat:show_loading()
+            if not preview then
+                session.chat:clear()
+                session.chat:show_loading()
+            end
         end)
 
         local sent_messages = session.rpc:send({ type = "get_messages" }, function(res)
@@ -1050,10 +1075,16 @@ load_session = function(session, session_path)
                 end
 
                 local messages = (res.data or {}).messages or {}
-                -- Fetch commands, show startup block, then replay.
+                -- Identical local preview is already rendered. Only install
+                -- startup data; replay again only when RPC found different state.
                 CommandsCache.fetch(session.rpc, function(commands)
-                    show_startup_block(session, commands)
-                    replay_messages(session, messages)
+                    if preview and messages_equal(preview.messages, messages) then
+                        show_startup_block(session, commands)
+                    else
+                        session.chat:clear()
+                        show_startup_block(session, commands)
+                        replay_messages(session, messages)
+                    end
                     session.chat:ensure_shown_and_focus_prompt()
                 end)
             end)
@@ -1077,9 +1108,15 @@ end
 ---@return string?
 local function find_continue_session_path(current_session_file)
     local History = require("pi.sessions.history")
+    local live_files = {}
+    for _, live in ipairs(M.list()) do
+        if live.session_file then
+            live_files[live.session_file] = true
+        end
+    end
     local sessions_list = History.list()
     for _, session in ipairs(sessions_list) do
-        if session.path ~= current_session_file then
+        if session.path ~= current_session_file and not live_files[session.path] then
             return session.path
         end
     end
@@ -1119,6 +1156,7 @@ function M.continue_session(opts)
     local session = M.get()
     if not session then
         local session_path = find_continue_session_path(nil)
+        opts = vim.tbl_extend("force", opts or {}, { new = true })
         session = M.get_or_create(opts)
         if not session then
             return
@@ -1257,6 +1295,14 @@ function M.resume_session(opts)
         if not item then
             return
         end
+        local uri = Workspace.uri(Workspace.cwd(), item.session.path, item.session.path)
+        local existing = Workspace.buffer(uri)
+        local live = existing and sessions_by_component[existing]
+        if live then
+            activate(live)
+            return
+        end
+        opts = vim.tbl_extend("force", opts or {}, { new = true })
         local session = M.get_or_create(opts)
         if not session then
             return
@@ -1266,24 +1312,33 @@ function M.resume_session(opts)
     end)
 end
 
---- Clean up sessions for closed tabs.
+--- Drop view bindings for closed tabs; buffers own session lifetime.
 function M.cleanup()
-    ---@type table<pi.TabId, boolean>
-    local valid_tabs = {}
-    for _, t in ipairs(vim.api.nvim_list_tabpages()) do
-        valid_tabs[t] = true
-    end
-    for tab, session in pairs(sessions) do
-        if not valid_tabs[tab] then
-            Attention.clear_session(session)
-            session.rpc:stop()
-            sessions[tab] = nil
-            require("pi.ui.sessions").request_refresh()
+    for tab in pairs(active_by_tab) do
+        if not vim.api.nvim_tabpage_is_valid(tab) then
+            active_by_tab[tab] = nil
         end
     end
 end
 
---- Set up the TabClosed autocmd (called once from init.setup).
+function M._reset()
+    local live = M.list()
+    for _, session in ipairs(live) do
+        local history_buf = session.history_buf
+        destroy_session(session)
+        if history_buf and vim.api.nvim_buf_is_valid(history_buf) then
+            vim.api.nvim_buf_delete(history_buf, { force = true })
+        end
+    end
+    sessions = {}
+    sessions_by_component = {}
+    active_by_tab = {}
+    transcript_resources = {}
+    next_session_id = 0
+    activating = false
+end
+
+--- Set up session buffer lifecycle and activation autocmds.
 function M.setup_autocmds()
     vim.api.nvim_create_autocmd("BufReadCmd", {
         pattern = "agent://*",
@@ -1292,6 +1347,45 @@ function M.setup_autocmds()
             vim.schedule(function()
                 M.open_uri(uri, args.buf)
             end)
+        end,
+    })
+
+    vim.api.nvim_create_autocmd("BufEnter", {
+        callback = function(args)
+            if activating then
+                return
+            end
+            local session = sessions_by_component[args.buf]
+            if session and args.buf == session.history_buf then
+                activate(session)
+                return
+            end
+            if session then
+                return
+            end
+            local active = active_by_tab[current_tab()]
+            if active and active.chat:is_visible() then
+                local win = vim.api.nvim_get_current_win()
+                local kind = active.chat:focus_kind()
+                if kind then
+                    activating = true
+                    active.chat:detach_for_buffer(win, args.buf)
+                    active_by_tab[current_tab()] = nil
+                    activating = false
+                end
+            end
+        end,
+    })
+
+    vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+        callback = function(args)
+            if require("pi.workspace_buffers").is_updating_listed() then
+                return
+            end
+            local session = sessions_by_component[args.buf]
+            if session and args.buf == session.history_buf then
+                destroy_session(session)
+            end
         end,
     })
 

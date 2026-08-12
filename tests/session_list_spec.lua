@@ -154,3 +154,89 @@ describe("session listing parser", function()
         assert.equals("good", list[1].id)
     end)
 end)
+
+describe("session history preview", function()
+    local path
+
+    before_each(function()
+        path = vim.fn.tempname() .. ".jsonl"
+    end)
+
+    after_each(function()
+        vim.fn.delete(path)
+    end)
+
+    it("loads only the active branch", function()
+        write_jsonl(path, {
+            { type = "session", version = 3, id = "s", timestamp = "t" },
+            { type = "message", id = "a", parentId = vim.NIL, message = { role = "user", content = "root" } },
+            { type = "message", id = "old", parentId = "a", message = { role = "assistant", content = "abandoned" } },
+            { type = "message", id = "b", parentId = "a", message = { role = "assistant", content = "active" } },
+        })
+
+        local preview = assert(SessionHistory.load_messages(path))
+        assert.equals("b", preview.leaf_id)
+        assert.equals(2, #preview.messages)
+        assert.equals("root", preview.messages[1].content)
+        assert.equals("active", preview.messages[2].content)
+    end)
+
+    it("applies legacy compaction context", function()
+        write_jsonl(path, {
+            { type = "session", version = 3, id = "s", timestamp = "t" },
+            { type = "message", id = "a", parentId = vim.NIL, message = { role = "user", content = "summarized" } },
+            { type = "message", id = "b", parentId = "a", message = { role = "user", content = "kept" } },
+            {
+                type = "compaction",
+                id = "c",
+                parentId = "b",
+                summary = "summary",
+                firstKeptEntryId = "b",
+                tokensBefore = 42,
+            },
+            { type = "message", id = "d", parentId = "c", message = { role = "assistant", content = "after" } },
+        })
+
+        local messages = assert(SessionHistory.load_messages(path)).messages
+        assert.equals(3, #messages)
+        assert.equals("compactionSummary", messages[1].role)
+        assert.equals("kept", messages[2].content)
+        assert.equals("after", messages[3].content)
+    end)
+
+    it("uses retainedTail as the compaction checkpoint", function()
+        write_jsonl(path, {
+            { type = "session", version = 3, id = "s", timestamp = "t" },
+            { type = "message", id = "a", parentId = vim.NIL, message = { role = "user", content = "old" } },
+            {
+                type = "compaction",
+                id = "b",
+                parentId = "a",
+                summary = "summary",
+                tokensBefore = 7,
+                retainedTail = { { role = "user", content = "retained" } },
+            },
+            { type = "message", id = "c", parentId = "b", message = { role = "assistant", content = "after" } },
+        })
+
+        local messages = assert(SessionHistory.load_messages(path)).messages
+        assert.equals(3, #messages)
+        assert.equals("compactionSummary", messages[1].role)
+        assert.equals("retained", messages[2].content)
+        assert.equals("after", messages[3].content)
+    end)
+
+    it("falls back to RPC for unsupported or damaged files", function()
+        write_jsonl(path, {
+            { type = "session", version = 1, id = "s", timestamp = "t" },
+            { type = "message", message = { role = "user", content = "legacy" } },
+        })
+        assert.is_nil(SessionHistory.load_messages(path))
+
+        local f = assert(io.open(path, "w"))
+        f:write(vim.json.encode({ type = "session", version = 3, id = "s", timestamp = "t" }) .. "\n")
+        f:write("not-json\n")
+        f:close()
+        assert.is_nil(SessionHistory.load_messages(path))
+    end)
+end)

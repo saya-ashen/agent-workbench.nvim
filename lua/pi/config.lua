@@ -185,6 +185,15 @@
 ---@class pi.TreeConfig
 ---@field enabled? boolean Enable :PiTree session-tree navigation (default: true). Injects the bundled pi extension (extensions/tree.ts) into every RPC process; requires a pi version whose extension API exposes ctx.navigateTree.
 
+---@class pi.WorkspaceBarConfig
+---@field enabled? boolean Enable built-in workspace tabline when no custom tabline exists (default true)
+---@field show? "multiple"|"always" Show only with multiple tabs or always (default "multiple")
+---@field session_count? boolean Show live session count per workspace (default true)
+---@field status? boolean Show aggregated busy/attention status (default true)
+
+---@class pi.WorkspaceBuffersConfig
+---@field enabled? boolean Keep listed buffers local to their tab-backed workspace (default true)
+
 ---@class pi.SessionsListFloatConfig
 ---@field width? number Width in columns (>=1) or fraction of editor width (<1, default 0.5)
 ---@field height? number Height in lines (>=1) or fraction of editor height (<1, default 0.4)
@@ -276,6 +285,8 @@
 ---@field quickfix pi.QuickfixConfig
 ---@field abort pi.AbortConfig
 ---@field tree pi.TreeConfig
+---@field workspace_bar pi.WorkspaceBarConfig
+---@field workspace_buffers pi.WorkspaceBuffersConfig
 ---@field sessions_list pi.SessionsListConfig
 ---@field diff_review pi.DiffReviewConfig
 ---@field zen pi.ZenConfig
@@ -405,6 +416,15 @@ local defaults = {
         message = "Press <Esc> again to abort",
     },
     tree = {
+        enabled = true,
+    },
+    workspace_bar = {
+        enabled = true,
+        show = "multiple",
+        session_count = true,
+        status = true,
+    },
+    workspace_buffers = {
         enabled = true,
     },
     sessions_list = {
