@@ -24,7 +24,7 @@ require("pi").setup({
     -- Defaults to $PI_CODING_AGENT_DIR or ~/.pi/agent.
     agent_dir = nil,
     -- Preferred models for cycling and the :PiSelectModel picker.
-    -- Each entry is either a string (exact ID) or a table:
+    -- Each entry is either a string (exact ID or "provider/modelId") or a table:
     --   { match = "opus", latest = true }
     --   { match = "gpt-5.3-codex", exact = true } or just "gpt-5.3-codex"
     models = nil,
@@ -101,7 +101,7 @@ require("pi").setup({
         -- Entries are built-in component names, literal separators,
         -- or custom component functions.
         layout = {
-            left = { "context", "  ", "attention", "  ", "queue" },
+            left = { "context", "  ", "attention", "  ", "queue", "  ", "compaction" },
             -- Centered group; has placement priority over left/right.
             center = { "spinner" },
             right = { "model", "   ", "thinking" },
@@ -181,7 +181,7 @@ require("pi").setup({
         enabled = true,
         -- Window in ms for the second <Esc> to count.
         timeout = 1500,
-        -- Hint echoed (after the "π │ " prefix) on the first <Esc>.
+        -- Hint shown in the statusline center on the first <Esc>.
         message = "Press <Esc> again to abort",
     },
 
@@ -213,6 +213,20 @@ require("pi").setup({
             width = 0.5, -- fraction (<1) of editor width, or columns (>=1)
             height = 0.4, -- fraction (<1) of editor height, or lines (>=1)
             border = "rounded",
+        },
+    },
+
+    -- Session diff review (:PiDiff): one floating panel — an outer border
+    -- framing the file list and the diff of the selected file — showing
+    -- the `git diff` of every file the current session changed. See
+    -- doc/diff-review.md.
+    diff_review = {
+        width = 0.8, -- panel width: fraction (<1) of editor width, or columns (>=1)
+        height = 0.8, -- panel height: fraction (<1) of editor height, or lines (>=1)
+        border = "rounded",
+        list = {
+            position = "left", -- file list inside the panel: "left" | "right"
+            width = 30, -- file list width in columns
         },
     },
 

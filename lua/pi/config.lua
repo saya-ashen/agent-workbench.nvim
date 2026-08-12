@@ -180,7 +180,7 @@
 ---@class pi.AbortConfig
 ---@field enabled? boolean Enable double-<Esc> to abort the running agent (default: true)
 ---@field timeout? integer Window in milliseconds for the second <Esc> to count (default: 1500)
----@field message? string Hint echoed on the first <Esc>, after the "π │ " prefix (default: "Press <Esc> again to abort")
+---@field message? string Hint shown in the statusline center on the first <Esc> (default: "Press <Esc> again to abort")
 
 ---@class pi.TreeConfig
 ---@field enabled? boolean Enable :PiTree session-tree navigation (default: true). Injects the bundled pi extension (extensions/tree.ts) into every RPC process; requires a pi version whose extension API exposes ctx.navigateTree.
@@ -198,18 +198,28 @@
 ---@field height? integer Window height for top/bottom placement in the side layout (default 12)
 ---@field float pi.SessionsListFloatConfig Float window sizing when the current tab uses the float layout
 
+---@class pi.DiffReviewListConfig
+---@field position? "left"|"right" Side window placement (default "left")
+---@field width? integer Side window width in columns (default 30)
+
+---@class pi.DiffReviewConfig
+---@field width? number Width in columns (>=1) or fraction of editor width (<1, default 0.8)
+---@field height? number Height in lines (>=1) or fraction of editor height (<1, default 0.8)
+---@field border? string|string[] Float border style (default "rounded")
+---@field list pi.DiffReviewListConfig Side file-list window
+
 ---@class pi.DialogKeys
 ---@field confirm? pi.KeySpecs
 ---@field cancel? pi.KeySpecs
 
 --- A preferred model entry for cycling/selection.
---- String: exact model ID.
+--- String: exact model ID, or canonical "provider/modelId" reference.
 --- Table: substring match with optional latest resolution.
 ---@alias pi.ModelEntry string|pi.ModelSpec
 
 ---@class pi.ModelSpec
 ---@field match string Substring to match against model IDs (case-insensitive), or exact ID when `exact` is true
----@field exact? boolean If true, `match` is treated as an exact model ID (case-sensitive) instead of a substring
+---@field exact? boolean If true, `match` is treated as an exact model ID or "provider/modelId" (case-sensitive) instead of a substring
 ---@field latest? boolean If true, pick the model whose ID sorts last among matches
 
 ---@class pi.DialogConfig
@@ -267,6 +277,7 @@
 ---@field abort pi.AbortConfig
 ---@field tree pi.TreeConfig
 ---@field sessions_list pi.SessionsListConfig
+---@field diff_review pi.DiffReviewConfig
 ---@field zen pi.ZenConfig
 ---@field prompt pi.PromptConfig
 ---@field render pi.RenderConfig
@@ -341,7 +352,7 @@ local defaults = {
     statusline = {
         enabled = false,
         layout = {
-            left = { "context", "  ", "attention", "  ", "queue" },
+            left = { "context", "  ", "attention", "  ", "queue", "  ", "compaction" },
             center = { "spinner" },
             right = { "model", "   ", "thinking" },
         },
@@ -406,6 +417,15 @@ local defaults = {
             width = 0.5,
             height = 0.4,
             border = "rounded",
+        },
+    },
+    diff_review = {
+        width = 0.8,
+        height = 0.8,
+        border = "rounded",
+        list = {
+            position = "left",
+            width = 30,
         },
     },
     dialog = {

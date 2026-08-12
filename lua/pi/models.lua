@@ -18,11 +18,12 @@ function M.resolve_entries(entries, all_models)
     for _, entry in ipairs(entries) do
         local matched = false
         if type(entry) == "string" then
-            -- Exact ID match
+            -- Exact ID match, or canonical "provider/modelId" reference.
             for _, m in ipairs(all_models) do
-                if m.id == entry and not seen[m.provider .. "/" .. m.id] then
+                local canonical = m.provider .. "/" .. m.id
+                if (m.id == entry or canonical == entry) and not seen[canonical] then
                     resolved[#resolved + 1] = m
-                    seen[m.provider .. "/" .. m.id] = true
+                    seen[canonical] = true
                     matched = true
                 end
             end
@@ -31,11 +32,13 @@ function M.resolve_entries(entries, all_models)
             end
         elseif type(entry) == "table" and entry.match then
             if entry.exact then
-                -- Exact ID match: take the first hit and stop. `latest` is ignored.
+                -- Exact ID match (or canonical "provider/modelId"): take the
+                -- first hit and stop. `latest` is ignored.
                 for _, m in ipairs(all_models) do
-                    if m.id == entry.match and not seen[m.provider .. "/" .. m.id] then
+                    local canonical = m.provider .. "/" .. m.id
+                    if (m.id == entry.match or canonical == entry.match) and not seen[canonical] then
                         resolved[#resolved + 1] = m
-                        seen[m.provider .. "/" .. m.id] = true
+                        seen[canonical] = true
                         matched = true
                         break
                     end

@@ -152,7 +152,7 @@ function M.select(opts, callback)
 end
 
 --- Informational dialog with static content.
----@param opts { title: string, lines: string[] }
+---@param opts { title: string, lines: string[], highlights?: table<integer, {start_col: integer, end_col: integer, hl: string}[]> }
 function M.info(opts)
     local lines = vim.deepcopy(opts.lines or {})
     local close_keys = {}
@@ -185,6 +185,14 @@ function M.info(opts)
         end_col = #lines[#lines],
         hl_group = "Comment",
     })
+    -- Optional per-line highlight ranges (0-based rows and columns, end
+    -- exclusive). Rows are stable: the footer above is appended after the
+    -- caller's lines, so its indices never shift.
+    for row, ranges in pairs(opts.highlights or {}) do
+        for _, range in ipairs(ranges) do
+            vim.api.nvim_buf_add_highlight(buf, ns, range.hl, row, range.start_col, range.end_col)
+        end
+    end
     local closed = false
 
     local function close()

@@ -111,6 +111,7 @@ local ignored_events = {
 local sessions_list_events = {
     agent_start = true,
     agent_end = true,
+    agent_settled = true,
     compaction_start = true,
     compaction_end = true,
     auto_compaction_start = true,
@@ -274,10 +275,13 @@ local function reapply_pinned_model(session)
 end
 
 --- Central event handler for a session.
+--- Route a raw RPC event into the session's chat and companion modules.
+--- Exposed (not just local) so the retry/abort wiring is unit-testable with a
+--- fake session; the RPC handler calls it for every decoded message.
 ---@param session pi.Session
 ---@param msg pi.RpcEvent
 ---@return boolean handled
-local function handle_event(session, msg)
+function M.handle_event(session, msg)
     local t = msg.type
     local chat = session.chat
 
@@ -305,6 +309,12 @@ local function handle_event(session, msg)
         require("pi.ui.sessions").on_agent_end(session)
         CommandsCache.refresh(session.rpc)
         M.refresh_state(session)
+    elseif t == "agent_settled" then
+        -- Authoritative end of the session-level run: pi emits this only after
+        -- no retry, compaction retry, or queued continuation remains. The
+        -- compaction/retry branches above restore state piecemeal; this is the
+        -- final fallback that converges any leftover spinner.
+        chat:set_status(nil)
     elseif t == "message_update" then
         local event = msg.assistantMessageEvent
         if event then
@@ -374,8 +384,10 @@ local function handle_event(session, msg)
             chat:flush_compaction_queue(msg.willRetry == true)
         end
     elseif t == "auto_retry_start" then
+        chat:set_retrying(true)
         chat:set_status({ type = "agent", text = "Retrying…" })
     elseif t == "auto_retry_end" then
+        chat:set_retrying(false)
         if msg.success == false then
             require("pi.ui.sessions").mark_error(session)
             chat:set_status(nil)
@@ -387,6 +399,39 @@ local function handle_event(session, msg)
                 { pad_top = true, pad_bottom = true }
             )
         else
+            restore_active_agent_status(chat)
+        end
+    elseif t == "summarization_retry_scheduled" then
+        -- Transient error while generating a compaction or branch summary.
+        -- Compaction retries are already covered by the ongoing compaction
+        -- status; branch summaries run while the agent is idle, so there is
+        -- nothing to restore either way. Surface the error in debug mode only
+        -- (on_error would render a scary red block for a transient hiccup).
+        if Config.options.debug then
+            vim.schedule(function()
+                vim.notify(
+                    "Summary retry scheduled (attempt "
+                        .. tostring(msg.attempt or "?")
+                        .. "/"
+                        .. tostring(msg.maxAttempts or "?")
+                        .. "): "
+                        .. (msg.errorMessage or "unknown error"),
+                    vim.log.levels.WARN,
+                    { title = "pi" }
+                )
+            end)
+        end
+    elseif t == "summarization_retry_attempt_start" then
+        if msg.source == "branchSummary" then
+            -- navigateTree summarization runs while the agent is idle: show a
+            -- lightweight busy state. Compaction-source retries keep the
+            -- existing compaction status untouched.
+            chat:set_status({ type = "summary", text = "Summarizing branch…" })
+        end
+    elseif t == "summarization_retry_finished" then
+        -- Retry loop ended. During compaction, compaction_end restores the
+        -- status; only the branchSummary state (agent idle) needs settling.
+        if not chat:is_compacting() then
             restore_active_agent_status(chat)
         end
     elseif t == "extension_ui_request" then
@@ -491,7 +536,7 @@ finish_compaction_rebuild = function(session, flush_queue, will_retry)
             session._compaction_event_queue = active_queue
             return
         end
-        handle_event(session, queued_msg)
+        M.handle_event(session, queued_msg)
     end
 end
 
@@ -576,7 +621,7 @@ function M.get_or_create(opts)
     }
 
     rpc:set_handler(function(msg)
-        handle_event(session, msg)
+        M.handle_event(session, msg)
     end)
 
     sessions[tab] = session

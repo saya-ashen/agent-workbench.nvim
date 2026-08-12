@@ -4,4 +4,5 @@ return {
     attachments = "pi-chat-attachments",
     dialog = "pi-dialog",
     sessions = "pi-sessions",
+    diff_review = "pi-diff-review",
 }

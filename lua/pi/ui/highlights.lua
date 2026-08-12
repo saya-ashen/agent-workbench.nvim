@@ -8,6 +8,7 @@ M.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT =
 M.CHAT_PROMPT_BASH_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiChatPromptFloatBashTitle"
 M.CHAT_ATTACHMENTS_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiChatAttachmentsFloatTitle"
 M.SESSIONS_LIST_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiSessionsListFloatTitle"
+M.DIFF_REVIEW_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiDiffReviewFloatTitle"
 M.DIFF_WINHIGHLIGHT = "WinBar:PiDiffWinbar,WinBarNC:PiDiffWinbar"
 
 --- Clear the Pi* groups we previously installed as defaults.
@@ -191,6 +192,9 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiStatusLineAttention", { default = true, fg = warning.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiStatusLineWarning", { default = true, fg = warning.fg })
     vim.api.nvim_set_hl(0, "PiStatusLineError", { default = true, fg = diagnostic_error.fg })
+    -- Bar fill in the :PiSessionStats dashboard (cost bars; context bar below
+    -- the warn/error thresholds uses PiStatusLineWarning/PiStatusLineError).
+    vim.api.nvim_set_hl(0, "PiStatsBar", { default = true, fg = func.fg })
 
     vim.api.nvim_set_hl(0, "PiSessionsListIdle", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiSessionsListDotDim", { default = true, fg = comment.fg, bold = false })
@@ -208,6 +212,9 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiSessionsListExited", { default = true, fg = diagnostic_error.fg })
     vim.api.nvim_set_hl(0, "PiSessionsListPending", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiSessionsListFloatTitle", { default = true, fg = title.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewFile", { default = true, fg = title.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewHint", { default = true, fg = comment.fg, italic = true })
+    vim.api.nvim_set_hl(0, "PiDiffReviewFloatTitle", { default = true, fg = title.fg, bold = true })
 end
 
 function M.setup()

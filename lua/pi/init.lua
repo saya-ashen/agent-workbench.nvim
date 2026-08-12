@@ -155,6 +155,17 @@ function M.abort_bash()
     end
 end
 
+--- Cancel an in-progress auto-retry backoff (the "Retrying…" state). Only
+--- takes effect while the core is between retry attempts; the retry is
+--- cancelled and the failed turn ends. Sent by the double-<Esc> abort gesture
+--- during the retry window.
+function M.abort_retry()
+    local session = require("pi.sessions.manager").get()
+    if session and session.rpc:is_running() then
+        session.rpc:send({ type = "abort_retry" })
+    end
+end
+
 --- Stop the process and close the chat.
 function M.stop()
     require("pi.sessions.manager").stop()
@@ -209,6 +220,14 @@ end
 --- One shared buffer; each tab opens its own window on it.
 function M.sessions()
     require("pi.ui.sessions").toggle()
+end
+
+--- Review every file changed by the current session (:PiDiff): a floating
+--- window with the combined `git diff` of the session's changed files.
+--- Untracked files render as full-file additions; <CR>/o jumps to the file
+--- and line under the cursor, q closes.
+function M.diff_review()
+    require("pi.ui.diff_review").open()
 end
 
 --- Toggle thinking block visibility.
@@ -375,6 +394,37 @@ function M.compact(custom_instructions)
     end
 end
 
+--- Toggle automatic context compaction.
+--- Reads the backend's current setting via get_state, then sends
+--- set_auto_compaction with the inverted value. On success the statusline is
+--- refreshed so its `compaction` component (`(auto)`) reflects the new state.
+--- Session-level state is held by the backend, so there is no new config
+--- option. Silent no-op when there is no active session.
+function M.toggle_auto_compaction()
+    local Sessions = require("pi.sessions.manager")
+    local session = Sessions.get()
+    if not session or not session.rpc:is_running() then
+        return
+    end
+    session.rpc:send({ type = "get_state" }, function(res)
+        if not res.success or not res.data or res.data.autoCompactionEnabled == nil then
+            return
+        end
+        local enabled = not res.data.autoCompactionEnabled
+        session.rpc:send({ type = "set_auto_compaction", enabled = enabled }, function(res2)
+            if not res2.success then
+                vim.schedule(function()
+                    require("pi.notify").error("Toggle auto compaction failed: " .. (res2.error or "unknown error"))
+                end)
+                return
+            end
+            vim.schedule(function()
+                Sessions.refresh_state(session)
+            end)
+        end)
+    end)
+end
+
 --- Set or show the session display name.
 --- With no argument, shows the current name. With a name, sets it.
 ---@param name? string session name to set (nil to show current)
@@ -422,6 +472,62 @@ end
 --- Toggle RPC debug logging.
 function M.toggle_debug()
     require("pi.rpc").toggle_debug()
+end
+
+--- Show the current session's stats dashboard (:PiSessionStats): identity,
+--- message counts, token usage (with cache split), per-model cost breakdown
+--- (via get_entries, port of the TUI's getUsageCostBreakdown), cache re-billed
+--- waste, and context-window usage with a threshold-colored bar.
+--- Silent no-op without an active session; a failed get_entries degrades to
+--- the session-stats-only view.
+function M.session_stats()
+    local Sessions = require("pi.sessions.manager")
+    local session = Sessions.get()
+    if not session or not session.rpc:is_running() then
+        return
+    end
+
+    local Stats = require("pi.stats")
+    local Dialog = require("pi.ui.dialog")
+    local Notify = require("pi.notify")
+
+    local stats ---@type table?
+    local breakdown ---@type pi.StatsCostEntry[]?
+    local cache_waste ---@type pi.StatsCacheWaste?
+
+    local function try_show()
+        if stats == nil or breakdown == nil or cache_waste == nil then
+            return
+        end
+        local rendered = Stats.render_stats(stats, breakdown, cache_waste)
+        vim.schedule(function()
+            Dialog.info({
+                title = "Pi Session Stats",
+                lines = rendered.lines,
+                highlights = rendered.highlights,
+            })
+        end)
+    end
+
+    session.rpc:send({ type = "get_session_stats" }, function(res)
+        vim.schedule(function()
+            if not res.success then
+                Notify.error("Failed to get session stats: " .. (res.error or "unknown error"))
+                return
+            end
+            stats = res.data
+            try_show()
+        end)
+    end)
+
+    session.rpc:send({ type = "get_entries" }, function(res)
+        vim.schedule(function()
+            local entries = res.success and res.data and res.data.entries or {}
+            breakdown = Stats.get_usage_cost_breakdown(entries)
+            cache_waste = Stats.compute_cache_waste(entries)
+            try_show()
+        end)
+    end)
 end
 
 --- Scroll the chat history by a number of lines.

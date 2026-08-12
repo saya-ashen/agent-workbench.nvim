@@ -185,7 +185,11 @@ describe("pi-web-access tool renderers (issue #51)", function()
             local header_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.icon_extmark, {})[1]
             local footer_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.end_extmark, {})[1]
             assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
-            assert.are.equal(-1, vim.fn.foldclosed(footer_row + 1), "footer stays outside fold as a stable bottom anchor")
+            assert.are.equal(
+                -1,
+                vim.fn.foldclosed(footer_row + 1),
+                "footer stays outside fold as a stable bottom anchor"
+            )
             assert.are.same({ footer_row + 1, 0 }, vim.api.nvim_win_get_cursor(0))
             vim.api.nvim_win_set_buf(0, original_buf)
         end)

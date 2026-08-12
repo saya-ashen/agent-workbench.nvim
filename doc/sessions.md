@@ -109,7 +109,7 @@ The dot colors are driven by `PiSessionsList*` highlight groups (`Busy`, `Compac
 
 Long sessions eventually run into the model's context window limit. pi delegates this to a **compaction** step: the backend summarizes older parts of the conversation and replaces them with the summary, freeing up tokens for new turns. pi supports both automatic and manual compaction.
 
-- **Automatic compaction** is enabled at the backend level. When the conversation approaches the context threshold, pi compacts on its own and the `compaction` statusline component lights up (see [Statusline](usage.md#statusline)).
+- **Automatic compaction** is enabled at the backend level. When the conversation approaches the context threshold, pi compacts on its own and the `compaction` statusline component lights up (see [Statusline](usage.md#statusline)) — it renders the same 󰏗 icon as the compaction summary label while auto-compaction is on. `:PiToggleAutoCompaction` / `pi.toggle_auto_compaction()` flips the setting on/off for the current session — the icon appears/disappears immediately and the backend session file records the change. With no active session the command is a silent no-op.
 - **Manual compaction** — `:PiCompact [instructions]` / `pi.compact(instructions?)` — triggers compaction immediately. If you pass custom instructions, they're forwarded to the summarizer to guide what gets kept:
 
 ```vim

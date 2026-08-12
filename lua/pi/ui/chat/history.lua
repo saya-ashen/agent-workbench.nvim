@@ -1814,7 +1814,7 @@ function History:win()
     return nil
 end
 
----@alias pi.Status { type: "agent", text: string } | { type: "compaction" }
+---@alias pi.Status { type: "agent", text: string } | { type: "compaction" } | { type: "summary", text: string }
 
 ---@param status pi.Status?
 function History:set_status(status)
@@ -3414,7 +3414,8 @@ function History:_maybe_collapse_tool(tool_call_id)
     local gutter_w = tonumber(gutters) or 0
     local max_width = win_width > 0 and (win_width - indent_w - gutter_w) or 0
     local exceeds_hard_limit = (#input_lines + #output_lines) > LONG_TOOL_OUTPUT_LINES
-    if not exceeds_hard_limit
+    if
+        not exceeds_hard_limit
         and not Tools.should_collapse(input_lines, output_lines, input_vis, output_vis, max_width)
     then
         block.foldable = false

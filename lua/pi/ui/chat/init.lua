@@ -11,6 +11,7 @@
 ---@field _prompt pi.ChatPrompt
 ---@field _keymaps_set boolean
 ---@field _streaming boolean
+---@field _retrying boolean True while the core is in an auto-retry backoff (between agent_end and the retry's agent_start). The double-<Esc> abort gesture stays live here even though nothing is streaming.
 ---@field _abort_esc_at number? Timestamp (ms) of the first <Esc> in a double-<Esc> abort gesture (nil = not armed)
 ---@field _abort_esc_timer uv.uv_timer_t? Disarms the double-<Esc> gesture after `abort.timeout`
 ---@field _aborted_notice_timer uv.uv_timer_t? Clears the transient "Aborted" overlay notice
@@ -68,6 +69,7 @@ function Chat.new(tab, mode, agent, history_name)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
     self._streaming = false
+    self._retrying = false
     self._abort_esc_at = nil
     self._abort_esc_timer = nil
     self._aborted_notice_timer = nil
@@ -628,6 +630,22 @@ function Chat:is_streaming()
     return self._streaming
 end
 
+--- Track the core's auto-retry backoff state. While retrying, the double-<Esc>
+--- abort gesture stays live (arming on the first press) even though nothing is
+--- streaming; the second press then sends abort_retry instead of abort.
+---@param retrying boolean
+function Chat:set_retrying(retrying)
+    if self._retrying == retrying then
+        return
+    end
+    self._retrying = retrying
+    if not retrying then
+        -- Don't let a gesture armed during the backoff bleed into the next
+        -- streaming phase: the user must re-arm while streaming.
+        self:_disarm_abort_esc()
+    end
+end
+
 --- Render or clear the abort hint in the statusline center to match the
 --- current armed state. Deferred with vim.schedule because the caller may run inside
 --- the insert-mode <expr> mapping, where buffer/window mutations are dropped
@@ -635,7 +653,7 @@ end
 --- arm/disarm sequences never leave a stale hint behind.
 function Chat:_sync_abort_hint()
     vim.schedule(function()
-        if self._abort_esc_at and self._streaming then
+        if self._abort_esc_at and (self._streaming or self._retrying) then
             local cfg = Config.options.abort or {}
             if cfg.enabled ~= false then
                 self._prompt:statusline():set_abort_hint(cfg.message or "Press <Esc> again to abort")
@@ -661,13 +679,14 @@ end
 
 --- Handle one <Esc> press of the double-<Esc> abort gesture.
 ---
---- While the agent is streaming, the first press arms the gesture and shows a
---- hint row in the bottom status overlay; a second press within
---- `abort.timeout` ms aborts the agent (same as :PiAbort / pi.abort()). A timer
---- disarms automatically once the window elapses. Outside of streaming, or when
---- the feature is disabled, this is a no-op so <Esc> keeps its normal behavior.
+--- While the agent is streaming **or auto-retrying** (statusline shows
+--- "Retrying…"), the first press arms the gesture and shows a hint row in the
+--- bottom status overlay; a second press within `abort.timeout` ms aborts
+--- (same as :PiAbort / pi.abort()). A timer disarms automatically once the
+--- window elapses. Outside of streaming/retrying, or when the feature is
+--- disabled, this is a no-op so <Esc> keeps its normal behavior.
 function Chat:_handle_abort_esc()
-    if not self._streaming then
+    if not (self._streaming or self._retrying) then
         -- A single <Esc> cancels a running direct bash command (TUI behavior).
         if self._bash_running then
             require("pi").abort_bash()
@@ -680,11 +699,20 @@ function Chat:_handle_abort_esc()
     if cfg.enabled == false then
         return
     end
-    -- Second press while armed -> abort.
+    -- Second press while armed -> abort. During the retry backoff there is no
+    -- agent run to abort, so the precise abort_retry command is sent instead
+    -- (it only cancels the backoff sleep, matching the TUI's retry escape
+    -- handler). Decide synchronously: by the time the scheduled callback runs
+    -- the retry may already have transitioned into streaming.
     if self._abort_esc_at then
         self:_disarm_abort_esc()
+        local abort_retry = self._retrying and not self._streaming
         vim.schedule(function()
-            require("pi").abort()
+            if abort_retry then
+                require("pi").abort_retry()
+            else
+                require("pi").abort()
+            end
         end)
         return
     end
@@ -1145,6 +1173,9 @@ end
 ---@param timestamp? number
 function Chat:on_agent_start(timestamp)
     self._streaming = true
+    -- The retry backoff is over: this is a real streaming run again, so the
+    -- abort gesture must target the run (abort), not the backoff (abort_retry).
+    self._retrying = false
     self._last_turn_stop_reason = nil
     self:_clear_aborted_notice()
     self._assistant_block_open = false
@@ -1492,6 +1523,7 @@ end
 
 function Chat:clear()
     self._streaming = false
+    self._retrying = false
     self:_disarm_abort_esc()
     self:_clear_aborted_notice()
     self._bash_running = false

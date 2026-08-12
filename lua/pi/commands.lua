@@ -84,6 +84,14 @@ function M.setup()
         Pi.sessions()
     end, { desc = "Toggle π sessions overview list" })
 
+    vim.api.nvim_create_user_command("PiSessionStats", function()
+        Pi.session_stats()
+    end, { desc = "Show π session stats dashboard (tokens, cost, context)" })
+
+    vim.api.nvim_create_user_command("PiDiff", function()
+        Pi.diff_review()
+    end, { desc = "Review the git diff of every file changed in the current session" })
+
     vim.api.nvim_create_user_command("PiToggleThinking", function()
         Pi.toggle_thinking()
     end, { desc = "Toggle π thinking visibility" })
@@ -128,6 +136,10 @@ function M.setup()
         local instructions = cmd.args ~= "" and cmd.args or nil
         Pi.compact(instructions)
     end, { nargs = "?", desc = "Compact π conversation context" })
+
+    vim.api.nvim_create_user_command("PiToggleAutoCompaction", function()
+        Pi.toggle_auto_compaction()
+    end, { desc = "Toggle π automatic context compaction" })
 
     vim.api.nvim_create_user_command("PiSessionName", function(cmd)
         local name = cmd.args ~= "" and cmd.args or nil
