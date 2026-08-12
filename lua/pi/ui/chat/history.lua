@@ -158,6 +158,8 @@ local Config = require("pi.config")
 local Tools = require("pi.ui.chat.tools")
 local Render = require("pi.ui.render")
 local Text = require("pi.ui.chat.text")
+local NativeFolds = require("pi.ui.chat.history_extensions.native_folds")
+local WorkspaceHistory = require("pi.ui.chat.history_extensions.workspace")
 
 local ns = vim.api.nvim_create_namespace("pi-chat")
 
@@ -488,14 +490,11 @@ function History.new(tab, name)
     -- Workspace registry still exposes URI identity to session/open logic.
     vim.api.nvim_buf_set_name(self._buf, "")
     histories[self._buf] = self
-    require("pi.workspace").register(name, self._buf)
-    -- Keep registry correct if user renames virtual buffer manually.
+    WorkspaceHistory.attach(self, name)
     vim.api.nvim_create_autocmd("BufWipeout", {
         buffer = self._buf,
         once = true,
         callback = function()
-            local Workspace = require("pi.workspace")
-            Workspace.unregister(self._name, self._buf)
             histories[self._buf] = nil
         end,
     })
@@ -528,23 +527,6 @@ function History:buf()
     return self._buf
 end
 
----@param values table<integer, string|integer>
----@param start_row integer 0-indexed
----@param end_row integer 0-indexed, inclusive
----@param level integer
-local function add_fold(values, start_row, end_row, level)
-    if end_row <= start_row then
-        return
-    end
-    local first = start_row + 1
-    local last = end_row + 1
-    values[first] = ">" .. level
-    for line = first + 1, last - 1 do
-        values[line] = math.max(tonumber(values[line]) or 0, level)
-    end
-    values[last] = "<" .. level
-end
-
 ---@param id integer?
 ---@return integer?
 function History:_extmark_row(id)
@@ -557,124 +539,13 @@ end
 
 ---@return table<integer, string|integer>
 function History:_native_fold_values()
-    local changedtick = vim.b[self._buf].changedtick
-    if self._fold_changedtick == changedtick and self._fold_values then
-        return self._fold_values
-    end
-
-    local values = {}
-    local message_ranges = {}
-    local line_count = vim.api.nvim_buf_line_count(self._buf)
-    local i = 1
-    while i <= #self._message_blocks do
-        local block = self._message_blocks[i]
-        local row = self:_extmark_row(block.anchor)
-        local next_index = i + 1
-        if block.role == "assistant" then
-            while next_index <= #self._message_blocks and self._message_blocks[next_index].role == "assistant" do
-                next_index = next_index + 1
-            end
-        end
-        local next_block = self._message_blocks[next_index]
-        local next_row = next_block and self:_extmark_row(next_block.anchor)
-        if row then
-            local last = next_row and (next_row - 1) or (line_count - 1)
-            if last > row then
-                message_ranges[#message_ranges + 1] = { row = row, last = last }
-                add_fold(values, row, last, 1)
-            end
-        end
-        i = next_index
-    end
-
-    local function nested_level(row)
-        for _, range in ipairs(message_ranges) do
-            if row > range.row and row <= range.last then
-                return 2
-            end
-        end
-        return 1
-    end
-
-    if self._startup_block_line_count > 1 then
-        add_fold(values, 0, self._startup_block_line_count - 1, 1)
-    end
-    for _, block in ipairs(self._compaction_blocks) do
-        local row = self:_extmark_row(block.anchor)
-        if row then
-            add_fold(values, row, row + block.line_count - 1, nested_level(row))
-        end
-    end
-    for _, block in ipairs(self._thinking_blocks) do
-        local row = block.visible and self:_extmark_row(block.anchor) or nil
-        if row then
-            add_fold(values, row, row + block.line_count - 1, nested_level(row))
-        end
-    end
-    local tool_ranges = {}
-    for _, block in pairs(self._tool_blocks) do
-        local first = block.foldable and self:_extmark_row(block.icon_extmark) or nil
-        local last = block.foldable and self:_extmark_row(block.end_extmark) or nil
-        if first and last then
-            local anchor = block.preview_anchor_extmark and self:_extmark_row(block.preview_anchor_extmark) or last
-            if not block.batch_child and last > first then
-                -- Keep ordinary tool footer outside the fold as a stable cursor/status anchor.
-                last = last - 1
-            elseif block.preview_lines and anchor and anchor > first then
-                last = anchor - 1
-            end
-            tool_ranges[#tool_ranges + 1] = { first = first, last = last }
-        end
-    end
-    table.sort(tool_ranges, function(a, b)
-        return a.first == b.first and a.last > b.last or a.first < b.first
-    end)
-    for _, range in ipairs(tool_ranges) do
-        local level = nested_level(range.first)
-        for _, parent in ipairs(tool_ranges) do
-            if parent.first < range.first and parent.last >= range.last then
-                level = level + 1
-            end
-        end
-        add_fold(values, range.first, range.last, level)
-    end
-
-    self._fold_changedtick = changedtick
-    self._fold_values = values
-    return values
+    return NativeFolds.values(self)
 end
 
 --- Recompute expression folds after block metadata changes without a buffer edit.
 --- Existing tool fold states are captured per window before zx rebuilds ranges.
 function History:_refresh_native_folds()
-    for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
-        vim.api.nvim_win_call(win, function()
-            local view = vim.fn.winsaveview()
-            for _, block in pairs(self._tool_blocks) do
-                if block.foldable and not block._skip_fold_capture then
-                    local row = self:_extmark_row(block.icon_extmark)
-                    if row and vim.fn.foldlevel(row + 1) > 0 then
-                        block.expanded = vim.fn.foldclosed(row + 1) == -1
-                    end
-                end
-            end
-
-            vim.cmd("silent! normal! zx")
-            for _, block in pairs(self._tool_blocks) do
-                if block.foldable and not block.expanded then
-                    local row = self:_extmark_row(block.icon_extmark)
-                    if row then
-                        vim.cmd("silent! " .. (row + 1) .. "foldclose")
-                    end
-                end
-            end
-            self:_open_active_output_folds()
-            vim.fn.winrestview(view)
-        end)
-    end
-    for _, block in pairs(self._tool_blocks) do
-        block._skip_fold_capture = false
-    end
+    NativeFolds.refresh(self)
 end
 
 ---@param lnum integer
@@ -684,177 +555,11 @@ function History.nvim_foldexpr(lnum)
     return history and history:_native_fold_values()[lnum] or 0
 end
 
-local function disable_external_foldtext(filetype)
-    local ok, origami_config = pcall(require, "origami.config")
-    if not ok or not origami_config.config or not origami_config.config.foldtext then
-        return
-    end
-    local disabled = origami_config.config.foldtext.disableOnFt
-    if type(disabled) ~= "table" or vim.list_contains(disabled, filetype) then
-        return
-    end
-    disabled[#disabled + 1] = filetype
-end
-
----@param text string
----@return string
-local function fold_preview(text)
-    return vim.trim(text:gsub("%s+", " "))
-end
-
----@param args table
----@return string?
-local function tool_argument_summary(args)
-    for _, key in ipairs({ "command", "cmd", "query", "path", "file_path", "url" }) do
-        if type(args[key]) == "string" and args[key] ~= "" then
-            return fold_preview(args[key])
-        end
-    end
-    for _, key in ipairs({ "calls", "tool_uses", "queries" }) do
-        if type(args[key]) == "table" and #args[key] > 0 then
-            return #args[key] .. " " .. key:gsub("_", " ")
-        end
-    end
-end
-
----@param text string
----@param width integer
----@return string
-local function truncate_fold_text(text, width)
-    if width <= 0 then
-        return ""
-    end
-    if vim.fn.strdisplaywidth(text) <= width then
-        return text
-    end
-    local chars = vim.fn.strchars(text)
-    while chars > 0 do
-        local candidate = vim.fn.strcharpart(text, 0, chars) .. "…"
-        if vim.fn.strdisplaywidth(candidate) <= width then
-            return candidate
-        end
-        chars = chars - 1
-    end
-    return ""
-end
-
----@param header string
----@param header_hl string
----@param summary string?
----@param status string?
----@param status_hl string?
----@param line_count integer
----@return table
-local function build_fold_text(header, header_hl, summary, status, status_hl, line_count)
-    local win = vim.api.nvim_get_current_win()
-    local width = vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or 80
-    local info = vim.fn.getwininfo(win)[1]
-    width = math.max(1, width - (info and info.textoff or 0))
-
-    local prefix = " " .. header
-    local status_text = status and ("  · " .. status) or ""
-    local count_text = ("  [%d lines]"):format(line_count)
-    local summary_width = width
-        - vim.fn.strdisplaywidth(prefix)
-        - vim.fn.strdisplaywidth(status_text)
-        - vim.fn.strdisplaywidth(count_text)
-        - 2
-    local summary_text = summary and truncate_fold_text(summary, summary_width) or ""
-
-    local chunks = { { prefix, header_hl } }
-    if summary_text ~= "" then
-        chunks[#chunks + 1] = { "  " .. summary_text, "Folded" }
-    end
-    if status_text ~= "" then
-        chunks[#chunks + 1] = { status_text, status_hl or "Comment" }
-    end
-    chunks[#chunks + 1] = { count_text, "Comment" }
-    return chunks
-end
-
 ---@param start_row integer 0-indexed
 ---@param end_row integer 0-indexed
 ---@return string|table
 function History:_native_foldtext(start_row, end_row)
-    local header = vim.api.nvim_buf_get_lines(self._buf, start_row, start_row + 1, false)[1] or ""
-    local line_count = end_row - start_row + 1
-
-    for _, block in pairs(self._tool_blocks) do
-        local first = self:_extmark_row(block.icon_extmark)
-        if first == start_row then
-            local args = block.tool_input or {}
-            local summary = tool_argument_summary(args)
-            local status = not block.finished and "running"
-                or (block.end_hl_group == "PiToolError" and "failed" or "completed")
-            return build_fold_text(
-                block.fold_header or header,
-                block.end_hl_group == "PiToolError" and "PiToolError" or "PiToolHeader",
-                summary,
-                status,
-                status == "failed" and "PiToolError" or "Comment",
-                block.output_line_count or line_count
-            )
-        end
-    end
-
-    for _, message in ipairs(self._message_blocks) do
-        if self:_extmark_row(message.anchor) == start_row then
-            local nested = {}
-            local tool_count = 0
-            local batch_call_count = 0
-            for _, block in pairs(self._tool_blocks) do
-                local first = self:_extmark_row(block.icon_extmark)
-                local last = self:_extmark_row(block.end_extmark)
-                if first and last and first > start_row and last <= end_row then
-                    if block.tool_name == "tool_batch" then
-                        local calls = block.tool_input and block.tool_input.calls
-                        batch_call_count = type(calls) == "table" and #calls or 0
-                    else
-                        tool_count = tool_count + 1
-                    end
-                    for row = first, last do
-                        nested[row] = true
-                    end
-                end
-            end
-            tool_count = math.max(tool_count, batch_call_count)
-            for _, block in ipairs(self._thinking_blocks) do
-                local first = block.visible and self:_extmark_row(block.anchor) or nil
-                if first and first > start_row then
-                    for row = first, math.min(end_row, first + block.line_count - 1) do
-                        nested[row] = true
-                    end
-                end
-            end
-
-            local preview
-            local lines = vim.api.nvim_buf_get_lines(self._buf, start_row + 1, end_row + 1, false)
-            for offset, line in ipairs(lines) do
-                local row = start_row + offset
-                line = vim.trim(line)
-                if not nested[row] and line ~= "" and not line:match("^```+") then
-                    preview = fold_preview(line)
-                    break
-                end
-            end
-            if not preview and tool_count > 0 then
-                preview = tool_count .. (tool_count == 1 and " tool" or " tools")
-            end
-            local hl = message.role == "user" and "PiUserMessageLabel" or "PiAgentResponseLabel"
-            return build_fold_text(header, hl, preview or "(empty)", nil, nil, line_count)
-        end
-    end
-
-    local preview
-    local lines = vim.api.nvim_buf_get_lines(self._buf, start_row + 1, end_row + 1, false)
-    for _, line in ipairs(lines) do
-        line = vim.trim(line)
-        if line ~= "" and not line:match("^```+") then
-            preview = fold_preview(line)
-            break
-        end
-    end
-    return build_fold_text(header, "Folded", preview, nil, nil, line_count)
+    return NativeFolds.foldtext(self, start_row, end_row)
 end
 
 ---@return string|table
@@ -869,22 +574,7 @@ end
 ---@param name string
 ---@return boolean renamed
 function History:set_name(name)
-    if not vim.api.nvim_buf_is_valid(self._buf) then
-        return false
-    end
-    local old_name = self._name
-    if old_name == name then
-        return true
-    end
-    local existing = vim.fn.bufnr(name)
-    if existing ~= -1 and existing ~= self._buf then
-        return false
-    end
-    self._name = name
-    local Workspace = require("pi.workspace")
-    Workspace.unregister(old_name, self._buf)
-    Workspace.register(name, self._buf)
-    return true
+    return WorkspaceHistory.rename(self, name)
 end
 
 ---@param fn fun()
@@ -1030,72 +720,15 @@ end
 ---@param level integer
 ---@param status_anchor? integer
 function History:_activate_output_fold(anchor, level, status_anchor)
-    local previous = self._active_fold_anchors[level]
-    if previous and previous ~= anchor then
-        local row = self:_extmark_row(previous)
-        if row then
-            for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
-                vim.api.nvim_win_call(win, function()
-                    vim.cmd("silent! " .. (row + 1) .. "foldclose")
-                end)
-            end
-        end
-    end
-    self._active_fold_anchors[level] = anchor
-    if level == 1 then
-        local child = self._active_fold_anchors[2]
-        if child then
-            local row = self:_extmark_row(child)
-            if row then
-                for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
-                    vim.api.nvim_win_call(win, function()
-                        vim.cmd("silent! " .. (row + 1) .. "foldclose")
-                    end)
-                end
-            end
-        end
-        self._active_fold_anchors[2] = nil
-    end
-    self._status_anchor_id = status_anchor
-    self:_open_active_output_folds()
-    if self._status_text or #self._pending_queue > 0 then
-        self:_update_status_extmark()
-    end
+    NativeFolds.activate_output(self, anchor, level, status_anchor)
 end
 
 function History:_open_active_output_folds()
-    for level = 1, 2 do
-        local anchor = self._active_fold_anchors[level]
-        local row = anchor and self:_extmark_row(anchor) or nil
-        if row then
-            for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
-                vim.api.nvim_win_call(win, function()
-                    if vim.fn.foldclosed(row + 1) ~= -1 then
-                        vim.cmd("silent! " .. (row + 1) .. "foldopen")
-                    end
-                end)
-            end
-        end
-    end
+    NativeFolds.open_active(self)
 end
 
 function History:_close_active_output_folds()
-    local child = self._active_fold_anchors[2]
-    local child_row = child and self:_extmark_row(child) or nil
-    local parent = self._active_fold_anchors[1]
-    local parent_row = parent and self:_extmark_row(parent) or nil
-    for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
-        vim.api.nvim_win_call(win, function()
-            if child_row then
-                vim.cmd("silent! " .. (child_row + 1) .. "foldclose")
-            end
-            if parent_row then
-                vim.cmd("silent! " .. (parent_row + 1) .. "foldopen")
-            end
-        end)
-    end
-    self._active_fold_anchors = {}
-    self._status_anchor_id = nil
+    NativeFolds.close_active(self)
 end
 
 --- Rebuild virt_lines immediately below the last transcript row. Busy spinner
@@ -1720,69 +1353,17 @@ end
 
 ---@param win integer
 function History:_capture_fold_state(win)
-    if not self._fold_state_initialized or not vim.api.nvim_win_is_valid(win) then
-        return
-    end
-    local states = {}
-    vim.api.nvim_win_call(win, function()
-        local function capture(anchor)
-            local row = self:_extmark_row(anchor)
-            if row and vim.fn.foldlevel(row + 1) > 0 then
-                states[anchor] = vim.fn.foldclosed(row + 1) == -1
-            end
-        end
-        for _, block in ipairs(self._message_blocks) do
-            capture(block.anchor)
-        end
-        for _, block in ipairs(self._thinking_blocks) do
-            if block.visible then
-                capture(block.anchor)
-            end
-        end
-        for _, block in ipairs(self._compaction_blocks) do
-            capture(block.anchor)
-        end
-        for _, block in pairs(self._tool_blocks) do
-            if block.foldable then
-                capture(block.icon_extmark)
-            end
-        end
-    end)
-    self._fold_open_state = states
+    NativeFolds.capture_state(self, win)
 end
 
 ---@param win integer
 function History:_restore_fold_state(win)
-    if not vim.api.nvim_win_is_valid(win) then
-        return
-    end
-    vim.api.nvim_win_call(win, function()
-        for anchor, open in pairs(self._fold_open_state) do
-            if open then
-                local row = self:_extmark_row(anchor)
-                if row then
-                    vim.cmd("silent! " .. (row + 1) .. "foldopen")
-                end
-            end
-        end
-    end)
+    NativeFolds.restore_state(self, win)
 end
 
 ---@param win integer
 function History:_configure_window(win)
-    if
-        not vim.api.nvim_buf_is_valid(self._buf)
-        or not vim.api.nvim_win_is_valid(win)
-        or vim.api.nvim_win_get_buf(win) ~= self._buf
-    then
-        return
-    end
-    disable_external_foldtext(vim.bo[self._buf].filetype)
-    vim.wo[win].foldenable = true
-    vim.wo[win].foldcolumn = "1"
-    vim.wo[win].foldmethod = "expr"
-    vim.wo[win].foldexpr = "v:lua.require'pi.ui.chat.history'.nvim_foldexpr(v:lnum)"
-    vim.wo[win].foldtext = "v:lua.require'pi.ui.chat.history'.nvim_foldtext()"
+    NativeFolds.configure_window(self, win)
 end
 
 ---@param win integer?
@@ -3015,7 +2596,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         -- Standard multi-line tool block. Fold state lives in foldcolumn;
         -- buffer text must not duplicate window-local open/closed state.
         local header = icon .. " " .. tool_name
-        local summary = tool_argument_summary(tool_input or {})
+        local summary = NativeFolds.argument_summary(tool_input or {})
         if summary then
             header = header .. "  " .. summary
         end
@@ -3089,9 +2670,9 @@ function History:_prepare_tool_preview(block, output_lines)
     block.preview_output_line_count = #output_lines
     block.output_line_count = #output_lines
     for _, line in ipairs(output_lines) do
-        local preview = fold_preview(line)
+        local preview = NativeFolds.preview(line)
         if preview ~= "" and not preview:match("^```+$") then
-            block.preview_lines[#block.preview_lines + 1] = truncate_fold_text(preview, 120)
+            block.preview_lines[#block.preview_lines + 1] = NativeFolds.truncate(preview, 120)
             if #block.preview_lines == LONG_TOOL_PREVIEW_LINES then
                 break
             end
@@ -3140,7 +2721,7 @@ function History:_register_batch_item_folds(tool_call_id, result, output_start, 
             end
 
             local header = icon .. "  " .. entry.tool_name
-            local summary = tool_argument_summary(args)
+            local summary = NativeFolds.argument_summary(args)
             if summary then
                 header = header .. "  " .. summary
             end

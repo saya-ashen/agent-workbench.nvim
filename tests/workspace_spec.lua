@@ -32,9 +32,11 @@ describe("agent workspace", function()
 
         history:set_name("agent://project/session-123")
         assert.are.equal("", vim.api.nvim_buf_get_name(buf))
+        assert.is_nil(Workspace.buffer("agent://project/new-1"))
         assert.are.equal(buf, Workspace.buffer("agent://project/session-123"))
 
         vim.api.nvim_buf_delete(buf, { force = true })
+        assert.is_nil(Workspace.buffer("agent://project/session-123"))
     end)
 
     it("folds user and assistant messages from their timestamp headers", function()
