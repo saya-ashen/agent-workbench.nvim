@@ -57,7 +57,7 @@ end
 ---@return integer?
 function M.buffer(uri)
     local buf = buffers[uri]
-    if buf and vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf) == uri then
+    if buf and vim.api.nvim_buf_is_valid(buf) then
         return buf
     end
     buffers[uri] = nil

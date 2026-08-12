@@ -165,6 +165,18 @@ describe("tool block expand/collapse round-trip", function()
         vim.list_extend(batch_lines, output)
         h:on_tool_start("tool_batch", "batch", { calls = { {}, {} } })
         pump()
+        local events = {}
+        local refresh = h._refresh_native_folds
+        h._refresh_native_folds = function(self)
+            events[#events + 1] = "refresh"
+            refresh(self)
+        end
+        h._should_auto_scroll = function()
+            return true
+        end
+        h._scroll_to_bottom = function()
+            events[#events + 1] = "scroll"
+        end
         h:on_tool_end("tool_batch", "batch", {
             content = { { type = "text", text = table.concat(batch_lines, "\n") } },
             details = {
@@ -175,6 +187,7 @@ describe("tool block expand/collapse round-trip", function()
             },
         }, false)
         pump(200)
+        assert.are.same({ "refresh", "scroll" }, events)
 
         local parent = h._tool_blocks.batch
         local first = h._tool_blocks["batch:batch:1"]

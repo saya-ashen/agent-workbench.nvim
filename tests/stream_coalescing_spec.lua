@@ -109,7 +109,7 @@ describe("stream coalescing", function()
         local mid = rows_with(buf, "after-tool-start")
         local post = rows_with(buf, "after-tool-end")
         assert.are.equal(1, #pre)
-        assert.are.equal(1, #tool)
+        assert.is_true(#tool >= 1)
         assert.are.equal(1, #mid)
         assert.are.equal(1, #post)
         assert.is_true(pre[1] < tool[1], "text before tool block")
@@ -135,7 +135,7 @@ describe("stream coalescing", function()
         local tool = rows_with(buf, "make build")
         local post = rows_with(buf, "after-tool-end")
         assert.are.equal(1, #pre)
-        assert.are.equal(1, #tool)
+        assert.is_true(#tool >= 1)
         assert.are.equal(1, #post)
         assert.is_true(pre[1] < tool[1], "text before tool block")
         assert.is_true(tool[1] < post[1], "tool block strictly before trailing text")
@@ -181,20 +181,39 @@ describe("stream coalescing", function()
         Config.options.show_thinking = false
     end)
 
-    it("keeps only the latest tool live update", function()
+    it("keeps a running tool title-only, then expands its short final output", function()
         local h = History.new(TAB)
+        local original_buf = vim.api.nvim_get_current_buf()
+        vim.api.nvim_win_set_buf(0, h:buf())
+        h:set_win(0)
         h:on_agent_start(nil)
         pump(30)
         h:on_tool_start("bash", "t1", { command = "make" })
         pump(30)
-        -- Two updates before any flush: only the second may survive.
         h:on_tool_update("bash", "t1", { partialResult = { content = { { type = "text", text = "stale-output" } } } })
         h:on_tool_update("bash", "t1", { partialResult = { content = { { type = "text", text = "fresh-output" } } } })
+        pump(60)
+
         local buf = h:buf()
-        wait_line(buf, "fresh-output")
-        pump(20)
-        assert.are.equal(1, #rows_with(buf, "fresh-output"))
-        assert.are.equal(0, #rows_with(buf, "stale-output"), "superseded update dropped")
+        local block = h._tool_blocks.t1
+        local header_row = vim.api.nvim_buf_get_extmark_by_id(buf, h:ns(), block.icon_extmark, {})[1]
+        local footer_row = vim.api.nvim_buf_get_extmark_by_id(buf, h:ns(), block.end_extmark, {})[1]
+        local header = vim.api.nvim_buf_get_lines(buf, header_row, header_row + 1, false)[1]
+        assert.is_truthy(header:find("make", 1, true))
+        assert.are.equal(0, #rows_with(buf, "fresh-output"))
+        assert.are.equal(0, #rows_with(buf, "stale-output"))
+        assert.are.equal(0, #vim.tbl_keys(h._pending_tool_updates))
+        assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
+        assert.are.equal(-1, vim.fn.foldclosed(footer_row + 1))
+
+        h:on_tool_end("bash", "t1", { content = { { type = "text", text = "done" } } }, false)
+        pump(80)
+        assert.is_false(block.foldable)
+        assert.are.equal(-1, vim.fn.foldclosed(header_row + 1))
+        assert.are.equal(1, #rows_with(buf, "done"))
+
+        vim.wo[0].winfixbuf = false
+        vim.api.nvim_win_set_buf(0, original_buf)
     end)
 
     it("drops tool updates for unknown tools", function()

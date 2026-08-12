@@ -10,13 +10,13 @@ Each session owns an underlying `pi --mode rpc` subprocess (one tab = one sessio
 
 ## Session history as a buffer
 
-The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its name is a stable virtual URI:
+The rendered agent transcript is an unnamed, unlisted Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 
 ```text
 agent://<project>/<session-id>/transcript
 ```
 
-The URI starts as `agent://<project>/new-<tab>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. `:edit agent://.../transcript` reuses an existing resource or attaches current tab session and rebuilds it from persisted messages. History remains separate from prompt and attachment buffers.
+The URI starts as `agent://<project>/new-<tab>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. Keeping the buffer unnamed prevents file-tree plugins from treating the URI as a filesystem path. `:edit agent://.../transcript` reuses an existing resource or attaches current tab session and rebuilds it from persisted messages. History remains separate from prompt and attachment buffers.
 
 ## Storage and scoping
 

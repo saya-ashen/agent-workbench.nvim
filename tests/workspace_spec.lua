@@ -20,17 +20,19 @@ describe("agent workspace", function()
         assert.are.same({ "project", "session-123", "transcript" }, { project, session, resource })
     end)
 
-    it("uses a listed history buffer with stable identity", function()
+    it("uses an unlisted virtual history buffer with stable identity", function()
         Config.options.render.engine = "builtin"
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/new-1")
         local buf = history:buf()
 
-        assert.is_true(vim.bo[buf].buflisted)
+        assert.is_false(vim.bo[buf].buflisted)
         assert.are.equal("nofile", vim.bo[buf].buftype)
-        assert.are.equal("agent://project/new-1", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal("", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal(buf, Workspace.buffer("agent://project/new-1"))
 
         history:set_name("agent://project/session-123")
-        assert.are.equal("agent://project/session-123", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal("", vim.api.nvim_buf_get_name(buf))
+        assert.are.equal(buf, Workspace.buffer("agent://project/session-123"))
 
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
@@ -53,6 +55,30 @@ describe("agent workspace", function()
         assert.are.equal(">1", History.nvim_foldexpr(user_row))
         assert.are.equal(1, History.nvim_foldexpr(user_row + 1))
         assert.are.equal(">1", History.nvim_foldexpr(assistant_row))
+        assert.are.equal(-1, vim.fn.foldclosed(assistant_row), "completed assistant stays open until next submit")
+
+        history:add_user_message("next question", 1786438921000)
+        vim.wait(100)
+        local next_user_row = history:_extmark_row(history._message_blocks[3].anchor) + 1
+        assert.are.equal(assistant_row, vim.fn.foldclosed(assistant_row), "previous assistant closes on submit")
+        assert.are.equal(-1, vim.fn.foldclosed(next_user_row), "new user message remains open")
+        local boundary_marks = vim.api.nvim_buf_get_extmarks(
+            history:buf(),
+            history:ns(),
+            { next_user_row - 1, 0 },
+            { next_user_row - 1, -1 },
+            { details = true }
+        )
+        local boundary
+        for _, mark in ipairs(boundary_marks) do
+            if mark[4].virt_lines_above then
+                boundary = mark[4].virt_lines
+                break
+            end
+        end
+        assert.is_not_nil(boundary, "turn boundary stays outside adjacent folds")
+        assert.are.equal("  " .. string.rep("─", 32), boundary[1][1][1])
+        assert.are.equal("PiBusyTime", boundary[1][1][2])
 
         history:clear()
         assert.are.equal(0, #history._message_blocks)

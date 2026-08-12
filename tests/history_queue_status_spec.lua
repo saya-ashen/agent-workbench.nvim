@@ -148,6 +148,72 @@ describe("history queue status rendering", function()
         assert.are.equal(0, calls)
     end)
 
+    it("follows streamed text without recentering the viewport", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:_scroll_to_bottom()
+        local original_top = vim.fn.line("w0")
+
+        local forced_scrolls = 0
+        h._scroll_to_bottom = function()
+            forced_scrolls = forced_scrolls + 1
+        end
+
+        h:_append_text(" streamed")
+        assert.are.equal(original_top, vim.fn.line("w0"), "same-line text must not move the viewport")
+
+        h:_append_text("\nstreamed one\nstreamed two")
+        assert.are.equal(original_top + 2, vim.fn.line("w0"), "new lines should push old lines upward")
+        assert.are.equal(vim.api.nvim_buf_line_count(h:buf()), vim.fn.line("w$"))
+        assert.are.equal(0, forced_scrolls)
+        pump(30)
+        assert.are.equal(0, forced_scrolls, "streaming must not queue a forced recenter")
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
+    it("keeps status virtual lines visible below streamed output", function()
+        Config.options.spinner = { refresh_rate = 1000, frames = { "x" } }
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:set_status({ type = "agent", text = "Working…" })
+        pump(30)
+        vim.api.nvim_win_call(0, function()
+            vim.cmd("normal! G$zb")
+        end)
+
+        h:_follow_stream_bottom()
+
+        local height = vim.api.nvim_win_get_height(0)
+        assert.are.equal(2, h._status_virt_line_count)
+        assert.is_true((height - vim.fn.winline()) >= h._status_virt_line_count)
+        local top = vim.fn.line("w0")
+        h:_follow_stream_bottom()
+        assert.are.equal(top, vim.fn.line("w0"), "visible status rows must not trigger repeated scrolling")
+
+        h:set_status(nil)
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
+    it("does not pin streamed text after the user scrolls up", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        vim.api.nvim_win_call(0, function()
+            vim.cmd("normal! ggzt")
+        end)
+
+        local follows = 0
+        h._follow_stream_bottom = function()
+            follows = follows + 1
+        end
+        h:_append_text("\nstreamed")
+
+        assert.are.equal(0, follows)
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
     it("scrolls to the final screen row of wrapped output", function()
         local h = setup_history(1)
         local text = string.rep("wrapped output ", 20)

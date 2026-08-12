@@ -34,7 +34,7 @@ require("pi").setup({
     spinner = "robot",
     -- Show thinking blocks by default.
     show_thinking = true,
-    -- Extra blank line between conversation turns (pure whitespace, no drawn rule).
+    -- Extra blank line and subtle rule between conversation turns.
     turn_separator = true,
     -- Default expand/collapse state for the startup block
     -- (skills, extensions, startup announcements). The native fold

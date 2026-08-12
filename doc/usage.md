@@ -52,7 +52,7 @@ Each panel has a winbar with a title controlled by `panels.<panel>.title` (a str
 
 ### Block folding
 
-History uses normal editor-window line-number settings and exposes native `foldmethod=expr` structure with a one-column fold gutter. Completed tool output stays complete in the transcript buffer; native window folds control visibility without replacing content.
+History uses normal editor-window line-number settings and exposes native `foldmethod=expr` structure with a one-column fold gutter. Completed tool output stays complete in the transcript buffer; native window folds control visibility without replacing content. Submitting a new user message synchronously closes the previous assistant turn and keeps the new user message open, so turn folding happens at the prompt boundary rather than after the next response starts streaming.
 
 History blocks support local-plugin style normal-mode controls:
 
@@ -589,7 +589,7 @@ When the agent invokes a tool, pi2.nvim renders the call inline in the chat hist
   lua/pi/init.lua:42: foo = 1
 ```
 
-Successful tool calls end silently (a blank breathing line); only errors print a status footer. The labels come from `labels.tool`, `labels.tool_failure` in your config. A spinner animates on the header row while the tool is running.
+Successful tool calls end silently (a blank breathing line); only errors print a status footer. The labels come from `labels.tool`, `labels.tool_failure` in your config. While a full-block tool runs, only its header, argument summary, and spinner remain visible; partial updates do not expand or rewrite the transcript body. Completion renders the authoritative final result once.
 
 ### Inline vs full blocks
 
@@ -605,7 +605,7 @@ Every full-block tool has two collapse thresholds:
 - `input_visible` — how many lines of the input/arguments to show when collapsed. Extra lines become `+N lines`.
 - `output_visible` — how many lines of the tool output to show when collapsed. `output_visible = 0` hides the output section entirely when collapsed (used for `edit`/`write` where the diff is the input).
 
-When a tool's input or output exceeds its threshold, the block is auto-collapsed on first render (the fold indicator changes from `▾` to `▸`). A collapsed tool shows only its tool/argument/status header. For output of 30 lines or fewer, `<Tab>`, `za`, `<CR>`, or `o` toggles the complete output inline. For longer output, `za`, `<CR>`, `o`, or `zo` shows up to four non-empty preview lines plus an omitted-line count while keeping the complete output folded; `zc` restores the title-only state. `<Tab>` opens the complete output in a read-only `pi-tool-output` split instead; use normal Neovim scrolling and search there, then press `q` or `<Esc>` to close it. A `tool_batch` parent remains visible, and each structured child call gets its own persistent icon/argument/status header, fold, preview, and viewer. The same toggle keys still expand and collapse [startup](#startup-block), [thinking](#thinking), and compaction blocks in place.
+When a tool completes, output within its thresholds opens inline; output exceeding either threshold starts collapsed (the fold indicator changes from `▾` to `▸`). A 30-line hard limit also applies to combined rendered input and output, so renderer-specific thresholds cannot leave very large blocks open. Thus a running full-block tool never expands and then collapses as partial output arrives. A collapsed tool shows only its tool/argument/status header. For output of 30 lines or fewer, `<Tab>`, `za`, `<CR>`, or `o` toggles the complete output inline. For longer output, `za`, `<CR>`, `o`, or `zo` shows up to four non-empty preview lines plus an omitted-line count while keeping the complete output folded; `zc` restores the title-only state. `<Tab>` opens the complete output in a read-only `pi-tool-output` split instead; use normal Neovim scrolling and search there, then press `q` or `<Esc>` to close it. A `tool_batch` parent remains visible, and each structured child call gets its own persistent icon/argument/status header, fold, preview, and viewer. The same toggle keys still expand and collapse [startup](#startup-block), [thinking](#thinking), and compaction blocks in place.
 
 Bind `pi.toggle_history_blocks()` to expand/collapse all expandable history blocks at once; the [Keymaps](keymaps.md) example uses `<C-o>`.
 

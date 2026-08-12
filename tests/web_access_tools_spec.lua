@@ -68,7 +68,7 @@ describe("pi-web-access tool renderers (issue #51)", function()
             local h = History.new(960)
             h:on_tool_start("web_search", "t1", { query = "rust async" })
             pump(60)
-            assert.is_true(#rows_with(h:buf(), "rust async") == 1)
+            assert.is_true(#rows_with(h:buf(), "rust async") == 2)
         end)
 
         it("joins queries with a separator", function()
@@ -91,7 +91,7 @@ describe("pi-web-access tool renderers (issue #51)", function()
             local h = History.new(963)
             h:on_tool_start("fetch_content", "t1", { url = "https://example.com/guide" })
             pump(60)
-            assert.is_true(#rows_with(h:buf(), "https://example.com/guide") == 1)
+            assert.is_true(#rows_with(h:buf(), "https://example.com/guide") == 2)
         end)
 
         it("shows each url of a urls array on its own line", function()
@@ -149,6 +149,70 @@ describe("pi-web-access tool renderers (issue #51)", function()
             pump(60)
             assert.is_true(b.expanded, "expand opens the fold")
             assert.are.equal(line_count, vim.api.nvim_buf_line_count(buf), "folding does not replace lines")
+        end)
+
+        it("closes a completed tool fold before final scrolling", function()
+            local h = History.new(972)
+            h:on_tool_start("web_search", "t1", { query = "q" })
+            pump(60)
+
+            local original_buf = vim.api.nvim_get_current_buf()
+            vim.api.nvim_win_set_buf(0, h:buf())
+            h:set_win(0)
+            pump(60)
+
+            local events = {}
+            local refresh = h._refresh_native_folds
+            h._refresh_native_folds = function(self)
+                events[#events + 1] = "refresh"
+                refresh(self)
+            end
+            h._should_auto_scroll = function()
+                return true
+            end
+            local scroll_to_bottom = h._scroll_to_bottom
+            h._scroll_to_bottom = function(self)
+                events[#events + 1] = "scroll"
+                scroll_to_bottom(self)
+            end
+
+            local out = table.concat({ "line1", "line2", "line3", "line4", "line5" }, "\n")
+            h:on_tool_end("web_search", "t1", result_text(out), false)
+            pump(120)
+
+            assert.are.same({ "refresh", "scroll" }, events)
+            local block = h._tool_blocks.t1
+            local header_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.icon_extmark, {})[1]
+            local footer_row = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.end_extmark, {})[1]
+            assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
+            assert.are.equal(-1, vim.fn.foldclosed(footer_row + 1), "footer stays outside fold as a stable bottom anchor")
+            assert.are.same({ footer_row + 1, 0 }, vim.api.nvim_win_get_cursor(0))
+            vim.api.nvim_win_set_buf(0, original_buf)
+        end)
+
+        it("enforces the 30-line hard limit above renderer thresholds", function()
+            local renderer = Tools.get_renderer("some_other_extension_tool")
+            local saved_input_visible = renderer.input_visible
+            local saved_output_visible = renderer.output_visible
+            renderer.input_visible = math.huge
+            renderer.output_visible = math.huge
+
+            local h = History.new(973)
+            h:on_tool_start("some_other_extension_tool", "t1", { query = "q" })
+            pump(60)
+            local output = {}
+            for index = 1, 31 do
+                output[index] = "line-" .. index
+            end
+            h:on_tool_end("some_other_extension_tool", "t1", result_text(table.concat(output, "\n")), false)
+            pump(120)
+
+            renderer.input_visible = saved_input_visible
+            renderer.output_visible = saved_output_visible
+            local block = h._tool_blocks.t1
+            assert.is_true(block.foldable)
+            assert.is_false(block.expanded)
+            assert.are.equal(31, block.preview_output_line_count)
         end)
 
         it("does not collapse short output", function()
