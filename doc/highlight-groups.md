@@ -131,6 +131,14 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiStatusLineWarning` | `warn`-threshold highlight for `context` / `cost` components |
 | `PiStatusLineError` | `error`-threshold highlight for `context` / `cost` components |
 
+## Session stats
+
+| Group | Role |
+| --- | --- |
+| `PiStatsBar` | Bar fill in the `:PiSessionStats` dashboard (per-model cost bars and the context bar below its warn threshold) |
+
+The dashboard reuses `PiToolHeader` for its section headers, `Comment` for dimmed labels, and `PiStatusLineWarning` / `PiStatusLineError` for the context bar above the warn/error thresholds.
+
 ## Sessions overview
 
 | Group | Role |

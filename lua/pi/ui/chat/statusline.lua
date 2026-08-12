@@ -51,21 +51,8 @@ local ns = vim.api.nvim_create_namespace("pi-statusline")
 -- Helpers
 
 --- Format token count for display (e.g. 200000 -> "200k").
----@param count integer
----@return string
-local function format_tokens(count)
-    if count < 1000 then
-        return tostring(count)
-    elseif count < 9950 then
-        return string.format("%.1fk", count / 1000)
-    elseif count < 1000000 then
-        return string.format("%dk", math.floor(count / 1000 + 0.5))
-    elseif count < 9950000 then
-        return string.format("%.1fM", count / 1000000)
-    else
-        return string.format("%dM", math.floor(count / 1000000 + 0.5))
-    end
-end
+--- Shared with the :PiSessionStats dashboard.
+local format_tokens = require("pi.stats").format_tokens
 
 --- Get the text area width (excluding signcolumn, foldcolumn, number column).
 ---@param win integer

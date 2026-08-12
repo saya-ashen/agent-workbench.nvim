@@ -474,6 +474,62 @@ function M.toggle_debug()
     require("pi.rpc").toggle_debug()
 end
 
+--- Show the current session's stats dashboard (:PiSessionStats): identity,
+--- message counts, token usage (with cache split), per-model cost breakdown
+--- (via get_entries, port of the TUI's getUsageCostBreakdown), cache re-billed
+--- waste, and context-window usage with a threshold-colored bar.
+--- Silent no-op without an active session; a failed get_entries degrades to
+--- the session-stats-only view.
+function M.session_stats()
+    local Sessions = require("pi.sessions.manager")
+    local session = Sessions.get()
+    if not session or not session.rpc:is_running() then
+        return
+    end
+
+    local Stats = require("pi.stats")
+    local Dialog = require("pi.ui.dialog")
+    local Notify = require("pi.notify")
+
+    local stats ---@type table?
+    local breakdown ---@type pi.StatsCostEntry[]?
+    local cache_waste ---@type pi.StatsCacheWaste?
+
+    local function try_show()
+        if stats == nil or breakdown == nil or cache_waste == nil then
+            return
+        end
+        local rendered = Stats.render_stats(stats, breakdown, cache_waste)
+        vim.schedule(function()
+            Dialog.info({
+                title = "Pi Session Stats",
+                lines = rendered.lines,
+                highlights = rendered.highlights,
+            })
+        end)
+    end
+
+    session.rpc:send({ type = "get_session_stats" }, function(res)
+        vim.schedule(function()
+            if not res.success then
+                Notify.error("Failed to get session stats: " .. (res.error or "unknown error"))
+                return
+            end
+            stats = res.data
+            try_show()
+        end)
+    end)
+
+    session.rpc:send({ type = "get_entries" }, function(res)
+        vim.schedule(function()
+            local entries = res.success and res.data and res.data.entries or {}
+            breakdown = Stats.get_usage_cost_breakdown(entries)
+            cache_waste = Stats.compute_cache_waste(entries)
+            try_show()
+        end)
+    end)
+end
+
 --- Scroll the chat history by a number of lines.
 --- Can be called from the prompt buffer to scroll without leaving it.
 ---@param direction "up"|"down"
