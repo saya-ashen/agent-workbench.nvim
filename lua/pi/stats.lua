@@ -378,24 +378,26 @@ function M.render_stats(stats, breakdown, cache_waste)
     local context = stats.contextUsage
     if context then
         local window = M.format_tokens(context.contextWindow or 0)
+        -- Title on its own line like the other sections; usage bar on its own
+        -- line so the threshold coloring reads clearly.
+        add_line("Context", { { start_col = 0, end_col = #"Context", hl = "PiToolHeader" } })
         if context.percent == nil or context.tokens == nil then
             -- Unknown after compaction until the next response, like the TUI.
-            add_line("Context  ? / " .. window, { { start_col = 0, end_col = #"Context", hl = "Comment" } })
+            add_line("  ? / " .. window)
         else
             local pct = context.percent
-            local bar = draw_bar(pct / 100, CONTEXT_BAR_WIDTH)
             local tokens_text = M.format_tokens(context.tokens)
-            local text = string.format("Context  %s / %s  %s  %.1f%%", tokens_text, window, bar, pct)
-            local ranges = { { start_col = 0, end_col = #"Context", hl = "Comment" } }
-            local bar_start = 9 + #tokens_text + 3 + #window + 2
+            add_line("  " .. tokens_text .. " / " .. window)
+            local bar = draw_bar(pct / 100, CONTEXT_BAR_WIDTH)
             local bar_hl = "PiStatsBar"
             if pct > CONTEXT_ERROR then
                 bar_hl = "PiStatusLineError"
             elseif pct > CONTEXT_WARN then
                 bar_hl = "PiStatusLineWarning"
             end
-            ranges[#ranges + 1] = { start_col = bar_start, end_col = bar_start + CONTEXT_BAR_WIDTH, hl = bar_hl }
-            add_line(text, ranges)
+            add_line("  " .. bar .. string.format("  %.1f%%", pct), {
+                { start_col = 2, end_col = 2 + CONTEXT_BAR_WIDTH, hl = bar_hl },
+            })
         end
     end
 

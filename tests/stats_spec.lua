@@ -313,7 +313,10 @@ describe("stats.render_stats", function()
         assert.are.equal("  anthropic/claude-3.5-sonnet  $0.148 ███░░░░░░░ 33%", lines[13])
         assert.are.equal("  Tools/summaries              $0.021 ░░░░░░░░░░ 5%", lines[14])
         assert.are.equal("  Cache re-billed  $0.012  (12k tokens, 3 misses)", lines[15])
-        assert.are.equal("Context  60k / 200k  █████░░░░░░░░░░░  30.0%", lines[16])
+        -- Context: title on its own line, then tokens/window, then the bar.
+        assert.are.equal("Context", lines[16])
+        assert.are.equal("  60k / 200k", lines[17])
+        assert.are.equal("  █████░░░░░░░░░░░  30.0%", lines[18])
     end)
 
     it("highlights section headers, dims labels and colors bar fills", function()
@@ -334,11 +337,12 @@ describe("stats.render_stats", function()
         assert.are.equal(44, cost_hl[2].end_col)
         -- Zero-fraction row has no bar highlight.
         assert.are.equal(1, #hl[13])
-        -- Context bar at 30% stays in the default bar color.
-        local ctx_hl = hl[14]
-        assert.are.equal("PiStatsBar", ctx_hl[2].hl)
-        assert.are.equal(21, ctx_hl[2].start_col)
-        assert.are.equal(37, ctx_hl[2].end_col)
+        -- Context: title is its own section header, bar on its own line.
+        assert.are.equal("PiToolHeader", hl[14][1].hl)
+        local ctx_hl = hl[16]
+        assert.are.equal("PiStatsBar", ctx_hl[1].hl)
+        assert.are.equal(2, ctx_hl[1].start_col)
+        assert.are.equal(18, ctx_hl[1].end_col)
     end)
 
     it("omits the cache split rows without cache activity", function()
@@ -374,19 +378,20 @@ describe("stats.render_stats", function()
         local stats = vim.deepcopy(SAMPLE_STATS)
         stats.contextUsage = { tokens = nil, contextWindow = 200000, percent = nil }
         local rendered = Stats.render_stats(stats, {}, { missedTokens = 0, missedCost = 0, missCount = 0 })
-        assert.are.equal("Context  ? / 200k", rendered.lines[#rendered.lines])
+        assert.are.equal("Context", rendered.lines[#rendered.lines - 1])
+        assert.are.equal("  ? / 200k", rendered.lines[#rendered.lines])
     end)
 
     it("colors the context bar by the warn/error thresholds", function()
         local warn_stats = vim.deepcopy(SAMPLE_STATS)
         warn_stats.contextUsage = { tokens = 150000, contextWindow = 200000, percent = 75 }
         local warn = Stats.render_stats(warn_stats, {}, { missedTokens = 0, missedCost = 0, missCount = 0 })
-        assert.are.equal("PiStatusLineWarning", warn.highlights[#warn.lines - 1][2].hl)
+        assert.are.equal("PiStatusLineWarning", warn.highlights[#warn.lines - 1][1].hl)
 
         local err_stats = vim.deepcopy(SAMPLE_STATS)
         err_stats.contextUsage = { tokens = 190000, contextWindow = 200000, percent = 95 }
         local err = Stats.render_stats(err_stats, {}, { missedTokens = 0, missedCost = 0, missCount = 0 })
-        assert.are.equal("PiStatusLineError", err.highlights[#err.lines - 1][2].hl)
+        assert.are.equal("PiStatusLineError", err.highlights[#err.lines - 1][1].hl)
     end)
 
     it("truncates long model keys and session file paths", function()
