@@ -488,6 +488,46 @@ Return shapes:
 - `{ { "part1", "Hl1" }, { "part2", "Hl2" } }` — multiple chunks with per-chunk highlights.
 - `nil` — hide the component (and any adjacent separator).
 
+## Session stats (`:PiSessionStats`)
+
+`:PiSessionStats` opens a floating dashboard with the current session's numbers, mirroring the TUI's `/session` panel. The data comes from two RPC calls — `get_session_stats` (aggregates) and `get_entries` (the full entry list, used for the per-model cost breakdown) — so it works for any session state, including resumed ones.
+
+```
+┌─ Pi Session Stats ────────────────────────────────┐
+│ File  ~/.local/share/pi/sessions/abc123.jsonl     │
+│ ID    abc123                                      │
+│                                                   │
+│ Messages                                         │
+│   User 5 · Assistant 7 · Tools 12 calls / 11 res  │
+│                                                   │
+│ Tokens                                           │
+│   Input    50k                                   │
+│   Cached   40k  (42.1% hit)                      │
+│   Uncached 55k  (incl. 5.0k writes)              │
+│   Output   10k                                   │
+│   Total    105k                                  │
+│                                                   │
+│ Cost  $0.450                                     │
+│   deepseek/deepseek-chat       $0.281 ██████░░░░  │
+│   anthropic/claude-3.5-sonnet  $0.148 ███░░░░░░░  │
+│   Tools/summaries              $0.021 ░░░░░░░░░░  │
+│   Cache re-billed  $0.012  (12k tokens, 3 miss…   │
+│                                                   │
+│ Context  60k / 200k  █████░░░░░░░░░░░  30.0%     │
+└───────────────────────────────────────────────────┘
+```
+
+Sections:
+
+- **Identity** — session file (truncated) and ID.
+- **Messages** — user/assistant/tool call counts.
+- **Tokens** — input/output/total; when the provider reports cache activity, the prompt is split into `Cached` (with hit rate) and `Uncached` (including cache writes).
+- **Cost** — the total, plus a per-model breakdown: each assistant response is attributed to its actual `provider/responseModel` (so mid-session model switches show up), and tool results / compaction / branch summaries land in a shared `Tools/summaries` bucket. Bars are proportional to the total. When entries are unavailable (e.g. `get_entries` fails) the panel degrades to the aggregate view without the breakdown.
+- **Cache re-billed** — prompt tokens that were in the previous turn but were re-billed instead of served from cache (the TUI's cache-waste computation), with the extra dollars when the session data reports cache-read pricing.
+- **Context** — current context-window usage with a threshold-colored bar (yellow above 70%, red above 90%, like the statusline `context` component); shows `?` until the first response after a compaction.
+
+The command is a silent no-op without an active session. `q`/`<Esc>`/`<CR>` close the panel; closing any of the panel's windows closes the rest.
+
 ## Navigation
 
 Moving between π panels and scrolling the history without leaving the prompt are some of the most common things you do during a session, so they're worth setting up properly. As with the rest of [Keymaps](keymaps.md), pi2.nvim doesn't bind these by default — it just exposes the API and lets you wire it into the navigation conventions you already use.

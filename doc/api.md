@@ -22,6 +22,7 @@ pi.resume_session(opts?)      -- pick a past session for the current cwd
 pi.new_session()              -- start a fresh conversation in the current tab
 pi.tree()                     -- navigate the session tree (:PiTree)
 pi.sessions()                 -- toggle the live sessions overview (:PiSessions)
+pi.session_stats()            -- show the session stats dashboard (:PiSessionStats)
 pi.diff_review()              -- review the git diff of every file changed this session (:PiDiff)
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens an
                               -- input dialog prefilled with the current name

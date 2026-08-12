@@ -192,6 +192,9 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiStatusLineAttention", { default = true, fg = warning.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiStatusLineWarning", { default = true, fg = warning.fg })
     vim.api.nvim_set_hl(0, "PiStatusLineError", { default = true, fg = diagnostic_error.fg })
+    -- Bar fill in the :PiSessionStats dashboard (cost bars; context bar below
+    -- the warn/error thresholds uses PiStatusLineWarning/PiStatusLineError).
+    vim.api.nvim_set_hl(0, "PiStatsBar", { default = true, fg = func.fg })
 
     vim.api.nvim_set_hl(0, "PiSessionsListIdle", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiSessionsListDotDim", { default = true, fg = comment.fg, bold = false })

@@ -66,6 +66,8 @@
 ---| "set_auto_compaction"
 ---| "extension_ui_response"
 ---| "get_tree"
+---| "get_session_stats"
+---| "get_entries"
 
 ---@class pi.RpcImageContent
 ---@field type "image"
