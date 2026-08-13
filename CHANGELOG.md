@@ -2,6 +2,8 @@
 
 ## 2026-08-13
 
+- **CHANGED:** Completed full-block tools now keep their output folded by default, matching the pi TUI and preventing tool-heavy turns from flooding History. Tool names and argument summaries remain visible; complete output stays in the buffer and opens with existing `<Tab>` / native fold controls, while long output keeps its preview and read-only split flow. Inline tools such as `read` remain single-line.
+
 - **CHANGED:** Extension select and confirm requests now switch their owning session's prompt into a read-only `request` mode instead of opening global `vim.ui.select`. Options stay visibly attached to correct agent/session, compose draft and cursor restore afterward, `<Esc>` cannot dismiss request, `<CR>` confirms, `<C-c>` explicitly cancels, and multiple requests drain per-session FIFO.
 
 - **CHANGED:** Assistant turns now render separate **Agent Activity** and **Agent Output** sections. Thinking, tools, and intermediate prose fold when a turn completes, while final output stays open; the two most recent outputs remain expanded, older outputs age closed once, and manual reopen state is preserved.

@@ -92,6 +92,51 @@ describe("tool block expand/collapse round-trip", function()
         assert.is_true(block.expanded)
     end)
 
+    it("folds short bash output by default", function()
+        local h = History.new(958)
+        local original_buf = vim.api.nvim_get_current_buf()
+        vim.api.nvim_win_set_buf(0, h:buf())
+        h:set_win(0)
+
+        h:on_tool_start("bash", "short", { command = "echo done" })
+        pump()
+        h:on_tool_end("bash", "short", { content = { { type = "text", text = "done" } } }, false)
+        pump(120)
+
+        local block = h._tool_blocks.short
+        local header_row = h:_extmark_row(block.icon_extmark)
+        assert.is_true(block.foldable)
+        assert.is_false(block.expanded)
+        assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
+        assert.is_true(#rows_with(h:buf(), "done") >= 1, "complete output remains in buffer")
+
+        vim.api.nvim_win_set_buf(0, original_buf)
+    end)
+
+    it("folds short write diffs by default", function()
+        local tmp = vim.fn.tempname()
+        vim.fn.writefile({ "old" }, tmp)
+        local h = History.new(959)
+        local original_buf = vim.api.nvim_get_current_buf()
+        vim.api.nvim_win_set_buf(0, h:buf())
+        h:set_win(0)
+
+        h:on_tool_start("write", "write", { path = tmp, content = "new" })
+        pump()
+        h:on_tool_end("write", "write", {}, false)
+        pump(120)
+
+        local block = h._tool_blocks.write
+        local header_row = h:_extmark_row(block.icon_extmark)
+        assert.is_true(block.foldable)
+        assert.is_false(block.expanded)
+        assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
+        assert.is_true(#rows_with(h:buf(), "+ new") == 1, "complete diff remains in buffer")
+
+        vim.api.nvim_win_set_buf(0, original_buf)
+        vim.fn.delete(tmp)
+    end)
+
     it("opens output longer than 30 lines in a read-only split", function()
         local h = History.new(961)
         local output = bash_output_collapsed(h, "long", 31)

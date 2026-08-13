@@ -773,7 +773,7 @@ end
 local renderers = {
     bash = {
         input_visible = 1,
-        output_visible = 1,
+        output_visible = 0,
         on_start = function(history, args)
             if args and (args.command or args.cmd) then
                 local cmd = args.command or args.cmd
@@ -803,6 +803,7 @@ local renderers = {
         end,
     },
     edit = {
+        input_visible = 0,
         output_visible = 0,
         on_start = function(history, args)
             if args and (args.path or args.file_path) then
@@ -904,6 +905,7 @@ local renderers = {
         end,
     },
     write = {
+        input_visible = 0,
         output_visible = 0,
         on_start = function(history, args)
             if not args then
@@ -953,7 +955,7 @@ local renderers = {
     -- output rendering matches default_renderer.
     web_search = {
         input_visible = 1,
-        output_visible = 1,
+        output_visible = 0,
         on_start = function(history, args)
             if not args then
                 return
@@ -984,7 +986,7 @@ local renderers = {
     },
     fetch_content = {
         input_visible = 1,
-        output_visible = 1,
+        output_visible = 0,
         on_start = function(history, args)
             if not args then
                 return
@@ -1007,7 +1009,7 @@ local renderers = {
     },
     source_check = {
         input_visible = 1,
-        output_visible = 1,
+        output_visible = 0,
         on_start = function(history, args)
             if args and type(args.claim) == "string" and args.claim ~= "" then
                 render_body_line(history, args.claim)
@@ -1017,7 +1019,7 @@ local renderers = {
     },
     get_search_content = {
         input_visible = 1,
-        output_visible = 1,
+        output_visible = 0,
         on_start = function(history, args)
             if not args then
                 return
@@ -1049,7 +1051,7 @@ local renderers = {
 ---@type pi.ToolRenderer
 local default_renderer = {
     input_visible = 1,
-    output_visible = 1,
+    output_visible = 0,
     on_start = function(history, args)
         if not args then
             return

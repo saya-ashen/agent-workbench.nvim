@@ -625,7 +625,7 @@ require("pi").setup({
 
 ## Tool blocks
 
-When the agent invokes a tool, pi2.nvim renders the call inline in the chat history as a **tool block**. Each block shows the tool name, its input summary, and its output. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
+When the agent invokes a tool, pi2.nvim renders the call inline in the chat history as a **tool block**. Each block stores the tool name, its input summary, and its output. Full-block tools start folded so long tool-heavy turns stay compact; complete output remains in the history buffer and can be opened on demand. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
 
 ```
 ▾ 󰻂 bash
@@ -648,10 +648,10 @@ Tools come in two rendering styles:
 
 Every full-block tool has two collapse thresholds:
 
-- `input_visible` — how many lines of the input/arguments to show when collapsed. Extra lines become `+N lines`.
-- `output_visible` — how many lines of the tool output to show when collapsed. `output_visible = 0` hides the output section entirely when collapsed (used for `edit`/`write` where the diff is the input).
+- `input_visible` — maximum input/argument lines before the block becomes foldable.
+- `output_visible` — maximum output lines before the block becomes foldable. Built-in full-block tools use `0`, so any output starts folded.
 
-When a tool completes, output within its thresholds opens inline; output exceeding either threshold starts collapsed (the fold indicator changes from `▾` to `▸`). A 30-line hard limit also applies to combined rendered input and output, so renderer-specific thresholds cannot leave very large blocks open. Thus a running full-block tool never expands and then collapses as partial output arrives. A collapsed tool shows only its tool/argument/status header. For output of 30 lines or fewer, `<Tab>`, `za`, `<CR>`, or `o` toggles the complete output inline. For longer output, `za`, `<CR>`, `o`, or `zo` shows up to four non-empty preview lines plus an omitted-line count while keeping the complete output folded; `zc` restores the title-only state. `<Tab>` opens the complete output in a read-only `pi-tool-output` split instead; use normal Neovim scrolling and search there, then press `q` or `<Esc>` to close it. A `tool_batch` parent remains visible, and each structured child call gets its own persistent icon/argument/status header, fold, preview, and viewer. The same toggle keys still expand and collapse [startup](#startup-block), [thinking](#thinking), and compaction blocks in place.
+Running and completed full-block tools stay title-only by default; completion writes the authoritative result into the buffer without opening it. Failed calls use the same fold but keep the failure state visible in the header/footer. For output of 30 lines or fewer, `<Tab>`, `za`, `<CR>`, or `o` toggles the complete output inline. For longer output, `za`, `<CR>`, `o`, or `zo` shows up to four non-empty preview lines plus an omitted-line count while keeping the complete output folded; `zc` restores the title-only state. `<Tab>` opens the complete output in a read-only `pi-tool-output` split instead; use normal Neovim scrolling and search there, then press `q` or `<Esc>` to close it. A `tool_batch` parent remains visible, and each structured child call gets its own persistent icon/argument/status header, fold, preview, and viewer. The same toggle keys still expand and collapse [startup](#startup-block), [thinking](#thinking), and compaction blocks in place.
 
 Bind `pi.toggle_history_blocks()` to expand/collapse all expandable history blocks at once; the [Keymaps](keymaps.md) example uses `<C-o>`.
 
@@ -659,15 +659,15 @@ Built-in thresholds:
 
 | Tool | `input_visible` | `output_visible` | Notes |
 | --- | --- | --- | --- |
-| `bash` | 1 | 1 | Shows first line of command + first line of output when collapsed |
+| `bash` | 1 | 0 | Shows command summary; output starts folded |
 | `read` | — | — | Always inline |
-| `edit` | unlimited | 0 | Renders the proposed diff as input; no separate output section |
-| `write` | unlimited | 0 | Same shape as `edit` for a whole-file write |
-| `web_search` | 1 | 1 | [pi-web-access](https://github.com/nicobailon/pi-web-access) — the `query`, or up to three `queries` joined with ` · ` (longer lists truncate as `…(+N)`) |
-| `fetch_content` | 1 | 1 | pi-web-access — the `url`, or each entry of `urls` on its own line |
-| `source_check` | 1 | 1 | pi-web-access — the `claim` being checked |
-| `get_search_content` | 1 | 1 | pi-web-access — `responseId` plus whichever selector is present (`query` / `queryIndex` / `url` / `urlIndex`) |
-| (unknown) | 1 | 1 | Default renderer picks the first string argument as summary |
+| `edit` | 0 | 0 | Renders the proposed diff as folded input; no separate output section |
+| `write` | 0 | 0 | Same shape as `edit` for a whole-file write |
+| `web_search` | 1 | 0 | [pi-web-access](https://github.com/nicobailon/pi-web-access) — the `query`, or up to three `queries` joined with ` · ` (longer lists truncate as `…(+N)`) |
+| `fetch_content` | 1 | 0 | pi-web-access — the `url`, or each entry of `urls` on its own line |
+| `source_check` | 1 | 0 | pi-web-access — the `claim` being checked |
+| `get_search_content` | 1 | 0 | pi-web-access — `responseId` plus whichever selector is present (`query` / `queryIndex` / `url` / `urlIndex`) |
+| (unknown) | 1 | 0 | Default renderer picks the first string argument as summary |
 
 ### Status resolution
 
