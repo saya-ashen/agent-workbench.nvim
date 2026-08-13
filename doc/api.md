@@ -39,6 +39,7 @@ pi.changed_files()            -- string[]: files modified by edit/write tools th
 
 -- Agent control
 pi.abort()                    -- cancel the current agent turn, keep the session alive
+pi.focus_terminal()           -- focus persistent local terminal while prompt is in !! mode
 pi.abort_bash()               -- cancel the running direct bash (!) command
 pi.abort_retry()              -- cancel the auto-retry backoff ("Retrying…" state); only
                               -- takes effect while the core is between retry attempts

@@ -12,7 +12,9 @@
 ---@field _prompt pi.ChatPrompt
 ---@field _attachments pi.ChatAttachments
 ---@field _has_attention boolean
----@field _bash_mode boolean
+---@field _command_mode pi.PromptCommandMode
+---@field _content_buf integer?
+---@field _content_title string?
 ---@field _prompt_mode pi.PromptMode
 ---@field _prompt_request_kind pi.PromptRequestKind?
 ---@field _prompt_state pi.StatusLineState?
@@ -89,7 +91,20 @@ local function restore_win_opts(win, opts)
 end
 
 ---@param win integer
----@param extra? fun(win: integer)
+local function set_terminal_win_opts(win)
+    vim.wo[win].wrap = false
+    vim.wo[win].linebreak = false
+    vim.wo[win].signcolumn = "no"
+    vim.wo[win].foldcolumn = "0"
+    vim.wo[win].foldenable = false
+    vim.wo[win].list = false
+    vim.wo[win].conceallevel = 0
+    vim.wo[win].winfixbuf = false
+    vim.wo[win].number = false
+    vim.wo[win].relativenumber = false
+    vim.wo[win].cursorline = false
+end
+
 local function set_win_opts(win, extra)
     vim.wo[win].wrap = true
     vim.wo[win].linebreak = true
@@ -162,23 +177,22 @@ function Layout:refresh_prompt_attention(has_attention)
     self:_refresh_prompt_chrome()
 end
 
---- Update prompt title styling to reflect bash mode (prompt starts with "!").
----@param is_bash boolean
-function Layout:set_bash_mode(is_bash)
-    if self._bash_mode == is_bash then
+--- Update prompt styling for compose, backend bash, or local terminal mode.
+---@param mode pi.PromptCommandMode
+function Layout:set_command_mode(mode)
+    if self._command_mode == mode then
         return
     end
-    self._bash_mode = is_bash
+    self._command_mode = mode
     self:_refresh_prompt_chrome()
 end
 
----@return boolean
-function Layout:bash_mode()
-    return self._bash_mode
+---@return pi.PromptCommandMode
+function Layout:command_mode()
+    return self._command_mode
 end
 
---- Re-apply the prompt window title text and colors from the current
---- bash-mode / attention state. Bash mode wins over attention styling.
+--- Re-apply prompt title and colors. Command mode wins over attention styling.
 function Layout:_refresh_prompt_chrome()
     local pwin = self:prompt_win()
     if not pwin then
@@ -187,15 +201,16 @@ function Layout:_refresh_prompt_chrome()
 
     local prompt_cfg = Config.options.panels.prompt
     local request_title = self._prompt_request_kind == "confirm" and "confirm" or "choose"
+    local command_title = self._command_mode == "terminal" and "terminal" or (prompt_cfg.bash_title or "bash")
     local title = self._prompt_mode == "request" and request_title
-        or (self._bash_mode and (prompt_cfg.bash_title or "bash"))
+        or (self._command_mode ~= "compose" and command_title)
         or prompt_cfg.title
 
     if self._mode == "float" then
         local winhighlight = Highlights.CHAT_PROMPT_WINHIGHLIGHT
         if self._prompt_mode == "request" then
             winhighlight = Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
-        elseif self._bash_mode then
+        elseif self._command_mode ~= "compose" then
             winhighlight = Highlights.CHAT_PROMPT_BASH_WINHIGHLIGHT
         elseif self._has_attention then
             winhighlight = Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
@@ -214,7 +229,7 @@ function Layout:_refresh_prompt_chrome()
     local title_hl = "PiChatPromptWinbarTitle"
     if self._prompt_mode == "request" then
         title_hl = "PiChatPromptWinbarAttentionTitle"
-    elseif self._bash_mode then
+    elseif self._command_mode ~= "compose" then
         title_hl = "PiChatPromptWinbarBashTitle"
     elseif self._has_attention then
         title_hl = "PiChatPromptWinbarAttentionTitle"
@@ -274,7 +289,9 @@ function Layout.new(mode, history, prompt, attachments)
     self._prompt = prompt
     self._attachments = attachments
     self._has_attention = false
-    self._bash_mode = false
+    self._command_mode = "compose"
+    self._content_buf = nil
+    self._content_title = nil
     self._prompt_mode = "compose"
     self._prompt_request_kind = nil
     self._prompt_state = prompt:statusline():state()
@@ -299,6 +316,79 @@ end
 ---@param history pi.ChatHistory
 function Layout:set_history(history)
     self._history = history
+end
+
+---@param win integer
+function Layout:_configure_content_window(win)
+    if self._content_buf then
+        set_terminal_win_opts(win)
+        if self._mode == "side" and Config.resolve_side_layout().panels.history.winbar then
+            set_winbar(win, self._content_title or "local terminal", "PiChatHistoryWinbar")
+        elseif self._mode == "float" then
+            vim.wo[win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
+            pcall(vim.api.nvim_win_set_config, win, {
+                title = " " .. (self._content_title or "local terminal") .. " ",
+                title_pos = "center",
+            })
+        else
+            clear_winbar(win)
+        end
+        return
+    end
+    set_win_opts(win, function(target)
+        if self._mode == "buffer" then
+            vim.wo[target].foldenable = true
+            vim.wo[target].foldmethod = "expr"
+            vim.wo[target].foldexpr = "v:lua.require'pi.ui.chat.history'.nvim_foldexpr(v:lnum)"
+            vim.wo[target].foldtext = "v:lua.require'pi.ui.chat.history'.nvim_foldtext()"
+            vim.wo[target].foldlevel = 0
+            vim.wo[target].foldcolumn = "1"
+        elseif self._mode == "side" then
+            vim.wo[target].winfixwidth = true
+        end
+        if Render.engine() == "builtin" then
+            vim.wo[target].conceallevel = 0
+        end
+    end)
+    if self._mode == "side" and Config.resolve_side_layout().panels.history.winbar then
+        set_winbar(win, Config.options.panels.history.title, "PiChatHistoryWinbar")
+    elseif self._mode == "float" then
+        vim.wo[win].winbar = ""
+        vim.wo[win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
+        pcall(vim.api.nvim_win_set_config, win, {
+            title = " " .. Config.options.panels.history.title .. " ",
+            title_pos = "center",
+        })
+    elseif self._mode == "buffer" then
+        clear_winbar(win)
+    end
+end
+
+--- Replace chat History with another content buffer, or restore History with nil.
+---@param buf integer?
+---@param title? string
+function Layout:set_content_buffer(buf, title)
+    self._content_buf = buf
+    self._content_title = title
+    local win = self:history_win()
+    if not win then
+        return
+    end
+    if vim.api.nvim_win_get_buf(win) == (buf or self._history:buf()) then
+        self:_configure_content_window(win)
+        return
+    end
+    self._history:set_win(nil)
+    set_win_buf(win, buf or self._history:buf())
+    self:_configure_content_window(win)
+    if not buf then
+        self._history:set_win(win)
+    end
+end
+
+---@return integer
+function Layout:content_buf()
+    return self._content_buf or self._history:buf()
 end
 
 ---@param after_win integer
@@ -579,7 +669,7 @@ function Layout:_open_in_buffer_layout()
     local global_number = vim.go.number
     local global_relativenumber = vim.go.relativenumber
     self._history_win = self._return_win
-    set_win_buf(self._history_win, self._history:buf())
+    set_win_buf(self._history_win, self:content_buf())
     if self._return_buf and vim.api.nvim_buf_is_valid(self._return_buf) then
         local old_buf = self._return_buf
         if vim.api.nvim_buf_get_name(old_buf) == "" and not vim.bo[old_buf].modified then
@@ -604,8 +694,10 @@ function Layout:_open_in_buffer_layout()
             vim.wo[win].conceallevel = 0
         end
     end)
-    clear_winbar(self._history_win)
-    self._history:set_win(self._history_win)
+    self:_configure_content_window(self._history_win)
+    if not self._content_buf then
+        self._history:set_win(self._history_win)
+    end
 
     vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
     self._prompt_win = vim.api.nvim_get_current_win()
@@ -627,7 +719,7 @@ function Layout:_open_in_side_layout()
     vim.cmd(vsplit_cmd .. " " .. w .. "vsplit")
 
     self._history_win = vim.api.nvim_get_current_win()
-    set_win_buf(self._history_win, self._history:buf())
+    set_win_buf(self._history_win, self:content_buf())
     set_win_opts(self._history_win, function(win)
         vim.wo[win].winfixwidth = true
         -- Builtin engine: conceallevel=0 because treesitter markdown can't
@@ -637,10 +729,10 @@ function Layout:_open_in_side_layout()
             vim.wo[win].conceallevel = 0
         end
     end)
-    if panels.history.winbar then
-        set_winbar(self._history_win, Config.options.panels.history.title, "PiChatHistoryWinbar")
+    self:_configure_content_window(self._history_win)
+    if not self._content_buf then
+        self._history:set_win(self._history_win)
     end
-    self._history:set_win(self._history_win)
 
     local prompt_winbar = panels.prompt.winbar
     vim.cmd("belowright " .. Prompt.HEIGHT .. "split")
@@ -668,7 +760,7 @@ function Layout:_open_in_float_layout()
     local user_win = float_cfg.win or {}
 
     self._history_win = vim.api.nvim_open_win(
-        self._history:buf(),
+        self:content_buf(),
         false,
         vim.tbl_deep_extend("force", {
             relative = "editor",
@@ -686,10 +778,10 @@ function Layout:_open_in_float_layout()
     set_win_opts(self._history_win)
     vim.wo[self._history_win].winbar = ""
     vim.wo[self._history_win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
-    if Render.engine() == "builtin" then
-        vim.wo[self._history_win].conceallevel = 0
+    self:_configure_content_window(self._history_win)
+    if not self._content_buf then
+        self._history:set_win(self._history_win)
     end
-    self._history:set_win(self._history_win)
 
     self._prompt_win = vim.api.nvim_open_win(
         self._prompt:buf(),
@@ -790,8 +882,11 @@ function Layout:takeover(other)
     local hwin = self:history_win()
     if hwin then
         vim.wo[hwin].winfixbuf = false
-        set_win_buf(hwin, self._history:buf())
-        self._history:set_win(hwin)
+        set_win_buf(hwin, self:content_buf())
+        self:_configure_content_window(hwin)
+        if not self._content_buf then
+            self._history:set_win(hwin)
+        end
     end
 
     local pwin = self:prompt_win()

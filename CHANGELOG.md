@@ -2,6 +2,8 @@
 
 ## 2026-08-13
 
+- **CHANGED:** Prompt shell prefixes are now persistent command modes. `!command` still runs through pi's backend, streams into chat History, joins the next LLM context, and resets the prompt to `!`; each submission uses a fresh backend shell. `!!command` now bypasses pi RPC and runs inside one persistent, session-local Neovim terminal, preserving `cd` / `export` state while keeping command output out of chat History and LLM context. Entering `!!` swaps the History area to that terminal; deleting back to `!` or normal text restores chat History. `<C-g>t` or `pi.focus_terminal()` focuses the terminal for interactive input.
+
 - **CHANGED:** Completed full-block tools now keep their output folded by default, matching the pi TUI and preventing tool-heavy turns from flooding History. Tool names and argument summaries remain visible; complete output stays in the buffer and opens with existing `<Tab>` / native fold controls, while long output keeps its preview and read-only split flow. Inline tools such as `read` remain single-line.
 
 - **CHANGED:** Extension select and confirm requests now switch their owning session's prompt into a read-only `request` mode instead of opening global `vim.ui.select`. Options stay visibly attached to correct agent/session, compose draft and cursor restore afterward, `<Esc>` cannot dismiss request, `<CR>` confirms, `<C-c>` explicitly cancels, and multiple requests drain per-session FIFO.
@@ -174,7 +176,7 @@
 
 ## 2026-07-26
 
-- **ADDED:** Direct bash mode — prefix the prompt with `!` to run a shell command (e.g. `!ls -la`). Output streams live into a collapsible block in the history, and the result is added to the LLM context on the next prompt. `!!command` excludes output from context. The prompt panel title switches to `bash` (configurable via `panels.prompt.bash_title`) with a distinct foreground color while in bash mode. A single `<Esc>` cancels a running `!` command (`:PiAbortBash` / `pi.abort_bash()`). Bash execution messages replay correctly on session load/switch.
+- **ADDED:** Direct bash mode — prefix the prompt with `!` to run a shell command (e.g. `!ls -la`). Output streams live into a collapsible block in the history, and the result is added to the LLM context on the next prompt. At release time, `!!command` excluded output from context; persistent local-terminal semantics replaced that behavior on 2026-08-13. The prompt panel title switches to `bash` (configurable via `panels.prompt.bash_title`) with a distinct foreground color while in bash mode. A single `<Esc>` cancels a running `!` command (`:PiAbortBash` / `pi.abort_bash()`). Bash execution messages replay correctly on session load/switch.
 - **ADDED:** Pasting into the prompt now auto-attaches clipboard images. π wraps the global `vim.paste` handler: when the system clipboard holds an image, it is attached (as with `:PiPasteImage`) and the text paste is cancelled; any other paste is inserted as usual. Requires `img-clip.nvim`. Reliable for GUI paste; in a plain terminal use `:PiPasteImage` explicitly. Disable with `prompt.paste_image = false`.
 - **CHANGED:** Completed inline tools (e.g. `read`) now keep their colored header highlight instead of fading to muted gray, matching the behavior of block tools (`bash`, `edit`, `write`).
 - **FIXED:** Tool output no longer gets misparsed as markdown headings when using the `render-markdown` engine. Output is now wrapped in code fences in both expanded and collapsed views to prevent setext heading syntax (e.g. `===` lines) from triggering.

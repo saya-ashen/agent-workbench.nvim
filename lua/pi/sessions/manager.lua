@@ -638,6 +638,7 @@ local function destroy_session(session)
     end
     Attention.clear_session(session)
     session.chat:clear_prompt_request()
+    session.chat:destroy()
     session.rpc:stop()
     if session.chat:is_visible() then
         session.chat:hide()
@@ -689,7 +690,7 @@ function M.get_or_create(opts)
 
     local cwd = workspace_cwd
     local uri = Workspace.uri(cwd, nil, id)
-    local chat = Chat.new(tab, layout, agent, uri, id)
+    local chat = Chat.new(tab, layout, agent, uri, id, cwd)
     transcript_resources[uri] = chat:history()
 
     ---@type pi.Session
@@ -1413,6 +1414,9 @@ function M.setup_autocmds()
                 return
             end
             local active = active_by_tab[current_tab()]
+            if active and active.chat:owns_buffer(args.buf) then
+                return
+            end
             if active and active.chat:is_visible() then
                 local win = vim.api.nvim_get_current_win()
                 local kind = active.chat:focus_kind()
@@ -1470,6 +1474,7 @@ function M.setup_autocmds()
             for _, session in pairs(sessions) do
                 Attention.clear_session(session)
                 session.chat:clear_prompt_request()
+                session.chat:destroy()
                 session.rpc:stop()
             end
         end,

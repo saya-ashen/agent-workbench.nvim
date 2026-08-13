@@ -86,13 +86,13 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiChatPromptWinbar` | Winbar background for the prompt panel (side layout) |
 | `PiChatPromptWinbarTitle` | Winbar title for the prompt panel (side layout) |
 | `PiChatPromptWinbarAttentionTitle` | Winbar title for the prompt panel when attention is pending |
-| `PiChatPromptWinbarBashTitle` | Winbar title for the prompt panel in direct bash mode |
+| `PiChatPromptWinbarBashTitle` | Winbar title for the prompt panel in `!` / `!!` command modes |
 | `PiChatAttachmentsWinbar` | Winbar background for the attachments panel (side layout) |
 | `PiChatAttachmentsWinbarTitle` | Winbar title for the attachments panel (side layout) |
 | `PiChatHistoryFloatTitle` | Float title for the history panel (float layout) |
 | `PiChatPromptFloatTitle` | Float title for the prompt panel (float layout) |
 | `PiChatPromptFloatAttentionTitle` | Float title for the prompt panel when attention is pending |
-| `PiChatPromptFloatBashTitle` | Float title for the prompt panel in direct bash mode |
+| `PiChatPromptFloatBashTitle` | Float title for the prompt panel in `!` / `!!` command modes |
 | `PiPromptRequestTitle` | Title inside prompt request mode |
 | `PiPromptRequestSelected` | Selected option inside prompt request mode |
 | `PiChatAttachmentsFloatTitle` | Float title for the attachments panel (float layout) |

@@ -290,7 +290,7 @@ Detailed guides live in [`doc/`](doc/):
 
 | Doc | What's inside |
 | --- | --- |
-| [doc/usage.md](doc/usage.md) | Chat & layouts, prompt (submit/queue/abort), direct bash mode (`!`), prompt history & drafts, `@mentions`, slash commands, completion, attachments, zen mode, statusline, navigation, quickfix, tool blocks, models, thinking, markdown rendering, buffer reload, startup block |
+| [doc/usage.md](doc/usage.md) | Chat & layouts, prompt (submit/queue/abort), persistent command modes (`!` / `!!`), prompt history & drafts, `@mentions`, slash commands, completion, attachments, zen mode, statusline, navigation, quickfix, tool blocks, models, thinking, markdown rendering, buffer reload, startup block |
 | [doc/sessions.md](doc/sessions.md) | Tab-backed workspaces, buffer-owned sessions, storage & cwd scoping, continue/resume, session tree (`:PiTree`), sessions overview (`:PiSessions`), compaction |
 | [doc/diff-review.md](doc/diff-review.md) | Two-way diff review of agent edits, review notes, permission-extension protocol reference, session diff review (`:PiDiff`) |
 | [doc/attention.md](doc/attention.md) | Attention queue, dialogs, notifications, queue inspection API |
@@ -314,7 +314,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 **Prompt & input**
 
 - [Dynamic `@mention` providers](doc/usage.md#dynamic-mentions) — `@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix` (plus custom `mention_providers`) attach live state to your message at send time.
-- [Direct bash mode (`!`)](doc/usage.md#direct-bash-mode-) — run shell commands straight from the prompt, output streams into the chat and joins the next prompt's context.
+- [Persistent command modes (`!` / `!!`)](doc/usage.md#persistent-command-modes---) — `!` runs pi backend commands into chat/LLM context; `!!` opens a persistent local Neovim terminal outside LLM context.
 - [Readline-style prompt history](doc/usage.md#prompt-history) — `<C-p>` / `<C-n>` recall, persisted to disk.
 - [Unsent-draft persistence](doc/usage.md#draft-persistence) — the prompt text survives restarts.
 - [Clipboard image paste](doc/usage.md#attachments) — pasting into the prompt while the clipboard holds an image attaches it; the rest of the editor's paste is untouched.

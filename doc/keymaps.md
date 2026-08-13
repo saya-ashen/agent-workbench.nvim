@@ -7,6 +7,7 @@ What the plugin does bind on its own:
 - Submission keys in the prompt buffer (`<CR>`, `<A-CR>`, `<S-CR>` — see [Usage → Prompt](usage.md#prompt)).
 - `<Esc>` / double-`<Esc>` abort gestures (see [Usage → Aborting](usage.md#aborting-with-double-esc)).
 - `<C-p>` / `<C-n>` / `<Up>` / `<Down>` prompt-history recall (see [Usage → Prompt history](usage.md#prompt-history)).
+- `<C-g>t` focuses the persistent local terminal while prompt is in `!!` mode; terminal Normal-mode `q` returns to prompt (see [Usage → Local terminal](usage.md#local-terminal-)).
 - Prompt request mode uses `j`/`k`/`↑`/`↓` to select, `<CR>` to confirm, and `<C-c>` to cancel; `<Esc>` never dismisses request (see [Attention → Prompt request mode](attention.md#prompt-request-mode)).
 - `<Tab>` opens complete long tool output in a viewer (and toggles short output inline); `za` / `<CR>` / `o` toggle block previews, while `gf` opens the file under the cursor in the history buffer.
 - `dd` / `x` to remove an entry in the attachments buffer.

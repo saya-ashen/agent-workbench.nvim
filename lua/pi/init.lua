@@ -150,6 +150,14 @@ function M.abort()
     end
 end
 
+--- Focus persistent local terminal used by !! prompt mode.
+function M.focus_terminal()
+    local session = require("pi.sessions.manager").get()
+    if session then
+        session.chat:focus_terminal()
+    end
+end
+
 --- Abort a running direct bash command (! prefix).
 function M.abort_bash()
     local session = require("pi.sessions.manager").get()

@@ -5,6 +5,7 @@
 
 ---@class pi.Chat
 ---@field _tab pi.TabId
+---@field _session_id integer
 ---@field _agent pi.ChatAgent
 ---@field _layout pi.ChatLayout
 ---@field _history pi.ChatHistory
@@ -32,6 +33,9 @@
 ---@field _bash_running boolean
 ---@field _bash_req_id string?
 ---@field _bash_req_counter integer
+---@field _cwd string
+---@field _terminal_buf integer?
+---@field _terminal_job integer?
 local Chat = {}
 Chat.__index = Chat
 
@@ -60,11 +64,13 @@ local PromptHistory = require("pi.prompt_history")
 ---@param agent pi.ChatAgent
 ---@param history_name? string
 ---@param session_id? integer
+---@param cwd? string
 ---@return pi.Chat
-function Chat.new(tab, mode, agent, history_name, session_id)
+function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     local self = setmetatable({}, Chat)
     self._tab = tab
     self._session_id = session_id or tab
+    self._cwd = cwd or vim.uv.cwd()
     self._agent = agent
     self._attachments = Attachments.new()
     self._prompt = Prompt.new(self._session_id, self._attachments)
@@ -94,8 +100,12 @@ function Chat.new(tab, mode, agent, history_name, session_id)
     self._bash_running = false
     self._bash_req_id = nil
     self._bash_req_counter = 0
-    self._prompt:set_on_bash_mode_change(function(is_bash)
-        self._layout:set_bash_mode(is_bash)
+    self._terminal_buf = nil
+    self._terminal_job = nil
+    self._layout:set_command_mode(self._prompt:command_mode())
+    self._prompt:set_on_command_mode_change(function(command_mode)
+        self._layout:set_command_mode(command_mode)
+        self:_show_command_mode(command_mode)
     end)
     -- History owns busy/queue rendering at latest output; statusline still keeps
     -- the same busy state for prompt winbar and API consumers.
@@ -250,6 +260,10 @@ function Chat:_set_keymaps()
     vim.keymap.set("n", "<Esc>", function()
         self:_handle_abort_esc()
     end, { buffer = hbuf, desc = "Double-<Esc> aborts π" })
+
+    vim.keymap.set({ "i", "n" }, "<C-g>t", function()
+        self:focus_terminal()
+    end, { buffer = pbuf, desc = "Focus π local terminal" })
 
     -- Prompt history recall (readline-style). <C-p>/<C-n> are the canonical
     -- readline keys and never conflict with multi-line cursor movement.
@@ -425,6 +439,19 @@ function Chat:hide()
     self._layout:hide()
 end
 
+function Chat:destroy()
+    local job = self._terminal_job
+    self._terminal_job = nil
+    if job and vim.fn.jobwait({ job }, 0)[1] == -1 then
+        pcall(vim.fn.jobstop, job)
+    end
+    local buf = self._terminal_buf
+    self._terminal_buf = nil
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
+end
+
 --- Handle editor resize. Re-evaluates layout config and updates geometry.
 function Chat:on_resize()
     self._layout:on_resize()
@@ -484,7 +511,9 @@ end
 ---@param other pi.Chat
 function Chat:takeover_view(other)
     self:set_tab(vim.api.nvim_get_current_tabpage())
+    other._layout:set_content_buffer(nil)
     self._layout:takeover(other._layout)
+    self:_show_command_mode(self._prompt:command_mode())
     self:_set_keymaps()
     self:refresh_prompt_attention()
 end
@@ -548,6 +577,15 @@ end
 ---@return integer?
 function Chat:prompt_win()
     return self._layout:prompt_win()
+end
+
+---@param buf integer
+---@return boolean
+function Chat:owns_buffer(buf)
+    return buf == self:history_buf()
+        or buf == self:prompt_buf()
+        or buf == self:attachments_buf()
+        or (self._terminal_buf ~= nil and buf == self._terminal_buf)
 end
 
 ---@return "history"|"prompt"|"attachments"|nil
@@ -1055,16 +1093,22 @@ end
 function Chat:_send_message(queue_type)
     local text = self._prompt:text()
 
-    -- Direct bash execution (! prefix) runs immediately, independent of
-    -- streaming/queue state — mirroring the pi TUI. "!!" excludes the
-    -- command's output from the LLM context.
-    if text:match("^!") then
-        local exclude = text:match("^!!") ~= nil
-        local command = vim.trim(text:sub(exclude and 3 or 2))
+    local prefixed = text:match("^%s*(.*)$") or text
+    if prefixed:sub(1, 2) == "!!" then
+        local command = vim.trim(prefixed:sub(3))
         if command ~= "" then
-            self:_send_bash(text, command, exclude)
-            return
+            self:_send_terminal(text, command)
         end
+        return
+    end
+
+    -- Direct backend bash runs independently of agent streaming state.
+    if prefixed:sub(1, 1) == "!" then
+        local command = vim.trim(prefixed:sub(2))
+        if command ~= "" then
+            self:_send_bash(text, command)
+        end
+        return
     end
 
     -- Local controls mirror agent-client's built-in slash commands. Backend
@@ -1132,9 +1176,8 @@ end
 --- Output streams into a dedicated history block via bash_execution_update
 --- events; the response completes the block.
 ---@param raw_text string original prompt text (recorded in prompt history)
----@param command string command with the !/!! prefix stripped
----@param exclude boolean exclude the output from the LLM context (!! prefix)
-function Chat:_send_bash(raw_text, command, exclude)
+---@param command string command with the ! prefix stripped
+function Chat:_send_bash(raw_text, command)
     if self._bash_running then
         Notify.warn("A bash command is already running. Press <Esc> to cancel it first.")
         return
@@ -1154,21 +1197,18 @@ function Chat:_send_bash(raw_text, command, exclude)
         self._attachments:clear()
     end
 
-    self._prompt:clear_text()
+    self._prompt:set_text("!")
 
     self._bash_req_counter = self._bash_req_counter + 1
     local req_id = self._tab .. ":bash:" .. self._bash_req_counter
     self._bash_running = true
     self._bash_req_id = req_id
 
-    self._history:on_bash_start(req_id, command, exclude)
+    self._history:on_bash_start(req_id, command, false)
     self:set_status({ type = "agent", text = "Running…" })
 
     ---@type pi.RpcCommand
     local cmd = { type = "bash", id = req_id, command = command }
-    if exclude then
-        cmd.excludeFromContext = true
-    end
     local sent = self._agent.send(cmd, function(res)
         vim.schedule(function()
             self:_on_bash_response(req_id, res)
@@ -1177,6 +1217,105 @@ function Chat:_send_bash(raw_text, command, exclude)
     if not sent then
         self:_on_bash_response(req_id, { type = "response", success = false, error = "Process not running" })
     end
+end
+
+---@return boolean
+function Chat:_terminal_alive()
+    return self._terminal_job ~= nil and vim.fn.jobwait({ self._terminal_job }, 0)[1] == -1
+end
+
+---@return boolean
+function Chat:_ensure_terminal()
+    if self:_terminal_alive() and self._terminal_buf and vim.api.nvim_buf_is_valid(self._terminal_buf) then
+        return true
+    end
+    if self._terminal_buf and vim.api.nvim_buf_is_valid(self._terminal_buf) then
+        pcall(vim.api.nvim_buf_delete, self._terminal_buf, { force = true })
+    end
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].bufhidden = "hide"
+    vim.api.nvim_buf_set_name(buf, ("π local terminal | %s"):format(self._session_id))
+    local job
+    local ok, err = pcall(function()
+        job = vim.api.nvim_buf_call(buf, function()
+            return vim.fn.termopen(vim.o.shell, {
+                cwd = self._cwd,
+                on_exit = function()
+                    vim.schedule(function()
+                        if self._terminal_job == job then
+                            self._terminal_job = nil
+                        end
+                    end)
+                end,
+            })
+        end)
+    end)
+    if not ok or not job or job <= 0 then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        Notify.error("Failed to start local terminal: " .. tostring(err or job))
+        return false
+    end
+    self._terminal_buf = buf
+    self._terminal_job = job
+    vim.keymap.set("n", "q", function()
+        self:focus_prompt()
+    end, { buffer = buf, desc = "Return to π prompt" })
+    if self._prompt:command_mode() == "terminal" then
+        self._layout:set_content_buffer(buf, "local terminal · not in LLM context")
+    end
+    return true
+end
+
+---@param mode pi.PromptCommandMode
+function Chat:_show_command_mode(mode)
+    if mode == "terminal" then
+        if self:_ensure_terminal() then
+            self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
+        end
+        return
+    end
+    self._layout:set_content_buffer(nil)
+end
+
+---@param raw_text string
+---@param command string
+function Chat:_send_terminal(raw_text, command)
+    if self._attachments:count() > 0 then
+        Notify.warn("Attachments cannot be sent to local terminal")
+        return
+    end
+    if not self:_ensure_terminal() then
+        return
+    end
+    local hist_store = self:_history_store()
+    if hist_store then
+        hist_store:add(raw_text)
+    end
+    local ok, err = pcall(vim.api.nvim_chan_send, self._terminal_job, command .. "\n")
+    if not ok then
+        self._terminal_job = nil
+        Notify.error("Failed to send local terminal command: " .. tostring(err))
+        return
+    end
+    self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
+    self._prompt:set_text("!!")
+end
+
+function Chat:focus_terminal()
+    if self._prompt:command_mode() ~= "terminal" or not self:_ensure_terminal() then
+        Notify.warn("Enter !! local terminal mode first")
+        return
+    end
+    if not self:is_visible() then
+        self:show()
+    end
+    self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
+    local win = self._layout:history_win()
+    if not win then
+        return
+    end
+    vim.api.nvim_set_current_win(win)
+    vim.cmd("startinsert")
 end
 
 --- Complete the bash block for req_id from the RPC response.

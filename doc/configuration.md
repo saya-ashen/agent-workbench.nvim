@@ -49,7 +49,7 @@ require("pi").setup({
     -- Chat panels
     panels = {
         history = { title = "π" },
-        prompt = { title = "prompt", bash_title = "bash" },
+        prompt = { title = "prompt", bash_title = "bash" }, -- `!!` uses built-in "terminal" title
         attachments = { title = "attached" },
     },
 

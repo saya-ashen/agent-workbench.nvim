@@ -5,7 +5,7 @@ This page walks through how `pi2.nvim` actually works in practice. Each subsecti
 - [Chat & layouts](#chat--layouts)
 - [Prompt](#prompt)
 - [Aborting with double `<Esc>`](#aborting-with-double-esc)
-- [Direct bash mode (`!`)](#direct-bash-mode-)
+- [Persistent command modes (`!` / `!!`)](#persistent-command-modes---)
 - [Prompt history](#prompt-history)
 - [Draft persistence](#draft-persistence)
 - [Mentions](#mentions)
@@ -48,7 +48,7 @@ The filetype names are stable — you can target them from your own `FileType` a
 
 Use `:PiToggleLayout` to swap `buffer` ↔ `float` without losing conversation, and `:PiToggleChat` to hide and re-show chat windows. `side` remains available through explicit layout selection. Neither stops agent. To shut down underlying `pi --mode rpc`, use `:PiStop`.
 
-Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string; defaults: `π`, `prompt`, `attached`). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars. The prompt panel has an extra `panels.prompt.bash_title`: while the prompt text starts with `!` (direct bash mode, see below), the prompt title switches to this string and is drawn with the `PiChatPromptWinbarBashTitle` / `PiChatPromptFloatBashTitle` highlight groups (a distinct foreground color, derived from `WarningMsg` by default) so it's obvious you're about to run a shell command rather than message the agent.
+Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string; defaults: `π`, `prompt`, `attached`). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars. The prompt panel has an extra `panels.prompt.bash_title`: while the prompt uses backend `!` mode, its title switches to this string. Local `!!` mode uses the built-in `terminal` title. Both command modes use the `PiChatPromptWinbarBashTitle` / `PiChatPromptFloatBashTitle` highlight groups (a distinct foreground color, derived from `WarningMsg` by default), so it is obvious `<CR>` runs a command rather than messaging the agent.
 
 ### Block folding
 
@@ -111,19 +111,28 @@ require("pi").setup({
 })
 ```
 
-## Direct bash mode (`!`)
+## Persistent command modes (`!` / `!!`)
 
-Just like the π TUI, you can run a shell command straight from the prompt by prefixing it with `!` — e.g. `!ls -la` or `!git status`. This mirrors pi's built-in bash mode: the command is executed immediately by the agent backend (via the RPC `bash` command), its output streams into the chat as it arrives, and the result is added to the LLM context on the **next** prompt (so the model can see what you just ran). It runs independently of the agent's streaming state — you can fire a `!` command even while a turn is in progress.
+The prompt supports two persistent command modes. Type a prefix to enter; after each command the prefix remains in the prompt for the next command. Delete the prefix to leave the mode (`!!` → `!` switches from local terminal to backend bash; deleting the remaining `!` returns to normal compose mode). Submitting a bare prefix does nothing.
 
-While the prompt text starts with `!` (leading whitespace is ignored), the prompt panel's title switches to `panels.prompt.bash_title` (default `"bash"`) and is drawn in a distinct foreground color, so you can tell at a glance that `<CR>` will run a shell command instead of messaging the agent. Removing the leading `!` switches the title back. In float layout the same switch applies to the prompt window's border title and `winhighlight`.
+### Backend bash (`!`)
 
-A few details that match the TUI:
+Prefix a command with `!`, for example `!ls -la`. Pi's backend executes it through the RPC `bash` command, output streams into a collapsible chat History block, and the result joins LLM context on the **next** prompt. After submission the prompt resets to `!`. Only one backend command runs at a time; a single `<Esc>` cancels it, as do `:PiAbortBash` and `pi.abort_bash()`.
 
-- `!!command` runs the command but **excludes** its output from the LLM context — handy for noisy or private output you don't want the model to see. The block renders dimmer to mark it as excluded.
-- Output streams live into a collapsible block (`▾ $ <command>` header, indented output, fold with `<Tab>` like any other block). Multi-line commands show each line under the header. Non-zero exit codes render as `(exit N)`, cancellations as `(cancelled)`, and truncated output notes the full-output temp path.
-- Only one direct bash command can run at a time. Submitting another while one is running is rejected with a warning (press `<Esc>` to cancel the running one first, same as the TUI).
-- A single `<Esc>` (in either insert or normal mode on the prompt) cancels a running `!` command — the same as `:PiAbortBash` / `pi.abort_bash()`. This is separate from the double-`<Esc>` agent abort above: `<Esc>` cancels a bash command when one is running, and arms the double-`<Esc>` agent abort when the agent is streaming.
-- `!` commands are recorded in the prompt history, so `<C-p>` / `<Up>` recalls them like normal prompts.
+Each backend command starts a fresh shell, so `cd`, `export`, aliases, and shell functions do not persist across `!` submissions. Chain state-dependent work in one command.
+
+### Local terminal (`!!`)
+
+Prefix a command with `!!`, for example `!!git status`. Pi switches the History area to one persistent Neovim terminal owned by the current session and sends the command directly to that terminal channel. Commands never pass through pi RPC and never join LLM context. Shell state persists, so `cd`, `export`, aliases, and functions remain available to later `!!` commands. Leaving `!!` restores chat History; entering it again reveals the same terminal transcript and shell process.
+
+The terminal is session-local and starts in that session's workspace cwd. It survives chat hide/show and layout changes, then stops with the owning session. Use `<C-g>t` from the prompt, or `:lua require("pi").focus_terminal()`, to focus it for interactive programs. In terminal Normal mode, `q` returns focus to the prompt.
+
+Minimal-mode limits:
+
+- Plugin does not parse shell prompts, completion markers, or exit codes; terminal itself renders all output.
+- Prompt submission appends one newline. Multi-line shell editing and interactive input work best after focusing the terminal.
+- Attachments cannot be sent with `!!`; they stay attached and a warning is shown.
+- `!!` means excluded from LLM context, not private: local shell commands can still affect files and external systems.
 
 ## Prompt history
 

@@ -8,8 +8,8 @@
 ---@field _attachments pi.ChatAttachments
 ---@field _tab pi.TabId
 ---@field _zen boolean
----@field _bash_mode boolean
----@field _on_bash_mode_change fun(is_bash: boolean)?
+---@field _command_mode pi.PromptCommandMode
+---@field _on_command_mode_change fun(mode: pi.PromptCommandMode)?
 ---@field _on_mode_change fun(mode: pi.PromptMode, kind?: pi.PromptRequestKind)?
 ---@field _mode pi.PromptMode
 ---@field _request pi.PromptRequest?
@@ -21,6 +21,7 @@ local Prompt = {}
 Prompt.__index = Prompt
 
 ---@alias pi.PromptMode "compose"|"request"
+---@alias pi.PromptCommandMode "compose"|"bash"|"terminal"
 ---@alias pi.PromptRequestKind "select"|"confirm"
 
 ---@class pi.PromptRequest
@@ -83,8 +84,8 @@ function Prompt.new(key, attachments)
     self._attachments = attachments
     self._tab = vim.api.nvim_get_current_tabpage()
     self._zen = false
-    self._bash_mode = false
-    self._on_bash_mode_change = nil
+    self._command_mode = "compose"
+    self._on_command_mode_change = nil
     self._on_mode_change = nil
     self._mode = "compose"
     self._request = nil
@@ -224,7 +225,7 @@ function Prompt.new(key, attachments)
             self:resize()
             self:_render_statusline()
             if self._mode == "compose" then
-                self:_refresh_bash_mode()
+                self:_refresh_command_mode()
             end
         end,
     })
@@ -286,9 +287,14 @@ function Prompt:set_on_status_change(cb)
     self._statusline:set_on_change(cb)
 end
 
----@param cb fun(is_bash: boolean)
-function Prompt:set_on_bash_mode_change(cb)
-    self._on_bash_mode_change = cb
+---@param cb fun(mode: pi.PromptCommandMode)
+function Prompt:set_on_command_mode_change(cb)
+    self._on_command_mode_change = cb
+    local previous = self._command_mode
+    self._command_mode = self:_compute_command_mode()
+    if self._command_mode ~= previous or self._command_mode ~= "compose" then
+        cb(self._command_mode)
+    end
 end
 
 ---@param cb fun(mode: pi.PromptMode, kind?: pi.PromptRequestKind)
@@ -306,33 +312,38 @@ function Prompt:is_request_mode()
     return self._mode == "request" and self._request ~= nil
 end
 
----@return boolean
-function Prompt:is_bash_mode()
-    return self._bash_mode
+---@return pi.PromptCommandMode
+function Prompt:command_mode()
+    return self._command_mode
 end
 
---- Bash mode is active when the prompt text starts with "!" (leading
---- whitespace ignored), mirroring the pi TUI's editor behavior.
----@return boolean
-function Prompt:_compute_bash_mode()
-    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
-        return false
+--- Resolve compose, backend bash, or local terminal mode from prompt prefix.
+--- Leading whitespace stays compatible with existing direct-bash behavior.
+---@return pi.PromptCommandMode
+function Prompt:_compute_command_mode()
+    if self._mode ~= "compose" or not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return "compose"
     end
     local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")
-    return text:match("^%s*!") ~= nil
+    local trimmed = text:match("^%s*(.*)$") or text
+    if trimmed:sub(1, 2) == "!!" then
+        return "terminal"
+    end
+    if trimmed:sub(1, 1) == "!" then
+        return "bash"
+    end
+    return "compose"
 end
 
---- Recompute bash mode from the buffer text and notify on change. Called on
---- text changes; also invoked explicitly after programmatic edits since
---- TextChangedI is deferred and may not have fired yet (gotcha G4).
-function Prompt:_refresh_bash_mode()
-    local is_bash = self:_compute_bash_mode()
-    if is_bash == self._bash_mode then
+--- Recompute command mode after user or programmatic edits.
+function Prompt:_refresh_command_mode()
+    local mode = self:_compute_command_mode()
+    if mode == self._command_mode then
         return
     end
-    self._bash_mode = is_bash
-    if self._on_bash_mode_change then
-        self._on_bash_mode_change(is_bash)
+    self._command_mode = mode
+    if self._on_command_mode_change then
+        self._on_command_mode_change(mode)
     end
 end
 
@@ -426,8 +437,7 @@ function Prompt:text()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return ""
     end
-    local lines = self:is_request_mode() and self._compose_lines
-        or vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+    local lines = self:is_request_mode() and self._compose_lines or vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
     return vim.fn.trim(table.concat(lines or {}, "\n"))
 end
 
@@ -489,6 +499,7 @@ function Prompt:set_request(request)
     self._request = request
     self._request.selected = math.max(1, math.min(request.selected or 1, #request.options))
     self._mode = "request"
+    self:_refresh_command_mode()
     vim.cmd("stopinsert")
     self:_render_request()
     if request.timeout and request.timeout > 0 then
@@ -554,7 +565,7 @@ function Prompt:_finish_request(value, expired)
     self._compose_cursor = nil
     self:resize()
     self:_render_statusline()
-    self:_refresh_bash_mode()
+    self:_refresh_command_mode()
     if self._on_mode_change then
         self._on_mode_change("compose")
     end
@@ -569,17 +580,29 @@ function Prompt:clear_request()
     self:_finish_request(nil, true)
 end
 
-function Prompt:clear_text()
+---@param text string
+function Prompt:set_text(text)
     if self:is_request_mode() then
-        self._compose_lines = { "" }
+        self._compose_lines = vim.split(text, "\n", { plain = true })
         return
     end
-    if self._buf and vim.api.nvim_buf_is_valid(self._buf) then
-        vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })
-        self:resize()
-        self:_render_statusline()
-        self:_refresh_bash_mode()
+    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+        return
     end
+    local lines = vim.split(text, "\n", { plain = true })
+    vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, #lines > 0 and lines or { "" })
+    local win = self:win()
+    if win then
+        local row = math.max(#lines, 1)
+        pcall(vim.api.nvim_win_set_cursor, win, { row, #(lines[row] or "") })
+    end
+    self:resize()
+    self:_render_statusline()
+    self:_refresh_command_mode()
+end
+
+function Prompt:clear_text()
+    self:set_text("")
 end
 
 --- Persist the current prompt text as the unsent draft (empty text clears it).
