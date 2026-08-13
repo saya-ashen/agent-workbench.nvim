@@ -30,13 +30,17 @@ function M.values(history)
     local values = {}
     local message_ranges = {}
     local line_count = vim.api.nvim_buf_line_count(history._buf)
-    local i = 1
-    while i <= #history._message_blocks do
-        local block = history._message_blocks[i]
+    local index = 1
+    while index <= #history._message_blocks do
+        local block = history._message_blocks[index]
         local row = history:_extmark_row(block.anchor)
-        local next_index = i + 1
-        if block.role == "assistant" then
-            while next_index <= #history._message_blocks and history._message_blocks[next_index].role == "assistant" do
+        local next_index = index + 1
+        if block.role == "assistant" and block.section == "activity" then
+            while
+                next_index <= #history._message_blocks
+                and history._message_blocks[next_index].role == "assistant"
+                and history._message_blocks[next_index].section == "activity"
+            do
                 next_index = next_index + 1
             end
         end
@@ -49,7 +53,7 @@ function M.values(history)
                 add_fold(values, row, last, 1)
             end
         end
-        i = next_index
+        index = next_index
     end
 
     local function nested_level(row)
@@ -114,6 +118,14 @@ function M.refresh(history)
     for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
         vim.api.nvim_win_call(win, function()
             local view = vim.fn.winsaveview()
+            local message_states = {}
+            local fold_values = M.values(history)
+            for _, block in ipairs(history._message_blocks) do
+                local row = history:_extmark_row(block.anchor)
+                if row and tostring(fold_values[row + 1] or ""):match("^>") then
+                    message_states[block.anchor] = vim.fn.foldclosed(row + 1) == -1
+                end
+            end
             for _, block in pairs(history._tool_blocks) do
                 if block.foldable and not block._skip_fold_capture then
                     local row = history:_extmark_row(block.icon_extmark)
@@ -124,6 +136,12 @@ function M.refresh(history)
             end
 
             vim.cmd("silent! normal! zx")
+            for anchor, open in pairs(message_states) do
+                local row = history:_extmark_row(anchor)
+                if row then
+                    vim.cmd("silent! " .. (row + 1) .. (open and "foldopen" or "foldclose"))
+                end
+            end
             for _, block in pairs(history._tool_blocks) do
                 if block.foldable and not block.expanded then
                     local row = history:_extmark_row(block.icon_extmark)
@@ -299,6 +317,9 @@ function M.foldtext(history, start_row, end_row)
                 preview = tool_count .. (tool_count == 1 and " tool" or " tools")
             end
             local hl = message.role == "user" and "PiUserMessageLabel" or "PiAgentResponseLabel"
+            if message.role == "assistant" then
+                header = header .. (message.section == "activity" and "  Agent Activity" or "  Agent Output")
+            end
             return build_fold_text(header, hl, preview or "(empty)", nil, nil, line_count)
         end
     end
@@ -321,7 +342,16 @@ end
 ---@param status_anchor? integer
 function M.activate_output(history, anchor, level, status_anchor)
     local previous = history._active_fold_anchors[level]
-    if previous and previous ~= anchor then
+    local close_previous = level > 1
+    if level == 1 and previous then
+        for _, block in ipairs(history._message_blocks) do
+            if block.anchor == previous then
+                close_previous = block.section == "activity"
+                break
+            end
+        end
+    end
+    if close_previous and previous ~= anchor then
         local row = history:_extmark_row(previous)
         if row then
             for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
@@ -353,6 +383,49 @@ function M.activate_output(history, anchor, level, status_anchor)
     end
 end
 
+--- Close old outputs once while keeping latest completed results readable.
+--- `output_aged` prevents later lifecycle refreshes from overriding a manual reopen.
+---@param history pi.ChatHistory
+---@param keep integer
+function M.age_outputs(history, keep)
+    local seen = 0
+    for index = #history._message_blocks, 1, -1 do
+        local block = history._message_blocks[index]
+        if block.role == "assistant" and block.section == "output" then
+            seen = seen + 1
+            if seen > keep and not block.output_aged then
+                local row = history:_extmark_row(block.anchor)
+                if row then
+                    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+                        vim.api.nvim_win_call(win, function()
+                            vim.cmd("silent! " .. (row + 1) .. "foldclose")
+                        end)
+                    end
+                end
+                block.output_aged = true
+            end
+        end
+    end
+end
+
+---@param history pi.ChatHistory
+---@param keep integer
+function M.finish_replaying(history, keep)
+    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+        vim.api.nvim_win_call(win, function()
+            for _, block in ipairs(history._message_blocks) do
+                if block.role == "assistant" then
+                    local row = history:_extmark_row(block.anchor)
+                    if row then
+                        vim.cmd("silent! " .. (row + 1) .. (block.section == "activity" and "foldclose" or "foldopen"))
+                    end
+                end
+            end
+        end)
+    end
+    M.age_outputs(history, keep)
+end
+
 ---@param history pi.ChatHistory
 function M.open_active(history)
     for level = 1, 2 do
@@ -374,15 +447,25 @@ end
 function M.close_active(history)
     local child = history._active_fold_anchors[2]
     local child_row = child and history:_extmark_row(child) or nil
-    local parent = history._active_fold_anchors[1]
-    local parent_row = parent and history:_extmark_row(parent) or nil
+    local turn_blocks = {}
+    for index = #history._message_blocks, 1, -1 do
+        local block = history._message_blocks[index]
+        if block.role ~= "assistant" then
+            break
+        end
+        table.insert(turn_blocks, 1, block)
+    end
     for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
         vim.api.nvim_win_call(win, function()
             if child_row then
                 vim.cmd("silent! " .. (child_row + 1) .. "foldclose")
             end
-            if parent_row then
-                vim.cmd("silent! " .. (parent_row + 1) .. "foldopen")
+            for _, block in ipairs(turn_blocks) do
+                local row = history:_extmark_row(block.anchor)
+                if row then
+                    local command = block.section == "activity" and "foldclose" or "foldopen"
+                    vim.cmd("silent! " .. (row + 1) .. command)
+                end
             end
         end)
     end

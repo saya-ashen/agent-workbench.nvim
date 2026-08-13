@@ -1,13 +1,13 @@
 # Attention & dialogs
 
-Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the [diff review](diff-review.md) are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. pi2.nvim calls these **attention requests**, and they share a single queue and UI surface.
+Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the [diff review](diff-review.md) are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. pi2.nvim calls these **attention requests**. Selects and confirms use a session-local prompt mode; other request types share the existing attention queue and dialog surfaces.
 
 ## Immediate vs queued
 
 When a request arrives, pi2.nvim decides between showing it immediately and queueing it:
 
-- **Immediate** — if the current tab's π prompt is focused _and_ has no draft text, the request is dispatched right away. This is the common case while you're actively working with the agent: confirmations, selects, and diffs just pop up as soon as they're needed.
-- **Queued** — otherwise (you're editing another file, you have draft text in the prompt, you're in a different tab, etc.), the request is added to a per-session queue, an attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. The agent stays blocked on that request regardless.
+- **Immediate** — if the current tab's π prompt is focused and no request is already active, the request is dispatched right away. Selects and confirms replace the prompt's visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
+- **Queued** — otherwise (you're editing another file, you're in a different tab, or that session already has an active request), the request is added to a per-session FIFO queue, an attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
 
 Queued requests can be opened on demand with:
 
@@ -18,7 +18,7 @@ Both are no-ops when there's nothing queued.
 
 ## Auto-open on prompt focus
 
-By default (`attention.auto_open_on_prompt_focus = true`), simply focusing the π prompt with an empty draft pulls the next queued request for the current tab automatically. This matches the mental model of "the prompt is the place where the agent talks to you" — when you show up at the prompt ready to interact, π dispatches whatever's pending.
+By default (`attention.auto_open_on_prompt_focus = true`), focusing π prompt pulls next queued request for current tab automatically when no request is already active. Existing compose draft is preserved while select/confirm mode is active and restored afterward.
 
 Disable this if you prefer to control the timing manually:
 
@@ -69,9 +69,20 @@ vim.api.nvim_create_autocmd("User", {
 
 The built-in `attention` statusline component already uses this state — see [Statusline](usage.md#statusline) for its icon/counter options.
 
-## Dialog UI
+## Prompt request mode
 
-Selects and confirms render through `vim.ui.select`, so they appear in whatever picker you have configured (telescope's `ui-select` extension, snacks.nvim, the built-in picker, …). Every call passes a stable `kind` — `pi-thinking-level`, `pi-model`, `pi-resume-session`, `pi-diff-note`, `pi-extension-select`, `pi-confirm`, or plain `pi-select` — which picker backends can use for per-source customization. Inputs and editors are custom floating windows with the `pi-dialog` filetype. Style and keys for the floats live under `dialog` in `setup()`:
+Extension selects and confirms switch their owning session's `pi-chat-prompt` buffer from `compose` mode to `request` mode. Prompt title becomes `CHOOSE` or `CONFIRM`; question and options render read-only in that session's prompt window. This keeps parallel agents distinguishable and prevents `<Esc>` from accidentally cancelling a blocking request.
+
+| Key | Action |
+| --- | --- |
+| `j`, `k`, `↑`, `↓` | Move selection |
+| `<CR>` | Confirm selected option |
+| `<Esc>` | Leave Insert mode only; request stays active |
+| `<C-c>` | Explicitly cancel request |
+
+Compose draft, cursor, attachments, and prompt history remain untouched. After response, prompt returns to `compose` mode and restores draft. Multiple requests for one session drain FIFO. Requests in other sessions remain attached to those sessions and are exposed through workspace attention indicators.
+
+Plugin-local model/thinking/diff-note pickers still use `vim.ui.select`. Inputs and editors remain custom floating windows with `pi-dialog` filetype. Style and keys for these floats live under `dialog` in `setup()`:
 
 ```lua
 require("pi").setup({

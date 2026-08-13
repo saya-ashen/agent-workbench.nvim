@@ -316,24 +316,29 @@ local function build_entry(session, msg)
                 if timeout ~= nil and timeout <= 0 then
                     return false
                 end
-                Dialog.select({
-                    title = "Select",
-                    message = msg.title,
+                return session.chat:present_prompt_request({
+                    id = id,
+                    kind = "select",
+                    title = msg.title or "Select",
                     options = msg.options or {},
-                    kind = "pi-extension-select",
-                }, function(choice)
-                    local remaining = remaining_timeout_ms(expires_at)
-                    if remaining ~= nil and remaining <= 0 then
-                        notify_expired("select")
-                        return
-                    end
-                    if choice then
-                        send_response(session, { type = "extension_ui_response", id = id, value = choice })
-                    else
-                        send_response(session, { type = "extension_ui_response", id = id, cancelled = true })
-                    end
-                end)
-                return true
+                    selected = 1,
+                    timeout = timeout,
+                    callback = function(choice, expired)
+                        if expired then
+                            notify_expired("select")
+                        elseif choice then
+                            send_response(session, { type = "extension_ui_response", id = id, value = choice })
+                        else
+                            send_response(session, { type = "extension_ui_response", id = id, cancelled = true })
+                        end
+                        request_redraw()
+                        if not expired then
+                            vim.schedule(function()
+                                M.open_next_for_tab(session.tab)
+                            end)
+                        end
+                    end,
+                })
             end,
         }
     end
@@ -349,22 +354,30 @@ local function build_entry(session, msg)
                 if timeout ~= nil and timeout <= 0 then
                     return false
                 end
-                Dialog.confirm({
-                    title = msg.title,
+                return session.chat:present_prompt_request({
+                    id = id,
+                    kind = "confirm",
+                    title = msg.title or "Confirm",
                     message = msg.message --[[@as string?]],
-                }, function(confirmed)
-                    local remaining = remaining_timeout_ms(expires_at)
-                    if remaining ~= nil and remaining <= 0 then
-                        notify_expired("confirm")
-                        return
-                    end
-                    if confirmed then
-                        send_response(session, { type = "extension_ui_response", id = id, confirmed = true })
-                    else
-                        send_response(session, { type = "extension_ui_response", id = id, cancelled = true })
-                    end
-                end)
-                return true
+                    options = { "Yes", "No" },
+                    selected = 1,
+                    timeout = timeout,
+                    callback = function(choice, expired)
+                        if expired then
+                            notify_expired("confirm")
+                        elseif choice == "Yes" then
+                            send_response(session, { type = "extension_ui_response", id = id, confirmed = true })
+                        else
+                            send_response(session, { type = "extension_ui_response", id = id, cancelled = true })
+                        end
+                        request_redraw()
+                        if not expired then
+                            vim.schedule(function()
+                                M.open_next_for_tab(session.tab)
+                            end)
+                        end
+                    end,
+                })
             end,
         }
     end
@@ -500,8 +513,8 @@ prune_stale_queue = function()
     end
 end
 
---- Present a blocking extension UI request immediately only when the π
---- prompt has focus and there is no draft; otherwise queue it for later.
+--- Present a blocking extension UI request immediately only when π prompt
+--- has focus and no request is active; otherwise queue it for later.
 ---@param session pi.Session
 ---@param msg pi.RpcEvent
 ---@return boolean handled
@@ -511,11 +524,14 @@ function M.present(session, msg)
         return false
     end
 
-    if session.chat:has_prompt_focus() and not session.chat:has_draft() then
-        if not entry.open() then
-            notify_expired(entry.kind)
+    local prompt_request = entry.kind == "select" or entry.kind == "confirm"
+    if session.chat:has_prompt_focus()
+        and not session.chat:has_prompt_request()
+        and (prompt_request or not session.chat:has_draft())
+    then
+        if entry.open() then
+            return true
         end
-        return true
     end
 
     remove_matching(session, function(existing)
@@ -595,8 +611,10 @@ local function open_pending_entry(session, index, entry, opts)
         return true, false
     end
 
-    notify_expired(entry.kind)
-    return false, true
+    pending_entries(session)[#pending_entries(session) + 1] = entry
+    reschedule_timer()
+    request_redraw()
+    return false, false
 end
 
 --- Open the oldest queued attention request for a tab.

@@ -49,7 +49,7 @@
 ---@field _agent_text_start_row integer?
 ---@field _current_turn_first_agent_response_extmark_id integer?
 ---@field _current_turn_last_agent_response_extmark_id integer?
----@field _message_blocks table[]
+---@field _message_blocks pi.MessageBlock[]
 ---@field _active_fold_anchors table<integer, integer?>
 ---@field _status_anchor_id integer?
 ---@field _fold_open_state table<integer, boolean>
@@ -84,6 +84,13 @@ History._stream_flush_ms = 30
 ---@field aligns ("left"|"center"|"right")[] per-column alignment
 ---@field rows string[][] data rows, each a list of cell texts
 ---@field widths integer[] display width per column
+
+---@class pi.MessageBlock
+---@field anchor integer
+---@field role "user"|"assistant"
+---@field section? "activity"|"output" assistant section; nil for user messages
+---@field section_extmark? integer virtual section label on assistant headers
+---@field output_aged? boolean whether automatic output retention already handled this block
 
 ---@class pi.ToolBlock
 ---@field tool_name string
@@ -242,14 +249,6 @@ local spinner = {
 local function format_time(ts)
     local secs = math.floor(ts / 1000)
     return tostring(os.date(Config.options.timestamp_format, secs)) --[[@as string]]
-end
-
----@param name string
-local function wipe_stale_buf(name)
-    local existing = vim.fn.bufnr(name)
-    if existing ~= -1 then
-        vim.api.nvim_buf_delete(existing, { force = true })
-    end
 end
 
 --- Markdown tables
@@ -513,7 +512,7 @@ function History.new(tab, name, session_id)
         configure()
         vim.schedule(configure)
     end
-    vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
+    vim.api.nvim_create_autocmd("BufWinEnter", {
         buffer = self._buf,
         callback = configure_history_windows,
     })
@@ -727,7 +726,18 @@ function History:_open_active_output_folds()
 end
 
 function History:_close_active_output_folds()
+    self._fold_changedtick = nil
+    self._fold_values = nil
+    self:_refresh_native_folds()
     NativeFolds.close_active(self)
+end
+
+--- Apply default fold policy once replay callbacks have built complete ranges.
+function History:finish_replaying()
+    self._active_fold_anchors = {}
+    self._status_anchor_id = nil
+    self:_refresh_native_folds()
+    NativeFolds.finish_replaying(self, 2)
 end
 
 --- Rebuild virt_lines immediately below the last transcript row. Busy spinner
@@ -1591,14 +1601,6 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
-        local previous_assistant_anchor
-        for index = #self._message_blocks, 1, -1 do
-            local block = self._message_blocks[index]
-            if block.role ~= "assistant" then
-                break
-            end
-            previous_assistant_anchor = block.anchor
-        end
         self._current_turn_first_agent_response_extmark_id = nil
         self._current_turn_last_agent_response_extmark_id = nil
         local had_content = self._has_conversation_content
@@ -1690,16 +1692,13 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
                 hl_group = "PiMessageAttachments",
             })
         end
-        if previous_assistant_anchor and not self._replaying then
+        if not self._replaying then
             self._active_fold_anchors = {}
             self._status_anchor_id = nil
             self:_refresh_native_folds()
-            local previous_row = self:_extmark_row(previous_assistant_anchor)
+            NativeFolds.age_outputs(self, 2)
             for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
                 vim.api.nvim_win_call(win, function()
-                    if previous_row then
-                        vim.cmd("silent! " .. (previous_row + 1) .. "foldclose")
-                    end
                     if vim.fn.foldclosed(label_row + 1) ~= -1 then
                         vim.cmd("silent! " .. (label_row + 1) .. "foldopen")
                     end
@@ -1711,7 +1710,9 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
 end
 
 ---@param timestamp? number
-function History:on_agent_start(timestamp)
+---@param section? "activity"|"output"
+---@param continuation? boolean whether this starts another section in current agent turn
+function History:on_agent_start(timestamp, section, continuation)
     self:_seal_stream_text()
     vim.schedule(function()
         self:_pop_text_batch() -- land stragglers from the previous turn in order
@@ -1720,12 +1721,23 @@ function History:on_agent_start(timestamp)
         end
         local had_content = self._has_conversation_content
         self:_begin_conversation_content()
-        self._agent_start_time = vim.uv.hrtime() / 1e9
+        if continuation then
+            local previous_text = table.concat(self._agent_text_chunks or {})
+            if self:_agent_text_has_open_fence(previous_text) then
+                self:_append_text("\n```")
+            end
+            if self._agent_text_start_row then
+                self:_render_tables(self._agent_text_start_row, vim.api.nvim_buf_line_count(self._buf) - 1)
+                self._agent_text_start_row = nil
+            end
+        else
+            self._agent_start_time = vim.uv.hrtime() / 1e9
+            self:_pick_spinner()
+        end
         self._first_delta = true
         self._agent_text_chunks = {}
         self._needs_separator = false
         self._last_was_inline = false
-        self:_pick_spinner()
         local icon = Config.options.labels.agent_response
         local time = timestamp or (os.time() * 1000)
         local time_str = format_time(time)
@@ -1756,7 +1768,21 @@ function History:on_agent_start(timestamp)
         local label_offset = turn_gap and (ends_blank and 1 or 2) or (ends_blank and 0 or 1)
         local label_row = start + label_offset
         local response_extmark_id = vim.api.nvim_buf_set_extmark(self._buf, ns, label_row, 0, {})
-        self._message_blocks[#self._message_blocks + 1] = { anchor = response_extmark_id, role = "assistant" }
+        local message_block = {
+            anchor = response_extmark_id,
+            role = "assistant",
+            section = section or "output",
+        }
+        message_block.section_extmark = vim.api.nvim_buf_set_extmark(self._buf, ns, label_row, #icon, {
+            virt_text = {
+                {
+                    message_block.section == "activity" and " Agent Activity" or " Agent Output",
+                    "PiAgentResponseLabel",
+                },
+            },
+            virt_text_pos = "inline",
+        })
+        self._message_blocks[#self._message_blocks + 1] = message_block
         self._fold_changedtick = nil
         self._fold_values = nil
         if not self._current_turn_first_agent_response_extmark_id then
@@ -1774,6 +1800,32 @@ function History:on_agent_start(timestamp)
         })
         self._agent_text_start_row = label_row + 2
         self:_activate_output_fold(response_extmark_id, 1)
+    end)
+end
+
+--- Reclassify current assistant message as process activity when a tool or
+--- thinking block follows its prose. Scheduling preserves RPC event order with
+--- the lazily-created assistant header.
+function History:mark_agent_activity()
+    vim.schedule(function()
+        if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+            return
+        end
+        local block = self._message_blocks[#self._message_blocks]
+        if not block or block.role ~= "assistant" or block.section == "activity" then
+            return
+        end
+        block.section = "activity"
+        local row = self:_extmark_row(block.anchor)
+        if row and block.section_extmark then
+            vim.api.nvim_buf_set_extmark(self._buf, ns, row, #(Config.options.labels.agent_response), {
+                id = block.section_extmark,
+                virt_text = { { " Agent Activity", "PiAgentResponseLabel" } },
+                virt_text_pos = "inline",
+            })
+        end
+        self._fold_changedtick = nil
+        self._fold_values = nil
     end)
 end
 

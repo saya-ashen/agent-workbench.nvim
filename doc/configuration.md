@@ -254,8 +254,8 @@ require("pi").setup({
         },
     },
 
-    -- Select/confirm pickers render through vim.ui.select; this styles the
-    -- input/info dialog floats.
+    -- Extension select/confirm requests use prompt request mode. Plugin-local
+    -- pickers use vim.ui.select; this styles input/info dialog floats.
     dialog = {
         border = "rounded",
         -- Max size: fraction (<1) or columns/lines (>=1).

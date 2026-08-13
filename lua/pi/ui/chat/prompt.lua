@@ -10,9 +10,28 @@
 ---@field _zen boolean
 ---@field _bash_mode boolean
 ---@field _on_bash_mode_change fun(is_bash: boolean)?
+---@field _on_mode_change fun(mode: pi.PromptMode, kind?: pi.PromptRequestKind)?
+---@field _mode pi.PromptMode
+---@field _request pi.PromptRequest?
+---@field _compose_lines string[]?
+---@field _compose_cursor integer[]?
+---@field _request_timer integer?
 ---@field _resume_insert? "eol"|"bol"|"mid"
 local Prompt = {}
 Prompt.__index = Prompt
+
+---@alias pi.PromptMode "compose"|"request"
+---@alias pi.PromptRequestKind "select"|"confirm"
+
+---@class pi.PromptRequest
+---@field id string
+---@field kind pi.PromptRequestKind
+---@field title string
+---@field message? string
+---@field options string[]
+---@field selected integer
+---@field timeout? integer
+---@field callback fun(value: string?, expired?: boolean)
 
 local Ft = require("pi.filetypes")
 local Config = require("pi.config")
@@ -23,6 +42,8 @@ local Draft = require("pi.draft")
 local blink_auto_insert_wrapped = false
 local Paste = require("pi.paste")
 local StatusLine = require("pi.ui.chat.statusline")
+
+local request_ns = vim.api.nvim_create_namespace("pi-prompt-request")
 
 Prompt.HEIGHT = 8
 Prompt.MAX_HEIGHT = 15
@@ -64,6 +85,12 @@ function Prompt.new(key, attachments)
     self._zen = false
     self._bash_mode = false
     self._on_bash_mode_change = nil
+    self._on_mode_change = nil
+    self._mode = "compose"
+    self._request = nil
+    self._compose_lines = nil
+    self._compose_cursor = nil
+    self._request_timer = nil
 
     local panel = Config.options.panels.prompt
     local name = panel.name and panel.name(key) or ("π-prompt | " .. key)
@@ -91,6 +118,9 @@ function Prompt.new(key, attachments)
         vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
             buffer = self._buf,
             callback = function()
+                if self._mode ~= "compose" then
+                    return
+                end
                 save_timer:stop()
                 save_timer:start(
                     300,
@@ -141,6 +171,9 @@ function Prompt.new(key, attachments)
     vim.api.nvim_create_autocmd("TextChangedI", {
         buffer = self._buf,
         callback = function()
+            if self._mode ~= "compose" then
+                return
+            end
             if vim.api.nvim_get_current_buf() ~= self._buf or vim.fn.pumvisible() == 1 then
                 return
             end
@@ -190,7 +223,9 @@ function Prompt.new(key, attachments)
         callback = function()
             self:resize()
             self:_render_statusline()
-            self:_refresh_bash_mode()
+            if self._mode == "compose" then
+                self:_refresh_bash_mode()
+            end
         end,
     })
 
@@ -254,6 +289,21 @@ end
 ---@param cb fun(is_bash: boolean)
 function Prompt:set_on_bash_mode_change(cb)
     self._on_bash_mode_change = cb
+end
+
+---@param cb fun(mode: pi.PromptMode, kind?: pi.PromptRequestKind)
+function Prompt:set_on_mode_change(cb)
+    self._on_mode_change = cb
+end
+
+---@return pi.PromptMode
+function Prompt:mode()
+    return self._mode
+end
+
+---@return boolean
+function Prompt:is_request_mode()
+    return self._mode == "request" and self._request ~= nil
 end
 
 ---@return boolean
@@ -360,7 +410,11 @@ function Prompt:focus(cb)
     end
     vim.api.nvim_set_current_win(self._win)
     vim.schedule(function()
-        vim.cmd("startinsert")
+        if self:is_request_mode() then
+            vim.cmd("stopinsert")
+        else
+            vim.cmd("startinsert")
+        end
         if cb then
             cb()
         end
@@ -372,11 +426,154 @@ function Prompt:text()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return ""
     end
-    local lines = vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
-    return vim.fn.trim(table.concat(lines, "\n"))
+    local lines = self:is_request_mode() and self._compose_lines
+        or vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+    return vim.fn.trim(table.concat(lines or {}, "\n"))
+end
+
+---@param lines string[]
+function Prompt:_set_lines(lines)
+    vim.bo[self._buf].modifiable = true
+    vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, #lines > 0 and lines or { "" })
+end
+
+function Prompt:_render_request()
+    local request = self._request
+    if not request then
+        return
+    end
+    local lines = vim.split(request.title, "\n", { plain = true })
+    if request.message and request.message ~= "" and request.message ~= request.title then
+        vim.list_extend(lines, vim.split(request.message, "\n", { plain = true }))
+    end
+    lines[#lines + 1] = ""
+    local option_start = #lines
+    for index, option in ipairs(request.options) do
+        lines[#lines + 1] = (index == request.selected and "  › " or "    ") .. option
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "j/k or ↑/↓ move   <CR> confirm   <C-c> cancel"
+    self:_set_lines(lines)
+    vim.bo[self._buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(self._buf, request_ns, 0, -1)
+    local selected_row = option_start + request.selected - 1
+    vim.api.nvim_buf_set_extmark(self._buf, request_ns, 0, 0, {
+        end_col = #(lines[1] or ""),
+        hl_group = "PiPromptRequestTitle",
+    })
+    vim.api.nvim_buf_set_extmark(self._buf, request_ns, selected_row, 2, {
+        end_col = #(lines[selected_row + 1] or ""),
+        hl_group = "PiPromptRequestSelected",
+    })
+    vim.api.nvim_buf_set_extmark(self._buf, request_ns, #lines - 1, 0, {
+        end_col = #(lines[#lines] or ""),
+        hl_group = "Comment",
+    })
+    local win = self:win()
+    if win then
+        pcall(vim.api.nvim_win_set_cursor, win, { selected_row + 1, 0 })
+    end
+    self:resize()
+    self:_render_statusline()
+end
+
+---@param request pi.PromptRequest
+---@return boolean
+function Prompt:set_request(request)
+    if self:is_request_mode() or #request.options == 0 then
+        return false
+    end
+    self._compose_lines = vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+    local win = self:win()
+    self._compose_cursor = win and vim.api.nvim_win_get_cursor(win) or nil
+    self._request = request
+    self._request.selected = math.max(1, math.min(request.selected or 1, #request.options))
+    self._mode = "request"
+    vim.cmd("stopinsert")
+    self:_render_request()
+    if request.timeout and request.timeout > 0 then
+        self._request_timer = vim.fn.timer_start(request.timeout, function()
+            vim.schedule(function()
+                self:_finish_request(nil, true)
+            end)
+        end)
+    end
+    if self._on_mode_change then
+        self._on_mode_change("request", request.kind)
+    end
+    return true
+end
+
+---@param delta integer
+function Prompt:move_request_selection(delta)
+    local request = self._request
+    if not request then
+        return
+    end
+    request.selected = math.max(1, math.min(#request.options, request.selected + delta))
+    self:_render_request()
+end
+
+function Prompt:confirm_request()
+    local request = self._request
+    if request then
+        self:_finish_request(request.options[request.selected], false)
+    end
+end
+
+function Prompt:cancel_request()
+    if self._request then
+        self:_finish_request(nil, false)
+    end
+end
+
+---@param value string?
+---@param expired boolean
+function Prompt:_finish_request(value, expired)
+    local request = self._request
+    if not request then
+        return
+    end
+    if self._request_timer then
+        pcall(vim.fn.timer_stop, self._request_timer)
+        pcall(vim.fn.timer_close, self._request_timer)
+        self._request_timer = nil
+    end
+    self._request = nil
+    self._mode = "compose"
+    vim.api.nvim_buf_clear_namespace(self._buf, request_ns, 0, -1)
+    self:_set_lines(self._compose_lines or { "" })
+    vim.bo[self._buf].modifiable = true
+    self._compose_lines = nil
+    local win = self:win()
+    if win and self._compose_cursor then
+        local line_count = vim.api.nvim_buf_line_count(self._buf)
+        self._compose_cursor[1] = math.min(self._compose_cursor[1], line_count)
+        pcall(vim.api.nvim_win_set_cursor, win, self._compose_cursor)
+    end
+    self._compose_cursor = nil
+    self:resize()
+    self:_render_statusline()
+    self:_refresh_bash_mode()
+    if self._on_mode_change then
+        self._on_mode_change("compose")
+    end
+    request.callback(value, expired)
+end
+
+function Prompt:clear_request()
+    if not self._request then
+        return
+    end
+    self._request.callback = function() end
+    self:_finish_request(nil, true)
 end
 
 function Prompt:clear_text()
+    if self:is_request_mode() then
+        self._compose_lines = { "" }
+        return
+    end
     if self._buf and vim.api.nvim_buf_is_valid(self._buf) then
         vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })
         self:resize()
@@ -389,7 +586,7 @@ end
 --- Called (debounced) on text changes; exposed as a method so the save logic is
 --- testable independent of the TextChanged event.
 function Prompt:_save_draft()
-    if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+    if self._mode ~= "compose" or not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return
     end
     local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")

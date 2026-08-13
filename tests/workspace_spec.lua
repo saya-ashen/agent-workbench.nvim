@@ -63,13 +63,21 @@ describe("agent workspace", function()
         assert.are.equal(">1", History.nvim_foldexpr(user_row))
         assert.are.equal(1, History.nvim_foldexpr(user_row + 1))
         assert.are.equal(">1", History.nvim_foldexpr(assistant_row))
-        assert.are.equal(-1, vim.fn.foldclosed(assistant_row), "completed assistant stays open until next submit")
+        assert.are.equal(-1, vim.fn.foldclosed(assistant_row), "completed output stays open")
 
         history:add_user_message("next question", 1786438921000)
         vim.wait(100)
         local next_user_row = history:_extmark_row(history._message_blocks[3].anchor) + 1
-        assert.are.equal(assistant_row, vim.fn.foldclosed(assistant_row), "previous assistant closes on submit")
+        assert.are.equal(-1, vim.fn.foldclosed(assistant_row), "recent output stays open after submit")
         assert.are.equal(-1, vim.fn.foldclosed(next_user_row), "new user message remains open")
+
+        vim.cmd("belowright 1new")
+        local other_win = vim.api.nvim_get_current_win()
+        vim.api.nvim_set_current_win(history:win())
+        vim.wait(20)
+        assert.are.equal(-1, vim.fn.foldclosed(next_user_row), "focus changes preserve fold state")
+        vim.api.nvim_win_close(other_win, true)
+
         local boundary_marks = vim.api.nvim_buf_get_extmarks(
             history:buf(),
             history:ns(),
@@ -90,6 +98,54 @@ describe("agent workspace", function()
 
         history:clear()
         assert.are.equal(0, #history._message_blocks)
+        vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
+    it("folds agent activity while retaining two recent outputs", function()
+        Config.options.render.engine = "builtin"
+        local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/activity/transcript")
+        vim.api.nvim_win_set_buf(0, history:buf())
+        history:set_win(0)
+
+        history:add_user_message("first", 1786438920000)
+        history:on_agent_start(1786438920001, "activity")
+        history:on_text_delta("Planning")
+        history:on_agent_start(1786438920002, "output", true)
+        history:on_text_delta("First result")
+        history:on_agent_end(nil, { force_completion = true })
+        vim.wait(120)
+
+        local activity = history._message_blocks[2]
+        local first_output = history._message_blocks[3]
+        local activity_row = history:_extmark_row(activity.anchor) + 1
+        local first_output_row = history:_extmark_row(first_output.anchor) + 1
+        assert.are.equal("activity", activity.section)
+        assert.are.equal("output", first_output.section)
+        assert.are.equal(activity_row, vim.fn.foldclosed(activity_row), "completed activity closes")
+        assert.are.equal(-1, vim.fn.foldclosed(first_output_row), "completed output stays open")
+
+        for turn = 2, 3 do
+            history:add_user_message("question " .. turn, 1786438921000 + turn)
+            history:on_agent_start(1786438922000 + turn, "output")
+            history:on_text_delta("result " .. turn)
+            history:on_agent_end(nil, { force_completion = true })
+            vim.wait(80)
+        end
+        history:add_user_message("fourth", 1786438930000)
+        vim.wait(100)
+
+        local second_output_row = history:_extmark_row(history._message_blocks[5].anchor) + 1
+        local third_output_row = history:_extmark_row(history._message_blocks[7].anchor) + 1
+        assert.are.equal(first_output_row, vim.fn.foldclosed(first_output_row), "older output ages closed")
+        assert.are.equal(-1, vim.fn.foldclosed(second_output_row), "second-latest output stays open")
+        assert.are.equal(-1, vim.fn.foldclosed(third_output_row), "latest output stays open")
+
+        vim.api.nvim_win_set_cursor(0, { first_output_row, 0 })
+        vim.cmd("silent! normal! zo")
+        history:add_user_message("fifth", 1786438931000)
+        vim.wait(100)
+        assert.are.equal(-1, vim.fn.foldclosed(first_output_row), "manual output reopen remains respected")
+
         vim.api.nvim_buf_delete(history:buf(), { force = true })
     end)
 

@@ -52,7 +52,9 @@ Each panel has a winbar with a title controlled by `panels.<panel>.title` (a str
 
 ### Block folding
 
-History uses normal editor-window line-number settings and exposes native `foldmethod=expr` structure with a one-column fold gutter. Completed tool output stays complete in the transcript buffer; native window folds control visibility without replacing content. Submitting a new user message synchronously closes the previous assistant turn and keeps the new user message open, so turn folding happens at the prompt boundary rather than after the next response starts streaming.
+History uses normal editor-window line-number settings and exposes native `foldmethod=expr` structure with a one-column fold gutter. Completed tool output stays complete in the transcript buffer; native window folds control visibility without replacing content.
+
+Assistant turns split into **Agent Activity** and **Agent Output** sections. Thinking, tool calls, tool results, and intermediate prose belong to Activity and fold automatically when the turn completes. The final prose belongs to Output. The two most recent Outputs stay open by default; older Outputs close once as new turns arrive. Manually reopening an older Output is respected by later updates. Pure-text responses contain only Agent Output.
 
 History blocks support local-plugin style normal-mode controls:
 
@@ -65,7 +67,9 @@ Controls apply to startup, thinking, compaction, and tool blocks.
 
 ## Prompt
 
-The prompt buffer (`pi-chat-prompt`) is a regular multi-line buffer where you compose the next message. It clears itself after each submission, but its contents are preserved across `:PiToggleChat`, layout toggles, and tab switches — the buffer lives with the session. The window auto-resizes to fit its content (between 5 and 15 rows) while you type.
+Prompt buffer (`pi-chat-prompt`) has two session-local modes. `compose` is regular multi-line message editing. `request` temporarily renders extension select/confirm questions and options in same prompt area. Compose text and cursor are preserved and restored after request resolves, so parallel agents keep requests attached to correct session. See [Attention & dialogs](attention.md#prompt-request-mode).
+
+Prompt clears after each message submission, but contents persist across `:PiToggleChat`, layout toggles, and tab switches. Window auto-resizes between 8 and 15 rows.
 
 Three buffer-local mappings control submission:
 

@@ -13,6 +13,8 @@
 ---@field _attachments pi.ChatAttachments
 ---@field _has_attention boolean
 ---@field _bash_mode boolean
+---@field _prompt_mode pi.PromptMode
+---@field _prompt_request_kind pi.PromptRequestKind?
 ---@field _prompt_state pi.StatusLineState?
 local Layout = {}
 Layout.__index = Layout
@@ -184,11 +186,16 @@ function Layout:_refresh_prompt_chrome()
     end
 
     local prompt_cfg = Config.options.panels.prompt
-    local title = (self._bash_mode and (prompt_cfg.bash_title or "bash")) or prompt_cfg.title
+    local request_title = self._prompt_request_kind == "confirm" and "confirm" or "choose"
+    local title = self._prompt_mode == "request" and request_title
+        or (self._bash_mode and (prompt_cfg.bash_title or "bash"))
+        or prompt_cfg.title
 
     if self._mode == "float" then
         local winhighlight = Highlights.CHAT_PROMPT_WINHIGHLIGHT
-        if self._bash_mode then
+        if self._prompt_mode == "request" then
+            winhighlight = Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
+        elseif self._bash_mode then
             winhighlight = Highlights.CHAT_PROMPT_BASH_WINHIGHLIGHT
         elseif self._has_attention then
             winhighlight = Highlights.CHAT_PROMPT_ATTENTION_WINHIGHLIGHT
@@ -205,14 +212,16 @@ function Layout:_refresh_prompt_chrome()
 
     local state = self._prompt_state or self._prompt:statusline():state()
     local title_hl = "PiChatPromptWinbarTitle"
-    if self._bash_mode then
+    if self._prompt_mode == "request" then
+        title_hl = "PiChatPromptWinbarAttentionTitle"
+    elseif self._bash_mode then
         title_hl = "PiChatPromptWinbarBashTitle"
     elseif self._has_attention then
         title_hl = "PiChatPromptWinbarAttentionTitle"
     end
 
     local width = vim.api.nvim_win_get_width(pwin)
-    local title_text = self._bash_mode and (prompt_cfg.bash_title or "bash") or prompt_cfg.title
+    local title_text = title
     local running = state.busy ~= nil
     local state_hl = running and "PiSessionsListBusy" or "PiSessionsListDone"
     local state_icon = running and "󰔟" or "󰄬"
@@ -266,10 +275,17 @@ function Layout.new(mode, history, prompt, attachments)
     self._attachments = attachments
     self._has_attention = false
     self._bash_mode = false
+    self._prompt_mode = "compose"
+    self._prompt_request_kind = nil
     self._prompt_state = prompt:statusline():state()
 
     prompt:set_on_status_change(function(state)
         self._prompt_state = state
+        self:_refresh_prompt_chrome()
+    end)
+    prompt:set_on_mode_change(function(prompt_mode, kind)
+        self._prompt_mode = prompt_mode
+        self._prompt_request_kind = kind
         self:_refresh_prompt_chrome()
     end)
 

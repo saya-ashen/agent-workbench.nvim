@@ -19,6 +19,7 @@
 ---@field _assistant_block_open boolean
 ---@field _assistant_message_header_rendered boolean
 ---@field _assistant_tool_only_header_rendered boolean
+---@field _assistant_section? "activity"|"output"
 ---@field _assistant_message_timestamp number?
 ---@field _flushed_queue_entries pi.PendingQueueEntry[]
 ---@field _replay_flushed_queue_entries pi.PendingQueueEntry[]
@@ -79,6 +80,7 @@ function Chat.new(tab, mode, agent, history_name, session_id)
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
+    self._assistant_section = nil
     self._assistant_message_timestamp = nil
     self._flushed_queue_entries = {}
     self._replay_flushed_queue_entries = {}
@@ -138,6 +140,10 @@ function Chat:_set_keymaps()
                 if vim.api.nvim_get_current_buf() ~= pbuf then
                     return
                 end
+                if self._prompt:is_request_mode() then
+                    vim.cmd("stopinsert")
+                    return
+                end
                 if vim.api.nvim_get_mode().mode ~= "i" then
                     local resume = self._prompt._resume_insert
                     if resume then
@@ -161,14 +167,23 @@ function Chat:_set_keymaps()
         end,
     })
 
-    -- Submit keymaps on prompt
+    -- Submit keymaps on prompt. In request mode, <CR> resolves the
+    -- session-local request instead of sending prompt text.
     vim.keymap.set("n", "<CR>", function()
-        self:submit()
-    end, { buffer = pbuf, desc = "Submit π prompt" })
+        if self._prompt:is_request_mode() then
+            self._prompt:confirm_request()
+        else
+            self:submit()
+        end
+    end, { buffer = pbuf, desc = "Submit π prompt or request" })
 
     vim.keymap.set("i", "<CR>", function()
-        self:submit()
-    end, { buffer = pbuf, desc = "Submit π prompt" })
+        if self._prompt:is_request_mode() then
+            self._prompt:confirm_request()
+        else
+            self:submit()
+        end
+    end, { buffer = pbuf, desc = "Submit π prompt or request" })
 
     -- Follow-up: queued until agent finishes
     vim.keymap.set("n", "<A-CR>", function()
@@ -182,20 +197,54 @@ function Chat:_set_keymaps()
     -- New line
     -- TODO?: Should be configurable?
     vim.keymap.set("i", "<S-CR>", function()
-        vim.api.nvim_put({ "", "" }, "c", false, true)
+        if not self._prompt:is_request_mode() then
+            vim.api.nvim_put({ "", "" }, "c", false, true)
+        end
     end, { buffer = pbuf, desc = "New line" })
+
+    for _, key in ipairs({ "j", "<Down>" }) do
+        vim.keymap.set("n", key, function()
+            if not self._prompt:is_request_mode() then
+                return key
+            end
+            vim.schedule(function()
+                self._prompt:move_request_selection(1)
+            end)
+            return ""
+        end, { buffer = pbuf, expr = true, desc = "Move π request selection down" })
+    end
+    for _, key in ipairs({ "k", "<Up>" }) do
+        vim.keymap.set("n", key, function()
+            if not self._prompt:is_request_mode() then
+                return key
+            end
+            vim.schedule(function()
+                self._prompt:move_request_selection(-1)
+            end)
+            return ""
+        end, { buffer = pbuf, expr = true, desc = "Move π request selection up" })
+    end
+    vim.keymap.set("n", "<C-c>", function()
+        if self._prompt:is_request_mode() then
+            self._prompt:cancel_request()
+        end
+    end, { buffer = pbuf, desc = "Cancel π request" })
 
     -- Double-<Esc> abort: while streaming, the first <Esc> shows a gentle hint
     -- and arms the gesture; a second <Esc> within the configured window aborts
     -- the agent (same as :PiAbort). Insert mode always leaves insert (returns
     -- the literal "<Esc>", see gotcha G2); normal mode only arms/aborts.
     vim.keymap.set("i", "<Esc>", function()
-        self:_handle_abort_esc()
+        if not self._prompt:is_request_mode() then
+            self:_handle_abort_esc()
+        end
         return "<Esc>"
     end, { buffer = pbuf, expr = true, desc = "Leave insert (double-<Esc> aborts π)" })
 
     vim.keymap.set("n", "<Esc>", function()
-        self:_handle_abort_esc()
+        if not self._prompt:is_request_mode() then
+            self:_handle_abort_esc()
+        end
     end, { buffer = pbuf, desc = "Double-<Esc> aborts π" })
 
     vim.keymap.set("n", "<Esc>", function()
@@ -542,13 +591,35 @@ function Chat:has_draft()
     return self._prompt:text() ~= "" or self._attachments:count() > 0
 end
 
+---@return boolean
+function Chat:has_prompt_request()
+    return self._prompt:is_request_mode()
+end
+
+function Chat:clear_prompt_request()
+    self._prompt:clear_request()
+end
+
+---@param request pi.PromptRequest
+---@return boolean opened
+function Chat:present_prompt_request(request)
+    if not self:is_visible() then
+        self:show()
+    end
+    local opened = self._prompt:set_request(request)
+    if opened then
+        self._prompt:focus()
+    end
+    return opened
+end
+
 ---@return boolean opened
 function Chat:_auto_dispatch_attention_on_prompt_focus()
     local attention_config = Config.options.attention
     if not attention_config or not attention_config.auto_open_on_prompt_focus then
         return false
     end
-    if not self:has_prompt_focus() or self:has_draft() then
+    if not self:has_prompt_focus() or self._prompt:is_request_mode() then
         return false
     end
     return require("pi.attention").open_next_for_tab(self._tab)
@@ -605,6 +676,10 @@ end
 
 --- Submit the prompt. When streaming, sends as a steer (interrupt); otherwise regular prompt.
 function Chat:submit()
+    if self._prompt:is_request_mode() then
+        self._prompt:confirm_request()
+        return
+    end
     if self._compacting then
         self:_queue_compaction_message("steer")
         return
@@ -615,6 +690,9 @@ end
 --- Submit the prompt as a follow-up. When streaming, queued until agent finishes;
 --- otherwise sends as a regular prompt.
 function Chat:submit_follow_up()
+    if self._prompt:is_request_mode() then
+        return
+    end
     if self._compacting then
         self:_queue_compaction_message("follow_up")
         return
@@ -1171,6 +1249,7 @@ end
 function Chat:finish_replaying()
     vim.schedule(function()
         self:set_replaying(false)
+        self._history:finish_replaying()
         self._history:scroll_to_bottom()
     end)
 end
@@ -1186,6 +1265,7 @@ function Chat:on_agent_start(timestamp)
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
+    self._assistant_section = nil
     self._assistant_message_timestamp = timestamp
     local verbs = Config.random_verbs()
     self._active_verb = verbs[1]
@@ -1193,14 +1273,21 @@ function Chat:on_agent_start(timestamp)
     self:set_status({ type = "agent", text = verbs[1] .. "…" })
 end
 
-function Chat:_ensure_assistant_block_open()
+---@param section? "activity"|"output"
+function Chat:_ensure_assistant_block_open(section)
+    section = section or "output"
     if self._assistant_block_open then
+        if section == "activity" then
+            self._history:mark_agent_activity()
+            self._assistant_section = "activity"
+        end
         self._assistant_message_header_rendered = true
         return
     end
-    self._history:on_agent_start(self._assistant_message_timestamp)
+    self._history:on_agent_start(self._assistant_message_timestamp, section, self._assistant_section ~= nil)
     self._assistant_block_open = true
     self._assistant_message_header_rendered = true
+    self._assistant_section = section
 end
 
 ---@param delta string
@@ -1208,7 +1295,11 @@ function Chat:on_text_delta(delta)
     if not self._assistant_block_open and not delta:match("%S") then
         return
     end
-    self:_ensure_assistant_block_open()
+    if self._assistant_section == "activity" and delta:match("%S") then
+        self._assistant_block_open = false
+        self._assistant_message_header_rendered = false
+    end
+    self:_ensure_assistant_block_open("output")
     self._assistant_tool_only_header_rendered = false
     self._history:on_text_delta(delta)
 end
@@ -1257,6 +1348,7 @@ function Chat:on_agent_end()
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
+    self._assistant_section = nil
     self._assistant_message_timestamp = nil
     -- Flush any remaining pending queue entries into the history.
     -- Normally they are moved on message_start, but if the agent ends
@@ -1440,7 +1532,9 @@ end
 
 --- Refresh prompt title styling when attention state changes.
 function Chat:refresh_prompt_attention()
-    self._layout:refresh_prompt_attention(require("pi.attention").has_attention(self._tab))
+    self._layout:refresh_prompt_attention(
+        self._prompt:is_request_mode() or require("pi.attention").has_attention(self._tab)
+    )
 end
 
 --- Reset status line usage stats (new session / clear).
@@ -1474,8 +1568,11 @@ end
 ---@param tool_input? table
 function Chat:on_tool_start(tool_name, tool_call_id, tool_input)
     if not self._assistant_message_header_rendered and not self._assistant_tool_only_header_rendered then
-        self:_ensure_assistant_block_open()
+        self:_ensure_assistant_block_open("activity")
         self._assistant_tool_only_header_rendered = true
+    else
+        self._history:mark_agent_activity()
+        self._assistant_section = "activity"
     end
     self._history:on_tool_start(tool_name, tool_call_id, tool_input)
 end
@@ -1497,6 +1594,8 @@ end
 
 ---@param opts? { unmeasured?: boolean }
 function Chat:on_thinking_start(opts)
+    self:_ensure_assistant_block_open("activity")
+    self._assistant_section = "activity"
     self._history:on_thinking_start(opts)
 end
 
@@ -1537,6 +1636,7 @@ function Chat:clear()
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
+    self._assistant_section = nil
     self._assistant_message_timestamp = nil
     self._flushed_queue_entries = {}
     self._replay_flushed_queue_entries = {}

@@ -2,6 +2,12 @@
 
 ## 2026-08-13
 
+- **CHANGED:** Extension select and confirm requests now switch their owning session's prompt into a read-only `request` mode instead of opening global `vim.ui.select`. Options stay visibly attached to correct agent/session, compose draft and cursor restore afterward, `<Esc>` cannot dismiss request, `<CR>` confirms, `<C-c>` explicitly cancels, and multiple requests drain per-session FIFO.
+
+- **CHANGED:** Assistant turns now render separate **Agent Activity** and **Agent Output** sections. Thinking, tools, and intermediate prose fold when a turn completes, while final output stays open; the two most recent outputs remain expanded, older outputs age closed once, and manual reopen state is preserved.
+
+- **FIXED:** Moving focus between prompt and History no longer reconfigures expression folds or closes the last open message block. Fold state now changes only through explicit fold commands and message lifecycle updates.
+
 - **CHANGED:** Entering a session History buffer now leaves focus on History in Normal mode, matching normal Neovim buffer switching. History keys `i`, `I`, `a`, `A`, `o`, `O`, `c`, and `C` still focus the prompt and enter Insert mode explicitly.
 
 - **ADDED:** `:PiWorkspaceSidebar` / `pi.workspace_sidebar()` now lists session History buffers and ordinary listed buffers together under each workspace. Session rows retain state icons and activation behavior; ordinary buffer rows show basenames, filetype icons/colors from optional `nvim-web-devicons`, modified state, and support `<CR>` / `l` switching plus `d` deletion. The native sidebar replaces the need for a separate buffer-list plugin or Neo-tree buffers source.

@@ -93,6 +93,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiChatPromptFloatTitle` | Float title for the prompt panel (float layout) |
 | `PiChatPromptFloatAttentionTitle` | Float title for the prompt panel when attention is pending |
 | `PiChatPromptFloatBashTitle` | Float title for the prompt panel in direct bash mode |
+| `PiPromptRequestTitle` | Title inside prompt request mode |
+| `PiPromptRequestSelected` | Selected option inside prompt request mode |
 | `PiChatAttachmentsFloatTitle` | Float title for the attachments panel (float layout) |
 
 ## Zen mode

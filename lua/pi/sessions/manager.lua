@@ -637,6 +637,7 @@ local function destroy_session(session)
         return
     end
     Attention.clear_session(session)
+    session.chat:clear_prompt_request()
     session.rpc:stop()
     if session.chat:is_visible() then
         session.chat:hide()
@@ -1468,6 +1469,7 @@ function M.setup_autocmds()
         callback = function()
             for _, session in pairs(sessions) do
                 Attention.clear_session(session)
+                session.chat:clear_prompt_request()
                 session.rpc:stop()
             end
         end,
