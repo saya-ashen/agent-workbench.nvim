@@ -54,16 +54,6 @@ local function buffer_tabs(buf)
 end
 
 ---@param buf integer
----@param listed boolean
-local function set_listed(buf, listed)
-    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted ~= listed then
-        updating_listed = true
-        vim.bo[buf].buflisted = listed
-        updating_listed = false
-    end
-end
-
----@param buf integer
 ---@param tab pi.TabId
 function M.assign(buf, tab)
     if not initialized or not Config.options.workspace_buffers.enabled or not vim.api.nvim_buf_is_valid(buf) then
@@ -71,7 +61,6 @@ function M.assign(buf, tab)
     end
     tab_buffers(tab)[buf] = true
     buffer_tabs(buf)[tab] = true
-    set_listed(buf, tab == vim.api.nvim_get_current_tabpage())
 end
 
 ---@param buf integer
@@ -100,13 +89,7 @@ local function capture_listed(tab)
 end
 
 ---@param tab pi.TabId
-local function show_tab(tab)
-    switching = true
-    local visible = buffers_by_tab[tab] or {}
-    for buf in pairs(tabs_by_buffer) do
-        set_listed(buf, visible[buf] == true)
-    end
-    switching = false
+local function show_tab()
     vim.cmd("redrawtabline")
 end
 
@@ -163,7 +146,6 @@ function M.move_current(tab_index)
 
     unassign(buf, current)
     M.assign(buf, target)
-    set_listed(buf, false)
     return true
 end
 
@@ -177,6 +159,21 @@ end
 ---@return boolean
 function M._contains(buf, tab)
     return buffers_by_tab[tab] ~= nil and buffers_by_tab[tab][buf] == true
+end
+
+---@param tab pi.TabId
+---@return integer[]
+function M.list(tab)
+    local result = {}
+    for buf in pairs(buffers_by_tab[tab] or {}) do
+        if is_valid(buf) then
+            result[#result + 1] = buf
+        end
+    end
+    table.sort(result, function(a, b)
+        return a < b
+    end)
+    return result
 end
 
 ---@return string[]
@@ -204,7 +201,7 @@ function M.setup()
         end
     end
     capture_listed(current)
-    show_tab(current)
+    show_tab()
 
     local group = vim.api.nvim_create_augroup("PiWorkspaceBuffers", { clear = true })
     vim.api.nvim_create_autocmd("TabLeave", {
@@ -217,7 +214,7 @@ function M.setup()
     vim.api.nvim_create_autocmd("TabEnter", {
         group = group,
         callback = function()
-            show_tab(vim.api.nvim_get_current_tabpage())
+            show_tab()
         end,
     })
     vim.api.nvim_create_autocmd("TabNewEntered", {
@@ -228,7 +225,7 @@ function M.setup()
             if not is_history(buf) and is_trackable(buf) then
                 M.assign(buf, tab)
             end
-            show_tab(tab)
+            show_tab()
         end,
     })
     vim.api.nvim_create_autocmd("BufEnter", {
@@ -266,9 +263,6 @@ end
 
 function M._reset()
     pcall(vim.api.nvim_del_augroup_by_name, "PiWorkspaceBuffers")
-    for buf in pairs(tabs_by_buffer) do
-        set_listed(buf, true)
-    end
     buffers_by_tab = {}
     tabs_by_buffer = {}
     switching = false

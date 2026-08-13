@@ -1,10 +1,26 @@
 # Changelog
 
+## 2026-08-13
+
+- **CHANGED:** Entering a session History buffer now leaves focus on History in Normal mode, matching normal Neovim buffer switching. History keys `i`, `I`, `a`, `A`, `o`, `O`, `c`, and `C` still focus the prompt and enter Insert mode explicitly.
+
+- **ADDED:** `:PiWorkspaceSidebar` / `pi.workspace_sidebar()` now lists session History buffers and ordinary listed buffers together under each workspace. Session rows retain state icons and activation behavior; ordinary buffer rows show basenames, filetype icons/colors from optional `nvim-web-devicons`, modified state, and support `<CR>` / `l` switching plus `d` deletion. The native sidebar replaces the need for a separate buffer-list plugin or Neo-tree buffers source.
+
+- **FIXED:** bufferline no longer disappears when pi2.nvim loads first. When bufferline later replaces Pi's temporary built-in workspace tabline, Pi now releases tabline ownership and stops applying its single-workspace `showtabline` rule, so listed file and session buffers remain visible.
+
+- **FIXED:** Opening a normal file from a buffer-layout π panel keeps session and file buffers listed together; switching buffers restores chat History and prompt without creating an extra split.
+
+- **FIXED:** Session History buffers no longer use internal `pi-session://<buffer-id>` names. They now show readable `π session <session-id>` names in bufferline and other buffer lists, while their `agent://...` transcript URI stays internal, preventing Neo-tree and similar file explorers from treating chat buffers as files outside cwd.
+
 ## 2026-08-12
 
 - **FIXED:** opening buffer-layout chat over a `snacks.nvim` dashboard no longer aborts when the dashboard's `BufWipeout` cleanup raises stale-augroup `E367`; π retries that one failed buffer replacement without autocmds while preserving all other autocmd errors.
 
-- **ADDED:** tab-backed workspaces. Each Neovim tab uses its tab-local cwd as workspace identity; new π sessions inherit that cwd. Listed buffers are scoped per workspace by default, so bufferline-style plugins and `:bnext` / `:bprevious` show only current workspace buffers; one buffer may belong to multiple workspaces, while π History stays with its creating workspace. `:PiNewWorkspace` / `pi.new_workspace()` selects a directory before creating a rooted workspace; `:PiMoveBuffer {tab}` / `pi.move_buffer(tab)` moves an ordinary buffer. bufferline.nvim's right custom area shows workspace names, live-session counts, and aggregated busy/attention state without replacing bufferline or depending on `show_tab_indicators`; when no custom `tabline` exists, the built-in workspace bar provides the same data. Both support native mouse clicks and `gt` / `gT` switching. `:PiWorkspaces` / `pi.workspaces()` opens a searchable workspace picker; `pi.workspace_list()` and `pi.workspace_tabline()` support custom UI integrations. Configure with `workspace_bar` and `workspace_buffers`.
+- **ADDED:** `:PiWorkspaceSidebar` / `pi.workspace_sidebar()` toggles a native collapsible workspace explorer. It shows short workspace names, full cwd paths, session counts, busy/attention state, and expandable live sessions with state-specific icons; `<CR>` switches, `o` switches and closes, workspace-row `h` / `l` toggle expansion, session-row `h` collapses and `l` activates, `a` creates a session, `A` creates a workspace, and `q` closes. Configure right/left placement and width with `workspace_sidebar`; no Snacks dependency.
+
+- **CHANGED:** workspace tabs now show short cwd basenames by default and hide visible numeric indices; native click targets and `gt` / `gT` navigation remain unchanged. Full paths stay visible in `:PiWorkspaceSidebar`. `workspace_bar.label` accepts `"name"`, `"path"`, or a custom function, and `workspace_bar.show_index` restores visible indices.
+
+- **CHANGED:** tab-backed workspaces now track buffer ownership without changing global `buflisted` state. File and π History buffers remain visible together in bufferline and `:bnext` / `:bprevious`; workspace ownership still controls moves and π History placement. One buffer may belong to multiple workspaces, while π History stays with its creating workspace. `:PiNewWorkspace` / `pi.new_workspace()` selects a directory before creating a rooted workspace; `:PiMoveBuffer {tab}` / `pi.move_buffer(tab)` moves an ordinary buffer. bufferline.nvim's right custom area shows workspace names, live-session counts, and aggregated busy/attention state without replacing bufferline or depending on `show_tab_indicators`; when no custom `tabline` exists, the built-in workspace bar provides the same data. Both support native mouse clicks and `gt` / `gT` switching. `:PiWorkspaces` / `pi.workspaces()` opens a searchable workspace picker; `pi.workspace_list()` and `pi.workspace_tabline()` support custom UI integrations. Configure with `workspace_bar` and `workspace_buffers`.
 
 - **CHANGED:** sessions are now owned by listed History buffers instead of Neovim tabs. `:PiNewSession` creates a separate History buffer and `pi --mode rpc` process while existing sessions keep running; normal `:buffer`, `:bnext`, and `:bprevious` switches the complete chat view (History, prompt, and attachments) in buffer, side, and float layouts. Deleting a History buffer stops only its session; closing a tab only detaches the view. `:PiResume` activates an already-live session instead of opening the same JSONL in a second RPC process.
 

@@ -51,9 +51,9 @@ When filing an issue, attaching the relevant section of `rpc.log` is by far the 
 
 ## Process lifecycle
 
-Each π session owns an underlying `pi --mode rpc` subprocess and a listed History buffer. Lifecycle:
+At startup, default `auto_start_session = true` replaces an untouched empty `[No Name]` buffer with visible Pi chat. New tab-backed workspaces do same. Set `auto_start_session = false` to restore lazy session creation. Named files, modified buffers, and non-empty scratch buffers stay intact.
 
-- **Spawned** when `:Pi`, `:PiNewSession`, `:PiContinue`, or `:PiResume` creates a session buffer. No background daemon runs before first session.
+- **Spawned** when Neovim starts, when a new tab-backed workspace opens, or when `:Pi`, `:PiNewSession`, `:PiContinue`, or `:PiResume` creates a session. Set `auto_start_session = false` to restore lazy session creation.
 - **Alive** while History buffer exists. Hiding chat, switching buffers, or closing a tab does **not** stop process.
 - **Torn down** by `:bdelete` / `:bwipeout` on History buffer, or by `VimLeavePre` for all sessions.
 - **Stopped explicitly** via `:PiStop` / `pi.stop()` — kills current session RPC and deletes its History buffer.

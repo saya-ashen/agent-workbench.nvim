@@ -511,6 +511,7 @@ end
 
 --- Coalesced live redraw; no-op unless a list window is visible.
 function M.request_refresh()
+    require("pi.ui.workspace_sidebar").request_refresh()
     if refresh_scheduled then
         return
     end

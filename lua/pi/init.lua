@@ -33,6 +33,7 @@ function M.setup(opts)
     require("pi.attention").setup_autocmds()
     require("pi.sessions.manager").setup_autocmds()
     require("pi.ui.workspaces").setup()
+    require("pi.ui.workspace_sidebar").setup()
     require("pi.workspace_buffers").setup()
     require("pi.commands").setup()
     require("pi.ui.winfix").setup()
@@ -227,6 +228,11 @@ end
 --- Select a tab-backed workspace.
 function M.workspaces()
     require("pi.ui.workspaces").select()
+end
+
+--- Toggle the workspace explorer sidebar.
+function M.workspace_sidebar()
+    require("pi.ui.workspace_sidebar").toggle()
 end
 
 --- Create a tab-backed workspace after prompting for its cwd.

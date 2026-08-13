@@ -23,6 +23,7 @@ pi.new_session()              -- create and activate a separate session buffer
 pi.tree()                     -- navigate the session tree (:PiTree)
 pi.sessions()                 -- toggle the live sessions overview (:PiSessions)
 pi.workspaces()               -- pick and switch a tab-backed workspace (:PiWorkspaces)
+pi.workspace_sidebar()        -- toggle the collapsible workspace explorer (:PiWorkspaceSidebar)
 pi.new_workspace()            -- select a directory and create a workspace (:PiNewWorkspace)
 pi.workspace_list()           -- workspace rows in tabline order
 pi.workspace_tabline()        -- built-in tabline rendering for integrations

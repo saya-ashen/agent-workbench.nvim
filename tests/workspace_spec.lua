@@ -27,11 +27,17 @@ describe("agent workspace", function()
 
         assert.is_true(vim.bo[buf].buflisted)
         assert.are.equal("nofile", vim.bo[buf].buftype)
-        assert.are.equal("pi-session://" .. buf, vim.api.nvim_buf_get_name(buf))
+        assert.are.equal(
+            vim.fn.getcwd() .. "/π session " .. vim.api.nvim_get_current_tabpage(),
+            vim.api.nvim_buf_get_name(buf)
+        )
         assert.are.equal(buf, Workspace.buffer("agent://project/new-1"))
 
         history:set_name("agent://project/session-123")
-        assert.are.equal("pi-session://" .. buf, vim.api.nvim_buf_get_name(buf))
+        assert.are.equal(
+            vim.fn.getcwd() .. "/π session " .. vim.api.nvim_get_current_tabpage(),
+            vim.api.nvim_buf_get_name(buf)
+        )
         assert.is_nil(Workspace.buffer("agent://project/new-1"))
         assert.are.equal(buf, Workspace.buffer("agent://project/session-123"))
 

@@ -54,9 +54,9 @@ describe("workspace buffers", function()
 
         vim.api.nvim_set_current_tabpage(start_tab)
         assert.is_true(listed(first))
-        assert.is_false(listed(second))
+        assert.is_true(listed(second))
         vim.api.nvim_set_current_tabpage(second_tab)
-        assert.is_false(listed(first))
+        assert.is_true(listed(first))
         assert.is_true(listed(second))
     end)
 
@@ -66,15 +66,15 @@ describe("workspace buffers", function()
         local second_tab = vim.api.nvim_get_current_tabpage()
         local second = new_buffer("workspace-two")
 
-        assert.is_false(listed(first))
+        assert.is_true(listed(first))
         assert.is_true(listed(second))
 
         vim.api.nvim_set_current_tabpage(start_tab)
         assert.is_true(listed(first))
-        assert.is_false(listed(second))
+        assert.is_true(listed(second))
 
         vim.api.nvim_set_current_tabpage(second_tab)
-        assert.is_false(listed(first))
+        assert.is_true(listed(first))
         assert.is_true(listed(second))
     end)
 
@@ -108,7 +108,7 @@ describe("workspace buffers", function()
         vim.api.nvim_set_current_buf(moved)
 
         assert.is_true(WorkspaceBuffers.move_current(2))
-        assert.is_false(listed(moved))
+        assert.is_true(listed(moved))
 
         vim.api.nvim_set_current_tabpage(second_tab)
         assert.is_true(listed(moved))

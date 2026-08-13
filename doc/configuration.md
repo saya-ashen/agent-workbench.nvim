@@ -5,6 +5,9 @@ All options are optional — `require("pi").setup()` with no arguments gives you
 ```lua
 ---@type pi.Options
 require("pi").setup({
+    -- Create and show Pi chat in every tab-backed workspace at startup and tab entry.
+    -- Set false to restore lazy session creation.
+    auto_start_session = true,
     -- pi CLI invocation. Extra args are inserted before `--mode rpc`.
     -- Args that conflict with RPC mode (`--mode`, `--print`, `--help`, etc.)
     -- are dropped with a one-time warning.
@@ -198,11 +201,17 @@ require("pi").setup({
     workspace_bar = {
         enabled = true,
         show = "multiple", -- "multiple" | "always"
+        label = "name", -- "name" | "path" | function(workspace) return string end
+        show_index = false,
         session_count = true,
         status = true,
     },
-    -- Keep `buflisted` visibility local to each tab-backed workspace, so
-    -- bufferline and :bnext/:bprevious show only current workspace buffers.
+    workspace_sidebar = {
+        position = "right", -- "left" | "right"
+        width = 38,
+    },
+    -- Listed state is global to a buffer. Keep it unchanged so bufferline can
+    -- show every file and session buffer in current workspace.
     workspace_buffers = {
         enabled = true,
     },

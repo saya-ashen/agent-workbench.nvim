@@ -278,6 +278,7 @@ function M.handle_event(session, msg)
 
     if sessions_list_events[t] then
         require("pi.ui.sessions").request_refresh()
+        require("pi.ui.workspace_sidebar").request_refresh()
         require("pi.ui.workspaces").refresh()
     end
 
@@ -600,6 +601,7 @@ activate = function(session)
     end
     activating = true
     local tab = current_tab()
+    local entered_history = current_buf() == session.history_buf
     local previous = active_by_tab[tab]
     session.tab = tab
     session.chat:set_tab(tab)
@@ -609,6 +611,20 @@ activate = function(session)
         session.chat:takeover_view(previous.chat)
     elseif not session.chat:is_visible() then
         session.chat:show()
+    end
+
+    if entered_history then
+        local history_win = session.chat._layout:history_win()
+        vim.schedule(function()
+            if
+                history_win
+                and vim.api.nvim_win_is_valid(history_win)
+                and vim.api.nvim_win_get_buf(history_win) == session.history_buf
+            then
+                vim.api.nvim_set_current_win(history_win)
+                vim.cmd("stopinsert")
+            end
+        end)
     end
 
     require("pi.ui.sessions").clear_flags(session)
@@ -635,6 +651,7 @@ local function destroy_session(session)
         end
     end
     require("pi.ui.sessions").request_refresh()
+    require("pi.ui.workspace_sidebar").request_refresh()
     require("pi.ui.workspaces").refresh()
 end
 
@@ -697,6 +714,7 @@ function M.get_or_create(opts)
     register_components(session)
     activate(session)
     require("pi.ui.sessions").request_refresh()
+    require("pi.ui.workspace_sidebar").request_refresh()
     require("pi.ui.workspaces").refresh()
 
     -- Fetch available /commands for completion, highlighting, and system info
@@ -1340,12 +1358,42 @@ end
 
 --- Set up session buffer lifecycle and activation autocmds.
 function M.setup_autocmds()
+    local group = vim.api.nvim_create_augroup("PiSessions", { clear = true })
+
     vim.api.nvim_create_autocmd("BufReadCmd", {
+        group = group,
         pattern = "agent://*",
         callback = function(args)
             local uri = vim.api.nvim_buf_get_name(args.buf)
             vim.schedule(function()
                 M.open_uri(uri, args.buf)
+            end)
+        end,
+    })
+
+    vim.api.nvim_create_autocmd("TabNewEntered", {
+        group = group,
+        callback = function()
+            if not Config.options.auto_start_session then
+                return
+            end
+            vim.schedule(function()
+                if vim.api.nvim_get_current_tabpage() == nil then
+                    return
+                end
+                M.get_or_create()
+            end)
+        end,
+    })
+
+    vim.api.nvim_create_autocmd("VimEnter", {
+        group = group,
+        callback = function()
+            if not Config.options.auto_start_session then
+                return
+            end
+            vim.schedule(function()
+                M.get_or_create()
             end)
         end,
     })
@@ -1378,6 +1426,7 @@ function M.setup_autocmds()
     })
 
     vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+        group = group,
         callback = function(args)
             if require("pi.workspace_buffers").is_updating_listed() then
                 return
@@ -1390,6 +1439,7 @@ function M.setup_autocmds()
     })
 
     vim.api.nvim_create_autocmd("TabClosed", {
+        group = group,
         callback = function()
             vim.schedule(function()
                 M.cleanup()
@@ -1400,15 +1450,21 @@ function M.setup_autocmds()
     -- Entering a tab consumes that session's done/error notification: the
     -- user has seen it, so the dot returns to idle.
     vim.api.nvim_create_autocmd("TabEnter", {
+        group = group,
         callback = function()
             local session = M.get()
             if session then
                 require("pi.ui.sessions").clear_flags(session)
+            elseif Config.options.auto_start_session then
+                vim.schedule(function()
+                    M.get_or_create()
+                end)
             end
         end,
     })
 
     vim.api.nvim_create_autocmd("VimLeavePre", {
+        group = group,
         callback = function()
             for _, session in pairs(sessions) do
                 Attention.clear_session(session)
@@ -1418,6 +1474,7 @@ function M.setup_autocmds()
     })
 
     vim.api.nvim_create_autocmd("VimResized", {
+        group = group,
         callback = function()
             for _, session in pairs(sessions) do
                 if session.chat:is_visible() then

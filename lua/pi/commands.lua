@@ -88,6 +88,10 @@ function M.setup()
         Pi.workspaces()
     end, { desc = "Select a π workspace tab" })
 
+    vim.api.nvim_create_user_command("PiWorkspaceSidebar", function()
+        Pi.workspace_sidebar()
+    end, { desc = "Toggle the π workspace explorer sidebar" })
+
     vim.api.nvim_create_user_command("PiNewWorkspace", function()
         Pi.new_workspace()
     end, { desc = "Create a π workspace after selecting its path" })

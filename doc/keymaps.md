@@ -12,6 +12,7 @@ What the plugin does bind on its own:
 - The [diff review](diff-review.md) keys inside the diff tab.
 - The `:PiDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff, `<CR>`/`o` jumps to its first changed line, `<C-f>`/`<C-b>`/`<C-d>`/`<C-u>` scroll the diff on the right; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
 - The [sessions overview](sessions.md#sessions-overview-pisessions) keys inside the list.
+- The workspace sidebar uses tree-style keys: on workspace rows, both `h` and `l` toggle expansion; on session rows, `h` collapses the parent and `l` activates the session; on buffer rows, `<CR>`/`l` switches to that buffer. `e` / `<Tab>` also toggles, `<CR>` switches workspace or buffer, `d` deletes the selected buffer, `a` creates a session, `A` creates a workspace, `o` switches and closes, `R` refreshes, `?` shows help, and `q` closes.
 
 ## Key specs
 
@@ -45,6 +46,7 @@ Every π buffer gets a stable filetype, so you can target them from your own `Fi
 | `pi-tool-output` | Read-only split for tool output longer than 30 lines |
 | `pi-dialog` | Input and info dialog floats (completion plugins can be disabled here without affecting the prompt) |
 | `pi-sessions` | The [sessions overview](sessions.md#sessions-overview-pisessions) list |
+| `pi-workspaces` | The collapsible workspace explorer sidebar |
 | `pi-diff-review` | The `:PiDiff` session diff review file list (left area of the panel) |
 
 ## Example setup

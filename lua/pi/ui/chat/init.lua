@@ -67,7 +67,7 @@ function Chat.new(tab, mode, agent, history_name, session_id)
     self._agent = agent
     self._attachments = Attachments.new()
     self._prompt = Prompt.new(self._session_id, self._attachments)
-    self._history = History.new(tab, history_name)
+    self._history = History.new(tab, history_name, self._session_id)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
     self._streaming = false
@@ -122,36 +122,6 @@ function Chat:_set_keymaps()
             self:ensure_shown_and_focus_prompt()
         end, { buffer = hbuf, desc = "Redirect to π prompt" })
     end
-
-    -- Auto-redirect when entering history from outside in side layout only.
-    vim.api.nvim_create_autocmd("WinEnter", {
-        buffer = hbuf,
-        callback = function()
-            if self._layout:mode() ~= "side" then
-                return
-            end
-
-            local pwin = self._layout:prompt_win()
-            local prev = vim.fn.win_getid(vim.fn.winnr("#"))
-            if prev == pwin then
-                return
-            end
-
-            local entered_win = vim.api.nvim_get_current_win()
-            vim.schedule(function()
-                if self._layout:mode() ~= "side" then
-                    return
-                end
-                if vim.api.nvim_get_current_win() ~= entered_win then
-                    return
-                end
-                if pwin and vim.api.nvim_win_is_valid(pwin) then
-                    vim.api.nvim_set_current_win(pwin)
-                    vim.cmd("startinsert")
-                end
-            end)
-        end,
-    })
 
     -- Auto-enter insert mode when focusing the prompt from outside
     vim.api.nvim_create_autocmd("WinEnter", {

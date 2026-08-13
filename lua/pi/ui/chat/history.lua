@@ -407,9 +407,9 @@ local function highlight_table_pipes(buf, ns_id, row, line)
 end
 
 ---@param tab pi.TabId
----@param name? string
+---@param session_id? integer
 ---@return pi.ChatHistory
-function History.new(tab, name)
+function History.new(tab, name, session_id)
     local self = setmetatable({}, History)
     self._win = nil
     self._tab = tab
@@ -485,9 +485,9 @@ function History.new(tab, name)
     vim.bo[self._buf].swapfile = false
     vim.bo[self._buf].bufhidden = "hide"
     vim.bo[self._buf].modifiable = false
-    -- Listed History buffers are session handles. Keep URI in registry to avoid
-    -- file-tree plugins treating agent:// names as filesystem paths.
-    vim.api.nvim_buf_set_name(self._buf, ("pi-session://%s"):format(self._buf))
+    -- Keep listed History buffers readable to bufferline and file trees. The
+    -- agent:// URI stays in `pi_session_uri` and workspace resource registry.
+    vim.api.nvim_buf_set_name(self._buf, ("π session %s"):format(session_id or tab))
     histories[self._buf] = self
     WorkspaceHistory.attach(self, name)
     vim.api.nvim_create_autocmd("BufWipeout", {

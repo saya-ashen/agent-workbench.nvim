@@ -202,6 +202,53 @@ describe("workspace bar", function()
         assert.is_truthy(error_message:find("Workspace path is not a directory", 1, true))
     end)
 
+    it("yields tabline visibility when bufferline loads later", function()
+        Config.setup({ workspace_bar = { enabled = true, show = "multiple" } })
+        vim.o.tabline = ""
+        WorkspaceBar.setup()
+        assert.are.equal("%!v:lua.require'pi.ui.workspaces'.tabline()", vim.o.tabline)
+
+        rawset(_G, "nvim_bufferline", function()
+            return ""
+        end)
+        package.loaded["bufferline.config"] = { options = {} }
+        vim.o.tabline = "%!v:lua.nvim_bufferline()"
+        vim.o.showtabline = 2
+
+        WorkspaceBar.refresh()
+
+        assert.are.equal("%!v:lua.nvim_bufferline()", vim.o.tabline)
+        assert.are.equal(2, vim.o.showtabline)
+    end)
+
+    it("adapts bufferline before its global renderer is registered", function()
+        rawset(_G, "nvim_bufferline", nil)
+        local bufferline_config = { options = { show_tab_indicators = true } }
+        package.loaded["bufferline.config"] = bufferline_config
+        vim.o.tabline = "%!v:lua.my_bufferline_renderer()"
+
+        WorkspaceBar.setup()
+
+        assert.is_false(bufferline_config.options.show_tab_indicators)
+        assert.are.equal("function", type(bufferline_config.options.custom_areas.right))
+    end)
+
+    it("reapplies integration after bufferline replaces its options", function()
+        rawset(_G, "nvim_bufferline", function()
+            return ""
+        end)
+        local bufferline_config = { options = { show_tab_indicators = true } }
+        package.loaded["bufferline.config"] = bufferline_config
+        vim.o.tabline = "%!v:lua.nvim_bufferline()"
+        WorkspaceBar.setup()
+
+        bufferline_config.options = { show_tab_indicators = true }
+        WorkspaceBar.refresh()
+
+        assert.is_false(bufferline_config.options.show_tab_indicators)
+        assert.are.equal("function", type(bufferline_config.options.custom_areas.right))
+    end)
+
     it("appends clickable workspaces to bufferline's right custom area", function()
         vim.cmd("tabnew")
         vim.cmd("tcd " .. vim.fn.fnameescape(dirs[2]))
@@ -212,23 +259,51 @@ describe("workspace bar", function()
             return { { text = " existing ", link = "BufferLineFill" } }
         end
         local original_areas = { right = original_right }
-        local bufferline_config = { options = { custom_areas = original_areas, show_tab_indicators = false } }
+        local bufferline_config = { options = { custom_areas = original_areas, show_tab_indicators = true } }
         package.loaded["bufferline.config"] = bufferline_config
         vim.o.tabline = "%!v:lua.nvim_bufferline()"
 
         WorkspaceBar.setup()
 
         assert.are.equal("%!v:lua.nvim_bufferline()", vim.o.tabline)
-        assert.are.equal(false, bufferline_config.options.show_tab_indicators)
+        assert.is_false(bufferline_config.options.show_tab_indicators)
         local area = bufferline_config.options.custom_areas.right()
         assert.are.equal(" existing ", area[1].text)
         assert.is_truthy(area[2].text:find("%1T", 1, true))
         assert.is_truthy(area[2].text:find(vim.fs.basename(dirs[1]), 1, true))
+        assert.is_falsy(area[2].text:find(dirs[1], 1, true))
         assert.is_truthy(area[3].text:find("%2T", 1, true))
         assert.is_truthy(area[3].text:find(vim.fs.basename(dirs[2]), 1, true))
 
         WorkspaceBar._reset()
         assert.are.equal(original_areas, bufferline_config.options.custom_areas)
+        assert.is_true(bufferline_config.options.show_tab_indicators)
+    end)
+
+    it("supports path, index, and custom workspace labels", function()
+        Config.setup({
+            workspace_bar = {
+                label = "path",
+                show_index = true,
+                session_count = false,
+                status = false,
+            },
+        })
+        local path = WorkspaceBar.tabline()
+        assert.is_truthy(path:find(" 1 " .. dirs[1] .. " ", 1, true))
+
+        Config.setup({
+            workspace_bar = {
+                label = function(row)
+                    return "workspace:" .. row.name
+                end,
+                show_index = false,
+                session_count = false,
+                status = false,
+            },
+        })
+        local custom = WorkspaceBar.tabline()
+        assert.is_truthy(custom:find(" workspace:" .. vim.fs.basename(dirs[1]) .. " ", 1, true))
     end)
 
     it("shows session count and busy state in bufferline's workspace area", function()

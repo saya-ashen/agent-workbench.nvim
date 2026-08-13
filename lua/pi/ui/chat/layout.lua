@@ -563,8 +563,17 @@ function Layout:_open_in_buffer_layout()
     local global_number = vim.go.number
     local global_relativenumber = vim.go.relativenumber
     self._history_win = self._return_win
-
     set_win_buf(self._history_win, self._history:buf())
+    if self._return_buf and vim.api.nvim_buf_is_valid(self._return_buf) then
+        local old_buf = self._return_buf
+        if vim.api.nvim_buf_get_name(old_buf) == "" and not vim.bo[old_buf].modified then
+            local lines = vim.api.nvim_buf_get_lines(old_buf, 0, -1, false)
+            if #lines == 1 and lines[1] == "" then
+                vim.api.nvim_buf_delete(old_buf, { force = true })
+                self._return_buf = nil
+            end
+        end
+    end
     set_win_opts(self._history_win, function(win)
         vim.wo[win].winfixbuf = false
         vim.wo[win].number = global_number

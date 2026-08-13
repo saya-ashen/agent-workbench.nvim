@@ -13,11 +13,14 @@ local Workspace = require("pi.workspace")
 ---@field sessions integer
 ---@field status "attention"|"busy"|"idle"
 
+local BUILTIN_TABLINE = "%!v:lua.require'pi.ui.workspaces'.tabline()"
 local owns_tabline = false
 local bufferline_active = false
 local bufferline_options
 local bufferline_custom_areas
 local bufferline_right_area
+local bufferline_show_tab_indicators
+local setup_generation = 0
 
 ---@param text string
 ---@return string
@@ -28,17 +31,27 @@ end
 
 ---@return boolean
 local function uses_bufferline()
-    return vim.o.tabline:find("nvim_bufferline", 1, true) ~= nil and type(rawget(_G, "nvim_bufferline")) == "function"
+    return vim.o.tabline:lower():find("bufferline", 1, true) ~= nil or type(rawget(_G, "nvim_bufferline")) == "function"
 end
 
 ---@param row pi.WorkspaceRow
 ---@return string
 local function workspace_label(row)
     local options = Config.options.workspace_bar
+    local label = row.name
+    if options.label == "path" then
+        label = row.cwd
+    elseif type(options.label) == "function" then
+        local ok, custom = pcall(options.label, row)
+        if ok and type(custom) == "string" and custom ~= "" then
+            label = custom
+        end
+    end
+    local index = options.show_index and (row.index .. " ") or ""
     local count = options.session_count and (" " .. row.sessions) or ""
     local status = options.status and (row.status == "attention" and " !" or (row.status == "busy" and " ●" or ""))
         or ""
-    return ("%d %s%s%s"):format(row.index, row.name, count, status)
+    return ("%s%s%s%s"):format(index, label, count, status)
 end
 
 ---@return table[]
@@ -61,19 +74,51 @@ local function bufferline_workspace_area()
     return items
 end
 
+---@return boolean changed
 local function enable_bufferline_workspace_area()
     local ok, bufferline = pcall(require, "bufferline.config")
     if not ok or type(bufferline.options) ~= "table" then
-        return
+        return false
     end
     if bufferline_options ~= bufferline.options then
         bufferline_options = bufferline.options
         bufferline_custom_areas = bufferline.options.custom_areas
         bufferline_right_area = bufferline_custom_areas and bufferline_custom_areas.right or nil
+        bufferline_show_tab_indicators = bufferline.options.show_tab_indicators
     end
+    if
+        bufferline.options.show_tab_indicators == false
+        and bufferline.options.custom_areas
+        and bufferline.options.custom_areas.right == bufferline_workspace_area
+    then
+        return false
+    end
+    bufferline.options.show_tab_indicators = false
     local areas = vim.tbl_extend("force", {}, bufferline_custom_areas or {})
     areas.right = bufferline_workspace_area
     bufferline.options.custom_areas = areas
+    return true
+end
+
+---@param generation integer
+---@param remaining integer
+local function retry_bufferline_setup(generation, remaining)
+    if generation ~= setup_generation or remaining == 0 then
+        return
+    end
+    vim.defer_fn(function()
+        if generation ~= setup_generation then
+            return
+        end
+        if Config.options.workspace_bar.enabled and uses_bufferline() then
+            bufferline_active = true
+            local changed = enable_bufferline_workspace_area()
+            if changed and type(rawget(_G, "nvim_bufferline")) == "function" then
+                vim.cmd("redrawtabline")
+            end
+        end
+        retry_bufferline_setup(generation, remaining - 1)
+    end, 100)
 end
 
 ---@return pi.WorkspaceRow[]
@@ -184,6 +229,9 @@ function M.refresh()
     if not Config.options.workspace_bar.enabled then
         return
     end
+    if owns_tabline and vim.o.tabline ~= BUILTIN_TABLINE then
+        owns_tabline = false
+    end
     if not owns_tabline and uses_bufferline() then
         bufferline_active = true
         enable_bufferline_workspace_area()
@@ -193,7 +241,7 @@ function M.refresh()
         local visible = show == "always" or #vim.api.nvim_list_tabpages() > 1
         vim.o.showtabline = visible and 2 or 1
     end
-    if owns_tabline or bufferline_active then
+    if owns_tabline or bufferline_active and type(rawget(_G, "nvim_bufferline")) == "function" then
         vim.cmd("redrawtabline")
     end
 end
@@ -212,16 +260,22 @@ function M.setup()
     local options = Config.options.workspace_bar
     if options.enabled and vim.o.tabline == "" then
         owns_tabline = true
-        vim.o.tabline = "%!v:lua.require'pi.ui.workspaces'.tabline()"
+        vim.o.tabline = BUILTIN_TABLINE
         vim.o.showtabline = options.show == "always" and 2 or 1
     elseif options.enabled and uses_bufferline() then
         bufferline_active = true
         enable_bufferline_workspace_area()
     end
 
-    vim.api.nvim_create_autocmd({ "TabEnter", "TabClosed", "DirChanged", "VimEnter" }, {
+    vim.api.nvim_create_autocmd({ "BufEnter", "TabEnter", "TabClosed", "DirChanged" }, {
         group = group,
         callback = M.refresh,
+    })
+    vim.api.nvim_create_autocmd("VimEnter", {
+        group = group,
+        callback = function()
+            vim.schedule(M.refresh)
+        end,
     })
     vim.api.nvim_create_autocmd("OptionSet", {
         group = group,
@@ -229,20 +283,25 @@ function M.setup()
         callback = M.refresh,
     })
     M.refresh()
+    setup_generation = setup_generation + 1
+    retry_bufferline_setup(setup_generation, 30)
 end
 
 function M._reset()
-    if owns_tabline and vim.o.tabline == "%!v:lua.require'pi.ui.workspaces'.tabline()" then
+    setup_generation = setup_generation + 1
+    if owns_tabline and vim.o.tabline == BUILTIN_TABLINE then
         vim.o.tabline = ""
     end
     if bufferline_options then
         bufferline_options.custom_areas = bufferline_custom_areas
+        bufferline_options.show_tab_indicators = bufferline_show_tab_indicators
     end
     owns_tabline = false
     bufferline_active = false
     bufferline_options = nil
     bufferline_custom_areas = nil
     bufferline_right_area = nil
+    bufferline_show_tab_indicators = nil
 end
 
 return M

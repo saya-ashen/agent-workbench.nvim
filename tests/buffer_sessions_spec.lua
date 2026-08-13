@@ -66,10 +66,13 @@ describe("buffer-owned sessions", function()
         assert.is_not_nil(history_win)
         assert.is_not_nil(prompt_win)
         assert.are.equal(first.history_buf, vim.api.nvim_win_get_buf(history_win))
+        assert.are.equal(history_win, vim.api.nvim_get_current_win())
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
         assert.are.equal(first.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_true(first.rpc:is_running())
         assert.is_true(second.rpc:is_running())
     end)
+
 
     it("stops current session when its visible History buffer is deleted", function()
         local session = assert(Sessions.get_or_create({ layout = "buffer" }))

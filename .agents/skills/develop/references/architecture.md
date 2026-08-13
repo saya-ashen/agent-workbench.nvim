@@ -26,6 +26,7 @@ These are intentional and load-bearing. Most "this is harder than it should be" 
 - **The prompt auto-enters insert mode.** On focus it runs `startinsert`. So normal/leader mappings only fire after `Esc`. This is a user-facing fact *and* an automation fact (G12).
 - **Buffer-owned sessions.** Each listed History buffer owns one `{ rpc, chat }`; `require("pi.sessions.manager").get()` resolves current component buffer or active tab view. Cleanup happens on History buffer deletion and `VimLeavePre`; tab close only detaches view.
 - **Workspace buffer visibility mutates `buflisted`.** `workspace_buffers.lua` owns tab-to-buffer memberships and temporarily changes global `buflisted` state on tab switches. Those changes emit `BufDelete`; session teardown must ignore them through `is_updating_listed()` and only destroy History on a real delete/wipe command.
+- **Workspace UI has two surfaces.** `ui/workspaces.lua` owns compact tabline/picker data; `ui/workspace_sidebar.lua` owns the optional native split explorer with full paths and expandable live sessions. Both render from manager/workspace state and receive event-driven refreshes; neither owns session lifecycle.
 - **Config is read live.** Always `require("pi.config").options` at call time. Caching a config value at module load (G20) yields stale values after `setup()`.
 - **Lazy loading.** `pi` is loaded on first use (a keymap/command). In tests, `wait_for` the chat buffers rather than assuming `require("pi")` already ran; or force it with `pcall(require,"pi")` / `pi.show()`.
 

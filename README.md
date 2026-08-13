@@ -262,6 +262,7 @@ require("pi").setup({
 | `:PiTree` | Navigate the session tree: jump back to any past conversation point |
 | `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
 | `:PiWorkspaces` | Pick and switch a tab-backed workspace |
+| `:PiWorkspaceSidebar` | Toggle the collapsible workspace explorer sidebar |
 | `:PiNewWorkspace` | Select a directory and create a workspace rooted there |
 | `:PiMoveBuffer {tab}` | Move current ordinary buffer to another workspace |
 | `:PiSessionStats` | Show the session stats dashboard: messages, tokens (with cache split), per-model cost breakdown, cache re-billed waste, context usage |

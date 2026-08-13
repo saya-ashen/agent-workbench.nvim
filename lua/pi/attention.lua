@@ -64,6 +64,7 @@ local function request_redraw()
         pcall(vim.cmd, "redrawstatus!")
         pcall(vim.cmd, "redrawtabline")
         require("pi.ui.sessions").request_refresh()
+        require("pi.ui.workspace_sidebar").request_refresh()
         local session = require("pi.sessions.manager").get()
         if session then
             session.chat:render_statusline()

@@ -16,23 +16,31 @@ Use normal buffer commands to switch sessions:
 :buffer <session-history-buffer>
 ```
 
-Entering session History buffer switches the active chat view in the current tab, including prompt and attachments. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
+Entering a session History buffer switches the active chat view in the current tab, including prompt and attachments, while leaving focus on History in Normal mode. Press `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` from History to focus the prompt and enter Insert mode. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
 
 ## Workspaces
 
 Each Neovim tab acts as one workspace. On setup, pi2.nvim fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:PiNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. Files and π sessions created there use that cwd. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:PiWorkspaces` opens a searchable picker.
 
-When `bufferline.nvim` owns the tabline, pi2.nvim appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs appear at the right as `index name session-count status`, remain visible even when bufferline's `show_tab_indicators` is false, and preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, pi2.nvim installs its built-in workspace tabline.
+When `bufferline.nvim` owns the tabline, pi2.nvim appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs show the short cwd basename by default, followed by session count and status; visible numeric indices are hidden while native click targets and `gt` / `gT` navigation remain active. Configure `workspace_bar.label = "path"` for full paths, `show_index = true` for visible indices, or pass a label function receiving the workspace row. While this integration is active, pi2.nvim disables bufferline's redundant native numeric tab indicators and restores their prior setting on reset. Workspace tabs preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, pi2.nvim installs its built-in workspace tabline temporarily and yields ownership if bufferline loads later.
 
-Listed buffers are workspace-local by default. Switching tabs changes `buflisted` so bufferline-style plugins and `:bnext` / `:bprevious` show only current workspace buffers. Opening an existing buffer in another tab adds it to both workspaces. `:PiMoveBuffer {tab-number}` moves current ordinary buffer to another workspace; π History buffers stay with the workspace that created their session. Closing a workspace only removes its buffer memberships and never deletes buffers or stops sessions.
+`:PiWorkspaceSidebar` toggles a collapsible workspace explorer (right side, 38 columns by default). Its compact tree-style rows show a shortened `~/...` cwd, then list that workspace's session History buffers and ordinary listed buffers together. Session rows show a backend title (falling back to `session <id>`), a state-specific icon, and a right-aligned `running`, `compacting`, `attention`, `idle`, or `stopped` state. Ordinary buffers show their basename, filetype icon and color from `nvim-web-devicons` when available, and a `modified` marker when changed; without devicons they use a generic file icon. On workspace rows, both `h` and `l` toggle expansion. On session rows, `h` collapses the parent workspace and `l` activates the session; on buffer rows, `<CR>` / `l` switches to the buffer. `e` / `<Tab>` also toggles workspace rows. `<CR>` switches the workspace or opens its selected item, `d` deletes the selected buffer, `a` creates a session in the selected workspace, `A` opens the new-workspace path input, `o` switches and closes the sidebar, `R` refreshes workspaces and buffers, `?` toggles key help, and `q` closes. The sidebar is a native scratch buffer and split; it does not require Snacks or Neo-tree. Configure `workspace_sidebar.position` (`"left"` or `"right"`) and `workspace_sidebar.width`.
+
+Listed buffers are tracked by workspace ownership without changing global `buflisted` state. The workspace sidebar groups each workspace's listed buffers and keeps session History buffers with their creating workspace. A normal buffer can belong to multiple workspaces when entered there. `:PiMoveBuffer {tab-number}` moves the current ordinary buffer to another workspace; π History buffers cannot be moved. Closing a workspace removes its membership only; it never deletes buffers or stops sessions.
 
 ```lua
 require("pi").setup({
     workspace_bar = {
         enabled = true,
         show = "multiple", -- "multiple" | "always"
+        label = "name", -- "name" | "path" | function(workspace) return string end
+        show_index = false,
         session_count = true,
         status = true,
+    },
+    workspace_sidebar = {
+        position = "right", -- "left" | "right"
+        width = 38,
     },
     workspace_buffers = {
         enabled = true,
@@ -50,7 +58,7 @@ The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal o
 agent://<project>/<session-id>/transcript
 ```
 
-The URI starts as `agent://<project>/new-<id>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. The listed History buffer uses an internal `pi-session://...` name while the `agent://...` URI remains in the workspace registry. `:edit agent://.../transcript` reuses an existing resource or activates its session in the current tab. History remains separate from prompt and attachment buffers.
+The URI starts as `agent://<project>/new-<id>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. The listed History buffer uses a readable `π session <session-id>` name for bufferline and file-tree plugins. Its `agent://...` URI remains in the buffer-local `pi_session_uri` field and workspace registry. `:edit agent://.../transcript` reuses an existing resource or activates its session in the current tab. History remains separate from prompt and attachment buffers. In buffer layout, opening a normal file replaces the current view and hides chat layout without stopping session; switching back to `π session <session-id>` buffer restores History and prompt.
 
 ## Storage and scoping
 

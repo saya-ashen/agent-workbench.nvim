@@ -188,11 +188,17 @@
 ---@class pi.WorkspaceBarConfig
 ---@field enabled? boolean Enable built-in workspace tabline when no custom tabline exists (default true)
 ---@field show? "multiple"|"always" Show only with multiple tabs or always (default "multiple")
+---@field label? "name"|"path"|fun(workspace: pi.WorkspaceRow): string Workspace label (default "name")
+---@field show_index? boolean Show visible workspace index (default false)
 ---@field session_count? boolean Show live session count per workspace (default true)
 ---@field status? boolean Show aggregated busy/attention status (default true)
 
 ---@class pi.WorkspaceBuffersConfig
----@field enabled? boolean Keep listed buffers local to their tab-backed workspace (default true)
+---@field enabled? boolean Track buffer ownership for tab-backed workspaces without changing buflisted state (default true)
+
+---@class pi.WorkspaceSidebarConfig
+---@field position? "left"|"right" Sidebar placement (default "right")
+---@field width? integer Sidebar width in columns (default 38)
 
 ---@class pi.SessionsListFloatConfig
 ---@field width? number Width in columns (>=1) or fraction of editor width (<1, default 0.5)
@@ -266,6 +272,7 @@
 
 ---@class pi.Options
 ---@field cli pi.CliConfig
+---@field auto_start_session boolean Create and show a Pi session for every tab-backed workspace on startup and tab entry (default: true)
 ---@field rpc pi.RpcConfig
 ---@field agent_dir? string Override the π agent directory (default: $PI_CODING_AGENT_DIR or ~/.pi/agent)
 ---@field debug boolean Enable RPC debug logging to stdpath("log")/pi/<session>/rpc.log
@@ -287,6 +294,7 @@
 ---@field tree pi.TreeConfig
 ---@field workspace_bar pi.WorkspaceBarConfig
 ---@field workspace_buffers pi.WorkspaceBuffersConfig
+---@field workspace_sidebar pi.WorkspaceSidebarConfig
 ---@field sessions_list pi.SessionsListConfig
 ---@field diff_review pi.DiffReviewConfig
 ---@field zen pi.ZenConfig
@@ -307,6 +315,7 @@ math.randomseed(os.time())
 
 ---@type pi.Options
 local defaults = {
+    auto_start_session = true,
     cli = {
         bin = "pi",
         args = {},
@@ -421,11 +430,17 @@ local defaults = {
     workspace_bar = {
         enabled = true,
         show = "multiple",
+        label = "name",
+        show_index = false,
         session_count = true,
         status = true,
     },
     workspace_buffers = {
         enabled = true,
+    },
+    workspace_sidebar = {
+        position = "right",
+        width = 38,
     },
     sessions_list = {
         mode = "follow",
