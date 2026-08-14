@@ -16,7 +16,7 @@ Use normal buffer commands to switch sessions:
 :buffer <session-history-buffer>
 ```
 
-Entering a session History buffer switches the active chat view in the current tab, including prompt and attachments, while leaving focus on History in Normal mode. Press `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` from History to focus the prompt and enter Insert mode. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
+Entering a session History buffer switches the active chat view in the current tab, including prompt and attachments, while leaving focus on History in Normal mode. Press `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` from History to focus the prompt and enter Insert mode. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive; background output continues in that session's own hidden History buffer and never replaces the active session view. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
 
 ## Workspaces
 
@@ -50,7 +50,7 @@ require("pi").setup({
 
 ## Session history as a buffer
 
-Sessions are loaded in two phases: pi2.nvim first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. After RPC `switch_session` and `get_messages` complete, an identical preview stays in place; only changed authoritative state triggers a rebuild. Unsupported or damaged files fall back to RPC-only loading.
+Sessions are loaded in two phases: pi2.nvim first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. Prompt submissions stay blocked, with draft text preserved, until RPC `switch_session` and `get_messages` complete so preview text cannot be sent to the previous backend session. An identical authoritative response keeps the preview in place; only changed state triggers a rebuild. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view. Unsupported or damaged files fall back to RPC-only loading.
 
 The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 

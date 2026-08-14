@@ -33,6 +33,7 @@
 ---@field _pending_file_change_args? table<string, table> Pending tool args by tool call id for file-changing tools.
 ---@field _compaction_rebuilding? boolean True while compacted messages are being fetched/replayed.
 ---@field _compaction_event_queue? pi.RpcEvent[] Events received while compacted messages are being fetched/replayed.
+---@field _switching_session? boolean True until persisted messages are installed after switch_session.
 
 ---@class pi.SessionCreateOpts
 ---@field layout? pi.LayoutMode
@@ -104,6 +105,13 @@ end
 ---@return integer
 local function current_buf()
     return vim.api.nvim_get_current_buf()
+end
+
+---@param session pi.Session
+local function focus_if_active(session)
+    if active_by_tab[current_tab()] == session then
+        session.chat:ensure_shown_and_focus_prompt()
+    end
 end
 
 --- Events we've reviewed and deliberately choose not to handle.
@@ -611,7 +619,13 @@ function M._rebind_history(session, history)
     if transcript_resources[old_uri] == old_history then
         transcript_resources[old_uri] = nil
     end
-    session.chat:attach_history(history)
+    local was_activating = activating
+    activating = true
+    local attached, attach_err = pcall(session.chat.attach_history, session.chat, history)
+    activating = was_activating
+    if not attached then
+        error(attach_err, 0)
+    end
     if old_buf then
         require("pi.workspace_buffers").unassign(old_buf, session.workspace_tab)
     end
@@ -715,6 +729,10 @@ function M.get_or_create(opts)
     ---@type pi.ChatAgent
     local agent = {
         send = function(msg, callback)
+            if session and session._switching_session then
+                Notify.warn("Session is still loading; wait before sending")
+                return false
+            end
             return rpc:send(msg, callback)
         end,
     }
@@ -990,7 +1008,7 @@ function M.reload_messages(session)
                 local err = res.error or "Failed to load session messages"
                 Notify.error(err)
                 session.chat:on_error(err, { pad_top = true, pad_bottom = true })
-                session.chat:ensure_shown_and_focus_prompt()
+                focus_if_active(session)
                 return
             end
 
@@ -1000,7 +1018,7 @@ function M.reload_messages(session)
                 show_startup_block(session, commands)
                 replay_messages(session, messages)
                 M.refresh_state(session)
-                session.chat:ensure_shown_and_focus_prompt()
+                focus_if_active(session)
             end)
         end)
     end)
@@ -1009,7 +1027,7 @@ function M.reload_messages(session)
             session.chat:clear()
             Notify.error("Failed to load session messages")
             session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
-            session.chat:ensure_shown_and_focus_prompt()
+            focus_if_active(session)
         end)
     end
 end
@@ -1069,6 +1087,7 @@ end
 ---@param session pi.Session
 ---@param session_path string
 load_session = function(session, session_path)
+    session._switching_session = true
     Attention.begin_session_transition(session)
 
     local preview = require("pi.sessions.history").load_messages(session_path)
@@ -1082,6 +1101,7 @@ load_session = function(session, session_path)
     local sent_switch = session.rpc:send({ type = "switch_session", sessionPath = session_path }, function(msg)
         local data = msg.data or {}
         if not msg.success then
+            session._switching_session = false
             vim.schedule(function()
                 Attention.end_session_transition(session, false)
                 Notify.error(msg.error or "Failed to switch session")
@@ -1089,6 +1109,7 @@ load_session = function(session, session_path)
             return
         end
         if data.cancelled then
+            session._switching_session = false
             vim.schedule(function()
                 Attention.end_session_transition(session, false)
                 Notify.warn("Session switch was cancelled")
@@ -1117,39 +1138,39 @@ load_session = function(session, session_path)
             vim.schedule(function()
                 session.chat:clear_placeholder()
                 if not res.success then
+                    session._switching_session = false
                     local err = res.error or "Failed to load session messages"
                     Notify.error(err)
                     session.chat:on_error(err, { pad_top = true, pad_bottom = true })
-                    session.chat:ensure_shown_and_focus_prompt()
+                    focus_if_active(session)
                     return
                 end
 
                 local messages = (res.data or {}).messages or {}
-                -- Identical local preview is already rendered. Only install
-                -- startup data; replay again only when RPC found different state.
+                if not (preview and messages_equal(preview.messages, messages)) then
+                    session.chat:clear()
+                    replay_messages(session, messages)
+                end
+                session._switching_session = false
+                focus_if_active(session)
                 CommandsCache.fetch(session.rpc, function(commands)
-                    if preview and messages_equal(preview.messages, messages) then
-                        show_startup_block(session, commands)
-                    else
-                        session.chat:clear()
-                        show_startup_block(session, commands)
-                        replay_messages(session, messages)
-                    end
-                    session.chat:ensure_shown_and_focus_prompt()
+                    show_startup_block(session, commands)
                 end)
             end)
         end)
         if not sent_messages then
+            session._switching_session = false
             vim.schedule(function()
                 session.chat:clear()
                 Notify.error("Failed to load session messages")
                 session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
-                session.chat:ensure_shown_and_focus_prompt()
+                focus_if_active(session)
             end)
         end
     end)
 
     if not sent_switch then
+        session._switching_session = false
         Attention.end_session_transition(session, false)
     end
 end

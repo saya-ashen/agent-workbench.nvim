@@ -1,11 +1,15 @@
 local Config = require("pi.config")
+local Ft = require("pi.filetypes")
 local Rpc = require("pi.rpc")
+local SessionHistory = require("pi.sessions.history")
 local Sessions = require("pi.sessions.manager")
+local Workspace = require("pi.workspace")
 local WorkspaceBuffers = require("pi.workspace_buffers")
 
 Config.setup({})
 
 local real_rpc = { start = Rpc.start, stop = Rpc.stop, send = Rpc.send }
+local real_history = { list = SessionHistory.list, load_messages = SessionHistory.load_messages }
 
 local function install_stub()
     Rpc.start = function(self)
@@ -26,6 +30,44 @@ local function restore_stub()
     Rpc.start = real_rpc.start
     Rpc.stop = real_rpc.stop
     Rpc.send = real_rpc.send
+    SessionHistory.list = real_history.list
+    SessionHistory.load_messages = real_history.load_messages
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == Ft.history then
+            vim.api.nvim_buf_delete(buf, { force = true })
+        end
+    end
+end
+
+---@return table[] pending
+local function install_pending_rpc()
+    local pending = {}
+    Rpc.send = function(self, msg, callback)
+        pending[#pending + 1] = { rpc = self, msg = msg, callback = callback }
+        return self._job_id ~= nil
+    end
+    return pending
+end
+
+---@param pending table[]
+---@param rpc pi.Rpc
+---@param command string
+---@return table
+local function take_pending(pending, rpc, command)
+    for i, entry in ipairs(pending) do
+        if entry.rpc == rpc and entry.msg.type == command then
+            table.remove(pending, i)
+            return entry
+        end
+    end
+    error("missing pending " .. command)
+end
+
+---@param pending table[]
+local function clear_pending(pending)
+    for i = #pending, 1, -1 do
+        table.remove(pending, i)
+    end
 end
 
 describe("buffer-owned sessions", function()
@@ -71,6 +113,75 @@ describe("buffer-owned sessions", function()
         assert.are.equal(first.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_true(first.rpc:is_running())
         assert.is_true(second.rpc:is_running())
+    end)
+
+    it("keeps background reload completion out of the active session view", function()
+        local first = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local pending = install_pending_rpc()
+        Sessions.reload_messages(first)
+        vim.wait(20)
+        local get_messages = take_pending(pending, first.rpc, "get_messages")
+
+        local second = assert(Sessions.get_or_create({ new = true, layout = "buffer" }))
+        clear_pending(pending)
+        get_messages.callback({ success = true, data = { messages = {} } })
+        vim.wait(40)
+        local get_commands = take_pending(pending, first.rpc, "get_commands")
+        get_commands.callback({ success = true, data = { commands = {} } })
+        vim.wait(40)
+
+        Sessions.handle_event(first, { type = "agent_start" })
+        Sessions.handle_event(first, {
+            type = "message_update",
+            assistantMessageEvent = { type = "text_delta", delta = "background output" },
+        })
+        vim.wait(40)
+
+        assert.are.equal(second, Sessions.get_for_tab())
+        assert.are.equal(second, Sessions.get())
+        assert.is_false(first.chat:is_visible())
+        assert.is_true(second.chat:is_visible())
+        local history_win = second.chat._layout:history_win()
+        local prompt_win = second.chat:prompt_win()
+        assert.is_not_nil(history_win)
+        assert.is_not_nil(prompt_win)
+        assert.are.equal(second.history_buf, vim.api.nvim_win_get_buf(history_win))
+        assert.are.equal(second.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
+    end)
+
+    it("blocks prompts until a persisted session finishes switching", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local uri = Workspace.uri(Workspace.cwd(), path, 1)
+        local preview = { messages = { { role = "user", content = "persisted message" } } }
+        SessionHistory.list = function()
+            return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
+        end
+        SessionHistory.load_messages = function()
+            return preview
+        end
+
+        assert.is_true(Sessions.open_uri(uri))
+        local session = assert(Sessions.get_for_tab())
+        assert.is_true(session._switching_session)
+        vim.api.nvim_buf_set_lines(session.chat:prompt_buf(), 0, -1, false, { "new message" })
+        session.chat:submit()
+        assert.are.equal("new message", session.chat._prompt:text())
+        for _, entry in ipairs(pending) do
+            assert.are_not.equal("prompt", entry.msg.type)
+        end
+
+        local switch = take_pending(pending, session.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = false } })
+        local messages = take_pending(pending, session.rpc, "get_messages")
+        clear_pending(pending)
+        messages.callback({ success = true, data = preview })
+        vim.wait(40)
+
+        assert.is_false(session._switching_session)
+        session.chat:submit()
+        assert.are.equal("prompt", take_pending(pending, session.rpc, "prompt").msg.type)
     end)
 
     it("restarts active session in the new workspace cwd after :tcd", function()
