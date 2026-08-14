@@ -194,7 +194,7 @@
 ---@field status? boolean Show aggregated busy/attention status (default true)
 
 ---@class pi.WorkspaceBuffersConfig
----@field enabled? boolean Track buffer ownership for tab-backed workspaces without changing buflisted state (default true)
+---@field enabled? boolean Track buffer ownership and list only current workspace buffers (default true)
 
 ---@class pi.WorkspaceSidebarConfig
 ---@field position? "left"|"right" Sidebar placement (default "right")

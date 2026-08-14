@@ -210,8 +210,8 @@ require("pi").setup({
         position = "right", -- "left" | "right"
         width = 38,
     },
-    -- Listed state is global to a buffer. Keep it unchanged so bufferline can
-    -- show every file and session buffer in current workspace.
+    -- Buffer membership stays tab-local. Only current workspace buffers are
+    -- temporarily listed, so bufferline and native buffer commands stay scoped.
     workspace_buffers = {
         enabled = true,
     },

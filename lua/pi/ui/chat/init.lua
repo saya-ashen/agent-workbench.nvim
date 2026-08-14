@@ -511,6 +511,13 @@ end
 ---@param other pi.Chat
 function Chat:takeover_view(other)
     self:set_tab(vim.api.nvim_get_current_tabpage())
+    local history_buf = self._history:buf()
+    if
+        vim.api.nvim_buf_line_count(history_buf) == 1
+        and vim.api.nvim_buf_get_lines(history_buf, 0, 1, false)[1] == ""
+    then
+        self._history:show_loading_startup()
+    end
     other._layout:set_content_buffer(nil)
     self._layout:takeover(other._layout)
     self:_show_command_mode(self._prompt:command_mode())
@@ -741,6 +748,11 @@ end
 ---@return boolean
 function Chat:is_streaming()
     return self._streaming
+end
+
+---@return boolean
+function Chat:is_busy()
+    return self._streaming or self._compacting or self._retrying or self._bash_running
 end
 
 --- Track the core's auto-retry backoff state. While retrying, the double-<Esc>

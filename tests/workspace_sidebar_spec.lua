@@ -14,7 +14,9 @@ describe("workspace sidebar", function()
     local original_attention
     local original_workspace_buffers
     local original_devicons
+    local original_confirm
     local activated
+    local focused_session
     local created_session
     local created_workspace
 
@@ -34,6 +36,9 @@ describe("workspace sidebar", function()
                 end,
                 is_compacting = function()
                     return state == "compacting"
+                end,
+                ensure_shown_and_focus_prompt = function()
+                    focused_session = id
                 end,
             },
         }
@@ -67,6 +72,7 @@ describe("workspace sidebar", function()
         original_attention = package.loaded["pi.attention"]
         original_workspace_buffers = package.loaded["pi.workspace_buffers"]
         original_devicons = package.loaded["nvim-web-devicons"]
+        original_confirm = require("pi.ui.dialog").confirm
         local sessions = { session(11, start_tab, "busy"), session(22, second_tab, "idle") }
         SessionsUi.on_session_info_changed(sessions[1], "Build authentication flow")
         SessionsUi.on_session_info_changed(sessions[2], "Review release")
@@ -126,17 +132,21 @@ describe("workspace sidebar", function()
         package.loaded["pi.attention"] = original_attention
         package.loaded["pi.workspace_buffers"] = original_workspace_buffers
         package.loaded["nvim-web-devicons"] = original_devicons
-        if vim.api.nvim_tabpage_is_valid(second_tab) then
+        require("pi.ui.dialog").confirm = original_confirm
+        if vim.api.nvim_tabpage_is_valid(second_tab) and #vim.api.nvim_list_tabpages() > 1 then
             vim.api.nvim_set_current_tabpage(second_tab)
             vim.cmd("tabclose!")
         end
-        vim.api.nvim_set_current_tabpage(start_tab)
+        if vim.api.nvim_tabpage_is_valid(start_tab) then
+            vim.api.nvim_set_current_tabpage(start_tab)
+        end
         vim.cmd("tcd " .. vim.fn.fnameescape(start_cwd))
         for _, dir in ipairs(dirs) do
             vim.fn.delete(dir, "rf")
         end
         Config.setup({})
         activated = nil
+        focused_session = nil
         created_session = nil
         created_workspace = nil
     end)
@@ -167,9 +177,33 @@ describe("workspace sidebar", function()
         vim.api.nvim_win_set_cursor(win, { 2, 0 })
         callback_for(buf, "<CR>")()
         assert.are.equal(11, activated.id)
+        assert.are.equal(11, focused_session)
+    end)
+
+    it("opens from a History-only workspace without creating another window", function()
+        local history = vim.api.nvim_create_buf(true, false)
+        vim.bo[history].filetype = "pi-history"
+        vim.api.nvim_set_current_buf(history)
+        Sidebar.open()
+        local sidebar_win = vim.api.nvim_get_current_win()
+        local sidebar_buf = vim.api.nvim_win_get_buf(sidebar_win)
+        callback_for(sidebar_buf, "l")()
+        vim.api.nvim_win_set_cursor(sidebar_win, { 2, 0 })
+        local windows_before = #vim.api.nvim_tabpage_list_wins(start_tab)
+
+        callback_for(sidebar_buf, "l")()
+
+        assert.are.equal(windows_before, #vim.api.nvim_tabpage_list_wins(start_tab))
+        assert.are.equal(11, activated.id)
+        assert.are.equal(11, focused_session)
+        vim.api.nvim_buf_delete(history, { force = true })
     end)
 
     it("renders session and ordinary buffers in one workspace tree", function()
+        local history = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(history, dirs[1] .. "/session-history")
+        vim.bo[history].filetype = "pi-history"
+        vim.api.nvim_set_current_buf(history)
         local file = vim.api.nvim_create_buf(true, false)
         vim.api.nvim_buf_set_name(file, dirs[1] .. "/offer-letter.md")
         package.loaded["pi.workspace_buffers"] = {
@@ -195,8 +229,11 @@ describe("workspace sidebar", function()
         end))
 
         vim.api.nvim_win_set_cursor(win, { 3, 0 })
+        local windows_before = #vim.api.nvim_tabpage_list_wins(start_tab)
         callback_for(buf, "<CR>")()
         assert.are.equal(file, vim.api.nvim_get_current_buf())
+        assert.are.equal(windows_before, #vim.api.nvim_tabpage_list_wins(start_tab))
+        vim.api.nvim_buf_delete(history, { force = true })
         vim.api.nvim_buf_delete(file, { force = true })
     end)
 
@@ -232,6 +269,50 @@ describe("workspace sidebar", function()
         vim.api.nvim_win_set_cursor(win, { 2, 0 })
         callback_for(buf, "l")()
         assert.are.equal(11, activated.id)
+    end)
+
+    it("shows attention before busy session state", function()
+        package.loaded["pi.attention"].count_for_session = function(value)
+            return value.id == 11 and 1 or 0
+        end
+        Sidebar.open()
+        local buf = vim.api.nvim_get_current_buf()
+        callback_for(buf, "l")()
+
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        assert.are.equal("   Build authentic…", lines[2])
+        local marks = vim.api.nvim_buf_get_extmarks(buf, -1, { 1, 0 }, { 1, -1 }, { details = true })
+        assert.are.equal("attention", marks[1][4].virt_text[1][1])
+    end)
+
+    it("confirms before deleting a session but deletes ordinary buffers directly", function()
+        local session_buf = vim.api.nvim_create_buf(true, false)
+        package.loaded["pi.sessions.manager"].list()[1].history_buf = session_buf
+        Sidebar.open()
+        local win = vim.api.nvim_get_current_win()
+        local buf = vim.api.nvim_win_get_buf(win)
+        callback_for(buf, "l")()
+        local confirmed
+        require("pi.ui.dialog").confirm = function(opts, callback)
+            confirmed = opts.title
+            callback(false)
+        end
+        vim.api.nvim_win_set_cursor(win, { 2, 0 })
+        callback_for(buf, "d")()
+        assert.are.equal("Stop session and delete buffer", confirmed)
+        vim.api.nvim_buf_delete(session_buf, { force = true })
+
+        local file = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(file, dirs[1] .. "/delete-me.txt")
+        package.loaded["pi.workspace_buffers"] = {
+            list = function(tab)
+                return tab == start_tab and { file } or {}
+            end,
+        }
+        Sidebar._render()
+        vim.api.nvim_win_set_cursor(win, { 3, 0 })
+        callback_for(buf, "d")()
+        assert.is_false(vim.api.nvim_buf_is_valid(file))
     end)
 
     it("shows session titles, state icons, and full running state", function()

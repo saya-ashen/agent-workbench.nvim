@@ -604,6 +604,9 @@ local function open_pending_entry(session, index, entry, opts)
     end
 
     if opts and opts.switch_tab then
+        if session.tab and vim.api.nvim_tabpage_is_valid(session.tab) then
+            vim.api.nvim_set_current_tabpage(session.tab)
+        end
         require("pi.sessions.manager").activate(session)
     end
 

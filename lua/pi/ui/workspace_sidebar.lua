@@ -3,6 +3,7 @@
 local M = {}
 
 local Config = require("pi.config")
+local Dialog = require("pi.ui.dialog")
 local Ft = require("pi.filetypes")
 local Highlights = require("pi.ui.highlights")
 local SessionsUi = require("pi.ui.sessions")
@@ -29,7 +30,7 @@ local HELP_ENTRIES = {
     { "<CR>", "Switch workspace or open item" },
     { "h / l", "Toggle workspace; collapse/open item" },
     { "e, <Tab>", "Toggle workspace" },
-    { "d", "Delete buffer" },
+    { "d", "Delete buffer / stop session" },
     { "a", "Create session in workspace" },
     { "A", "Create workspace" },
     { "o", "Open and close sidebar" },
@@ -91,7 +92,11 @@ local function buffers_for(workspace, sessions)
     end
     local result = {}
     for _, candidate in ipairs(require("pi.workspace_buffers").list(workspace.tab)) do
-        if not session_buffers[candidate] and vim.api.nvim_buf_is_valid(candidate) and vim.bo[candidate].buflisted then
+        if
+            not session_buffers[candidate]
+            and vim.api.nvim_buf_is_valid(candidate)
+            and vim.b[candidate].pi_session_id == nil
+        then
             result[#result + 1] = candidate
         end
     end
@@ -151,14 +156,14 @@ local function session_status(session)
     if not session.rpc:is_running() then
         return "exited"
     end
+    if require("pi.attention").count_for_session(session) > 0 then
+        return "attention"
+    end
     if session.chat:is_compacting() then
         return "compacting"
     end
     if session.chat:is_streaming() then
         return "busy"
-    end
-    if require("pi.attention").count_for_session(session) > 0 then
-        return "attention"
     end
     return "idle"
 end
@@ -280,21 +285,34 @@ end
 ---@return integer
 local function focus_editor(tab)
     local sidebar = win_for(tab)
+    local history_win
     for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
         local config = vim.api.nvim_win_get_config(win)
         local target_buf = vim.api.nvim_win_get_buf(win)
-        if
-            win ~= sidebar
-            and config.relative == ""
-            and not vim.wo[win].winfixbuf
-            and not is_pi_panel(vim.bo[target_buf].filetype)
-        then
-            vim.api.nvim_set_current_win(win)
-            return win
+        if win ~= sidebar and config.relative == "" and not vim.wo[win].winfixbuf then
+            if not is_pi_panel(vim.bo[target_buf].filetype) then
+                vim.api.nvim_set_current_win(win)
+                return win
+            end
+            if vim.bo[target_buf].filetype == Ft.history then
+                history_win = win
+            end
         end
     end
-    vim.cmd("leftabove new")
-    return vim.api.nvim_get_current_win()
+    if history_win then
+        vim.api.nvim_set_current_win(history_win)
+        return history_win
+    end
+
+    if sidebar then
+        vim.api.nvim_set_current_win(sidebar)
+    end
+    local direction = Config.options.workspace_sidebar.position == "left" and "rightbelow" or "leftabove"
+    vim.cmd(direction .. " vsplit")
+    local editor = vim.api.nvim_get_current_win()
+    vim.wo[editor].winfixbuf = false
+    vim.wo[editor].winfixwidth = false
+    return editor
 end
 
 local function open_under_cursor_tree()
@@ -307,6 +325,7 @@ local function open_under_cursor_tree()
         switch_workspace(tab)
         focus_editor(tab)
         require("pi.sessions.manager").activate(item.session)
+        item.session.chat:ensure_shown_and_focus_prompt()
         return
     end
     if item.kind == "buffer" and item.buf and item.workspace then
@@ -334,6 +353,7 @@ local function open_under_cursor(close_after)
         switch_workspace(tab)
         focus_editor(tab)
         require("pi.sessions.manager").activate(item.session)
+        item.session.chat:ensure_shown_and_focus_prompt()
         return
     end
     if item.kind == "buffer" and item.buf and item.workspace then
@@ -426,6 +446,15 @@ local function create_session_under_cursor()
     require("pi.sessions.manager").new_session()
 end
 
+local function delete_buffer(target)
+    local ok, err = pcall(vim.api.nvim_buf_delete, target, { force = false })
+    if not ok then
+        require("pi.notify").warn(tostring(err))
+        return
+    end
+    M._render()
+end
+
 local function delete_under_cursor()
     local item = item_under_cursor()
     if not item then
@@ -435,12 +464,15 @@ local function delete_under_cursor()
     if not target or not vim.api.nvim_buf_is_valid(target) then
         return
     end
-    local ok, err = pcall(vim.api.nvim_buf_delete, target, { force = false })
-    if not ok then
-        require("pi.notify").warn(tostring(err))
+    if item.kind == "session" then
+        Dialog.confirm({ title = "Stop session and delete buffer" }, function(confirmed)
+            if confirmed and vim.api.nvim_buf_is_valid(target) then
+                delete_buffer(target)
+            end
+        end)
         return
     end
-    M._render()
+    delete_buffer(target)
 end
 
 local function refresh()
@@ -489,7 +521,12 @@ local function ensure_buf()
         vim.tbl_extend("force", opts, { desc = "Toggle workspace or open item" })
     )
     vim.keymap.set("n", "e", toggle_under_cursor, vim.tbl_extend("force", opts, { desc = "Toggle workspace" }))
-    vim.keymap.set("n", "d", delete_under_cursor, vim.tbl_extend("force", opts, { desc = "Delete buffer" }))
+    vim.keymap.set(
+        "n",
+        "d",
+        delete_under_cursor,
+        vim.tbl_extend("force", opts, { desc = "Delete buffer / stop session" })
+    )
     vim.keymap.set("n", "R", refresh, vim.tbl_extend("force", opts, { desc = "Refresh workspaces" }))
     vim.keymap.set("n", "a", create_session_under_cursor, vim.tbl_extend("force", opts, { desc = "Create session" }))
     vim.keymap.set("n", "A", function()
@@ -564,9 +601,13 @@ function M._render()
                     start_col = 2,
                     end_col = #lines[#lines],
                     group = status == "attention" and "PiStatusLineAttention"
-                        or (status == "busy" and "PiSessionsListBusy"
-                            or (status == "compacting" and "PiSessionsListCompacting"
-                                or (status == "exited" and "PiSessionsListExited" or "PiSessionsListIdle"))),
+                        or (
+                            status == "busy" and "PiSessionsListBusy"
+                            or (
+                                status == "compacting" and "PiSessionsListCompacting"
+                                or (status == "exited" and "PiSessionsListExited" or "PiSessionsListIdle")
+                            )
+                        ),
                     suffix = status_label(status),
                 }
             end

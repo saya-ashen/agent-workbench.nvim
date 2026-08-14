@@ -11,7 +11,7 @@ When a request arrives, pi2.nvim decides between showing it immediately and queu
 
 Queued requests can be opened on demand with:
 
-- `:PiAttention` — open the oldest queued request across all tabs, switching to its tab if needed.
+- `:PiAttention` — open the oldest queued request across all tabs, switching to its owning tab before activating the session. If that tab was closed, current tab stays active.
 - `pi.attention()` — same thing from Lua.
 
 Both are no-ops when there's nothing queued.

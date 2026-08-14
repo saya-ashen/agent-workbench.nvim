@@ -23,7 +23,7 @@
 ---@field chat pi.Chat
 ---@field attention pi.SessionAttention
 ---@field workspace_tab pi.TabId Workspace tab that created this session.
----@field cwd string Workspace cwd fixed when session is created.
+---@field cwd string Workspace cwd used by its RPC process.
 ---@field session_file? string
 ---@field uri string
 ---@field pinned_model? pi.ModelRef Model selected in this session.
@@ -595,6 +595,36 @@ local function register_components(session)
 end
 
 ---@param session pi.Session
+---@param history pi.ChatHistory
+function M._rebind_history(session, history)
+    local old_history = session.chat:history()
+    local old_buf = session.history_buf
+    local old_uri = session.uri
+    if old_buf then
+        sessions_by_component[old_buf] = nil
+        Workspace.unregister(old_uri, old_buf)
+        if vim.api.nvim_buf_is_valid(old_buf) then
+            vim.b[old_buf].pi_session_id = nil
+            vim.b[old_buf].pi_session_uri = nil
+        end
+    end
+    if transcript_resources[old_uri] == old_history then
+        transcript_resources[old_uri] = nil
+    end
+    session.chat:attach_history(history)
+    if old_buf then
+        require("pi.workspace_buffers").unassign(old_buf, session.workspace_tab)
+    end
+    session.uri = history._name or session.uri
+    session.history_buf = history:buf()
+    transcript_resources[session.uri] = history
+    sessions_by_component[session.history_buf] = session
+    vim.b[session.history_buf].pi_session_id = session.id
+    vim.b[session.history_buf].pi_session_uri = session.uri
+    require("pi.workspace_buffers").assign(session.history_buf, session.workspace_tab)
+end
+
+---@param session pi.Session
 activate = function(session)
     if activating or sessions[session.id] ~= session then
         return
@@ -672,7 +702,8 @@ function M.get_or_create(opts)
 
     next_session_id = next_session_id + 1
     local id = next_session_id
-    local rpc = Rpc.new(id)
+    local cwd = workspace_cwd
+    local rpc = Rpc.new(id, cwd)
 
     if not rpc:start() then
         Notify.error("Failed to start process")
@@ -688,7 +719,6 @@ function M.get_or_create(opts)
         end,
     }
 
-    local cwd = workspace_cwd
     local uri = Workspace.uri(cwd, nil, id)
     local chat = Chat.new(tab, layout, agent, uri, id, cwd)
     transcript_resources[uri] = chat:history()
@@ -1028,7 +1058,7 @@ function M.open_uri(uri, requested_buf)
     if requested_buf and vim.api.nvim_buf_is_valid(requested_buf) and requested_buf ~= session.chat:history_buf() then
         vim.api.nvim_buf_delete(requested_buf, { force = true })
     end
-    session.chat:attach_history(transcript_for(session, uri))
+    M._rebind_history(session, transcript_for(session, uri))
     session.chat:show({ loading = true })
     load_session(session, session_path)
     return true
@@ -1439,6 +1469,33 @@ function M.setup_autocmds()
             local session = sessions_by_component[args.buf]
             if session and args.buf == session.history_buf then
                 destroy_session(session)
+            end
+        end,
+    })
+
+    vim.api.nvim_create_autocmd("DirChanged", {
+        group = group,
+        pattern = "tabpage",
+        callback = function()
+            local tab = current_tab()
+            local session = active_by_tab[tab]
+            local cwd = Workspace.cwd(tab)
+            if not session or session.cwd == cwd then
+                return
+            end
+            if session.chat:is_busy() then
+                Notify.warn("Cannot change workspace while π is running; restored " .. session.cwd)
+                vim.cmd("tcd " .. vim.fn.fnameescape(session.cwd))
+                return
+            end
+            local replacement = M.get_or_create({ new = true, layout = session.chat:layout() })
+            if replacement then
+                destroy_session(session)
+                if vim.api.nvim_buf_is_valid(session.history_buf) then
+                    vim.api.nvim_buf_delete(session.history_buf, { force = true })
+                end
+            else
+                vim.cmd("tcd " .. vim.fn.fnameescape(session.cwd))
             end
         end,
     })

@@ -1,10 +1,22 @@
 # Changelog
 
+## 2026-08-14
+
+- **FIXED:** workspace switches once again keep bufferline and native buffer navigation scoped to each tab without cross-assigning every listed buffer. The workspace sidebar still shows tracked buffers from every workspace, and opening a buffer or session with `l` / `<CR>` now reuses the existing editor or History window instead of creating an extra split and `No Name` buffer above the sidebar.
+
+- **FIXED:** changing an idle workspace cwd now hands the visible History and prompt windows directly to the replacement session before stopping the old process, then deletes the stale History buffer so the previous session no longer remains in bufferline or workspace navigation.
+
 ## 2026-08-13
 
 - **FIXED:** `make smoke` now runs hermetically against the current checkout with a stubbed RPC backend, without loading user config, starting real `pi`, or touching real sessions.
 
 - **FIXED:** RPC transport failures now preserve unsent prompt drafts and attachments, avoid fake user/queue history, remove failed pending requests, keep matched responses out of the global event handler, and fail outstanding callbacks when the process exits unexpectedly.
+
+- **FIXED:** changing an idle workspace with `:tcd` now replaces its active session with a fresh `pi --mode rpc` process started in the new cwd, so agent tools and persisted sessions no longer keep using the previous directory while the prompt winbar shows the new one. Streaming, compacting, retrying, or direct-bash sessions reject the change and restore their original cwd to avoid killing in-flight work.
+
+- **FIXED:** `:PiAttention` now switches to the request's owning tab before activating its session. Workspace sidebar attention state outranks busy/compacting state, and deleting a session row asks for confirmation before stopping its process and deleting its History buffer.
+
+- **FIXED:** persisted transcript opens now rebind session ownership and workspace metadata to the attached History buffer without deleting the old buffer.
 
 - **CHANGED:** Prompt shell prefixes are now persistent command modes. `!command` still runs through pi's backend, streams into chat History, joins the next LLM context, and resets the prompt to `!`; each submission uses a fresh backend shell. `!!command` now bypasses pi RPC and runs inside one persistent, session-local Neovim terminal, preserving `cd` / `export` state while keeping command output out of chat History and LLM context. Entering `!!` swaps the History area to that terminal; deleting back to `!` or normal text restores chat History. `<C-g>t` or `pi.focus_terminal()` focuses the terminal for interactive input.
 
