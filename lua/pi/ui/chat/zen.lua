@@ -77,6 +77,7 @@ function Zen:enter()
     if self:is_active() then
         return
     end
+    local was_insert = vim.api.nvim_get_mode().mode == "i"
 
     -- Stash the current prompt window so we can restore on exit.
     self._prev_win = self._prompt:win()
@@ -175,7 +176,7 @@ function Zen:enter()
     -- Bind zen keymaps on the prompt buffer (removed on exit).
     self:_bind_keys()
 
-    vim.cmd("startinsert")
+    vim.cmd(was_insert and "startinsert" or "stopinsert")
 end
 
 --- Look up an existing buffer-local mapping for a given mode and lhs.
@@ -275,6 +276,7 @@ function Zen:exit()
     if not self:is_active() then
         return
     end
+    local was_insert = vim.api.nvim_get_mode().mode == "i"
 
     -- Remove zen keymaps before autocmds so the user's original
     -- buffer-local mappings take effect again immediately.
@@ -321,7 +323,7 @@ function Zen:exit()
         if cursor then
             pcall(vim.api.nvim_win_set_cursor, self._prev_win, cursor)
         end
-        self._prompt:focus()
+        self._prompt:focus(nil, was_insert and "insert" or "normal")
     else
         -- Original window gone — clear stale state so prompt can be
         -- re-attached when the layout is next shown.

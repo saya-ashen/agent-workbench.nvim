@@ -131,11 +131,12 @@ function Chat:_set_keymaps()
     -- Redirect insert-mode keys from history -> prompt
     for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "c", "C" }) do
         vim.keymap.set("n", key, function()
-            self:ensure_shown_and_focus_prompt()
+            self:ensure_shown_and_focus_prompt(true)
         end, { buffer = hbuf, desc = "Redirect to π prompt" })
     end
 
-    -- Auto-enter insert mode when focusing the prompt from outside
+    -- Keep ordinary window navigation in Normal mode. Layout switches may
+    -- restore Insert mode when they started there.
     vim.api.nvim_create_autocmd("WinEnter", {
         buffer = pbuf,
         callback = function()
@@ -154,10 +155,10 @@ function Chat:_set_keymaps()
                     vim.cmd("stopinsert")
                     return
                 end
-                if vim.api.nvim_get_mode().mode ~= "i" then
-                    local resume = self._prompt._resume_insert
-                    if resume then
-                        self._prompt._resume_insert = nil
+                local resume = self._prompt._resume_insert
+                self._prompt._resume_insert = nil
+                if resume then
+                    if vim.api.nvim_get_mode().mode ~= "i" then
                         if resume == "eol" then
                             vim.cmd("startinsert!")
                         elseif resume == "mid" then
@@ -169,9 +170,9 @@ function Chat:_set_keymaps()
                             -- bol: InsertLeave doesn't shift at col 0.
                             vim.cmd("startinsert")
                         end
-                    else
-                        vim.cmd("startinsert")
                     end
+                else
+                    vim.cmd("stopinsert")
                 end
             end)
         end,
@@ -418,7 +419,7 @@ function Chat:show(opts)
         self._history:show_loading_startup()
     end
     self:refresh_prompt_attention()
-    self._prompt:focus()
+    self._prompt:focus(nil, "normal")
 end
 
 --- Show a loading placeholder on the empty history buffer.
@@ -460,6 +461,7 @@ end
 
 ---@param cb? fun()
 function Chat:toggle_layout(cb)
+    local was_insert = vim.api.nvim_get_mode().mode == "i"
     self._prompt._resume_insert = nil
     self._layout:toggle()
     self:refresh_prompt_attention()
@@ -471,7 +473,7 @@ function Chat:toggle_layout(cb)
     --   bol (col 0)                → startinsert   (no shift happened)
     --   mid                        → normal! l + startinsert
     local pwin = self._layout:prompt_win()
-    if pwin then
+    if was_insert and pwin then
         local cur = vim.api.nvim_win_get_cursor(pwin)
         local line = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(pwin), cur[1] - 1, cur[1], false)[1] or ""
         local last_col = math.max(0, #line - 1)
@@ -484,7 +486,7 @@ function Chat:toggle_layout(cb)
         end
     end
 
-    self:focus_prompt(cb)
+    self:focus_prompt(cb, was_insert)
 end
 
 ---@param mode pi.LayoutMode
@@ -671,31 +673,39 @@ function Chat:_auto_dispatch_attention_on_prompt_focus()
 end
 
 ---@param cb? fun()
-function Chat:focus_prompt(cb)
+---@param insert? boolean
+function Chat:focus_prompt(cb, insert)
     vim.schedule(function()
-        self._prompt:focus(cb)
+        self._prompt:focus(cb, insert and "insert" or "normal")
     end)
 end
 
-function Chat:ensure_shown_and_focus_prompt()
+---@param insert? boolean
+function Chat:ensure_shown_and_focus_prompt(insert)
     self:show()
     vim.schedule(function()
-        self._prompt:focus()
+        self._prompt:focus(nil, insert and "insert" or "normal")
     end)
 end
 
 function Chat:focus_history()
     local hwin = self._layout:history_win()
-    if hwin then
-        vim.api.nvim_set_current_win(hwin)
-    end
+    vim.schedule(function()
+        if hwin and vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == self:history_buf() then
+            vim.api.nvim_set_current_win(hwin)
+            vim.cmd("stopinsert")
+        end
+    end)
 end
 
 function Chat:focus_attachments()
     local awin = self._layout:attachments_win()
-    if awin then
-        vim.api.nvim_set_current_win(awin)
-    end
+    vim.schedule(function()
+        if awin and vim.api.nvim_win_is_valid(awin) and vim.api.nvim_win_get_buf(awin) == self:attachments_buf() then
+            vim.api.nvim_set_current_win(awin)
+            vim.cmd("stopinsert")
+        end
+    end)
 end
 
 function Chat:toggle()

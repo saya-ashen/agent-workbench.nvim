@@ -121,7 +121,7 @@ function M.send(loc, opts)
         return
     end
     if opts.focus ~= false then
-        session.chat:ensure_shown_and_focus_prompt()
+        session.chat:ensure_shown_and_focus_prompt(true)
     else
         session.chat:show()
     end

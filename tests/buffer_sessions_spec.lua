@@ -98,7 +98,12 @@ describe("buffer-owned sessions", function()
         assert.is_not_nil(second_prompt_win)
         vim.api.nvim_set_current_win(second_prompt_win)
         vim.cmd("buffer " .. first.history_buf)
-        vim.wait(20)
+        vim.wait(100, function()
+            local history_win = first.chat._layout:history_win()
+            return history_win ~= nil
+                and vim.api.nvim_win_get_buf(history_win) == first.history_buf
+                and vim.api.nvim_get_current_win() == history_win
+        end)
 
         assert.are.equal(first, Sessions.get())
         assert.is_true(first.chat:is_visible())
@@ -113,6 +118,58 @@ describe("buffer-owned sessions", function()
         assert.are.equal(first.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_true(first.rpc:is_running())
         assert.is_true(second.rpc:is_running())
+    end)
+
+    it("keeps prompt navigation and zen layout Normal unless a History insert key is used", function()
+        local session = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local history_win = assert(session.chat._layout:history_win())
+        local prompt_win = assert(session.chat:prompt_win())
+
+        session.chat:focus_history()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == history_win
+        end)
+        vim.cmd("wincmd j")
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == prompt_win
+        end)
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
+
+        session.chat:focus_history()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == history_win
+        end)
+        session.chat:focus_prompt()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == prompt_win
+        end)
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
+
+        session.chat:zen_toggle()
+        assert.is_true(session.chat:zen_active())
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
+        session.chat:zen_toggle()
+        vim.wait(100, function()
+            return not session.chat:zen_active() and vim.api.nvim_get_current_win() == prompt_win
+        end)
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
+
+        local insert_callback
+        for _, map in ipairs(vim.api.nvim_buf_get_keymap(session.history_buf, "n")) do
+            if map.lhs == "i" then
+                insert_callback = map.callback
+                break
+            end
+        end
+        assert.is_not_nil(insert_callback)
+        local requested_insert
+        local ensure_shown = session.chat.ensure_shown_and_focus_prompt
+        session.chat.ensure_shown_and_focus_prompt = function(_, insert)
+            requested_insert = insert
+        end
+        insert_callback()
+        session.chat.ensure_shown_and_focus_prompt = ensure_shown
+        assert.is_true(requested_insert)
     end)
 
     it("keeps background reload completion out of the active session view", function()
@@ -179,6 +236,10 @@ describe("buffer-owned sessions", function()
         messages.callback({ success = true, data = preview })
         vim.wait(40)
 
+        local history_win = assert(session.chat._layout:history_win())
+        assert.are.equal(history_win, vim.api.nvim_get_current_win())
+        assert.are.equal(session.history_buf, vim.api.nvim_win_get_buf(history_win))
+        assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
         assert.is_false(session._switching_session)
         session.chat:submit()
         assert.are.equal("prompt", take_pending(pending, session.rpc, "prompt").msg.type)

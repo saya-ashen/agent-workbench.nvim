@@ -107,13 +107,6 @@ local function current_buf()
     return vim.api.nvim_get_current_buf()
 end
 
----@param session pi.Session
-local function focus_if_active(session)
-    if active_by_tab[current_tab()] == session then
-        session.chat:ensure_shown_and_focus_prompt()
-    end
-end
-
 --- Events we've reviewed and deliberately choose not to handle.
 --- turn_start/turn_end: TUI doesn't handle them; lifecycle is fully
 --- covered by message_start / message_end / agent_end.
@@ -1008,7 +1001,6 @@ function M.reload_messages(session)
                 local err = res.error or "Failed to load session messages"
                 Notify.error(err)
                 session.chat:on_error(err, { pad_top = true, pad_bottom = true })
-                focus_if_active(session)
                 return
             end
 
@@ -1018,7 +1010,6 @@ function M.reload_messages(session)
                 show_startup_block(session, commands)
                 replay_messages(session, messages)
                 M.refresh_state(session)
-                focus_if_active(session)
             end)
         end)
     end)
@@ -1027,7 +1018,6 @@ function M.reload_messages(session)
             session.chat:clear()
             Notify.error("Failed to load session messages")
             session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
-            focus_if_active(session)
         end)
     end
 end
@@ -1097,6 +1087,7 @@ load_session = function(session, session_path)
         session.chat:clear()
         replay_messages(session, preview.messages)
     end
+    session.chat:focus_history()
 
     local sent_switch = session.rpc:send({ type = "switch_session", sessionPath = session_path }, function(msg)
         local data = msg.data or {}
@@ -1142,7 +1133,6 @@ load_session = function(session, session_path)
                     local err = res.error or "Failed to load session messages"
                     Notify.error(err)
                     session.chat:on_error(err, { pad_top = true, pad_bottom = true })
-                    focus_if_active(session)
                     return
                 end
 
@@ -1152,7 +1142,6 @@ load_session = function(session, session_path)
                     replay_messages(session, messages)
                 end
                 session._switching_session = false
-                focus_if_active(session)
                 CommandsCache.fetch(session.rpc, function(commands)
                     show_startup_block(session, commands)
                 end)
@@ -1164,7 +1153,6 @@ load_session = function(session, session_path)
                 session.chat:clear()
                 Notify.error("Failed to load session messages")
                 session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
-                focus_if_active(session)
             end)
         end
     end)

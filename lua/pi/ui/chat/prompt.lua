@@ -414,16 +414,19 @@ function Prompt:win()
     return nil
 end
 
+---@alias pi.PromptFocusMode "normal"|"insert"
+
 ---@param cb? fun()
-function Prompt:focus(cb)
+---@param mode? pi.PromptFocusMode
+function Prompt:focus(cb, mode)
     if not self._win or not vim.api.nvim_win_is_valid(self._win) then
         return
     end
     vim.api.nvim_set_current_win(self._win)
     vim.schedule(function()
-        if self:is_request_mode() then
+        if self:is_request_mode() or mode == nil or mode == "normal" then
             vim.cmd("stopinsert")
-        else
+        elseif mode == "insert" then
             vim.cmd("startinsert")
         end
         if cb then

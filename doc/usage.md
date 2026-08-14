@@ -576,7 +576,7 @@ pi.focus_chat_prompt()       -- jump to the prompt window
 pi.focus_chat_attachments()  -- jump to the attachments window
 ```
 
-All three are no-ops when no π session is active in the current tab.
+All three are no-ops when no π session is active in the current tab. Focus navigation stays in Normal mode, including jumps from History or attachments to the prompt. Press an Insert command after reaching the prompt, or use `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` directly from History to jump to the prompt and enter Insert mode.
 
 The natural place to bind them is inside the panel buffers themselves, via `FileType` autocmds on `pi-chat-history`, `pi-chat-prompt`, and `pi-chat-attachments`. The example in [Keymaps](keymaps.md) wires `<S-Up>` / `<S-Down>` to walk between panels, but the actual keys are entirely up to you — use whatever you already use for window navigation in the rest of Neovim.
 

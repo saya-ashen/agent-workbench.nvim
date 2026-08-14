@@ -325,7 +325,7 @@ local function open_under_cursor_tree()
         switch_workspace(tab)
         focus_editor(tab)
         require("pi.sessions.manager").activate(item.session)
-        item.session.chat:ensure_shown_and_focus_prompt()
+        item.session.chat:focus_history()
         return
     end
     if item.kind == "buffer" and item.buf and item.workspace then
@@ -353,7 +353,7 @@ local function open_under_cursor(close_after)
         switch_workspace(tab)
         focus_editor(tab)
         require("pi.sessions.manager").activate(item.session)
-        item.session.chat:ensure_shown_and_focus_prompt()
+        item.session.chat:focus_history()
         return
     end
     if item.kind == "buffer" and item.buf and item.workspace then

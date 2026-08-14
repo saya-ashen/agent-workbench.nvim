@@ -591,7 +591,7 @@ function Layout:_refresh_attachments()
         local was_visible = self:attachments_win() ~= nil
         self:_close_attachments_win()
         vim.api.nvim_set_current_win(self._prompt_win)
-        vim.cmd("startinsert")
+        vim.cmd("stopinsert")
         if was_visible then
             if is_float then
                 self:_reposition_float_stack()

@@ -564,6 +564,51 @@ describe("sessions overview", function()
     end)
 
     describe("open / render / toggle", function()
+        it("opens selected sessions on History", function()
+            local session = fake_session({ tab = vim.api.nvim_get_current_tabpage() })
+            session.id = 42
+            local activated
+            local focused
+            session.chat.focus_history = function()
+                focused = true
+            end
+            SessionList.on_session_info_changed(session, "selected")
+
+            local real_manager = package.loaded["pi.sessions.manager"]
+            package.loaded["pi.sessions.manager"] = {
+                list = function()
+                    return { session }
+                end,
+                get = function()
+                    return nil
+                end,
+                get_by_id = function(id)
+                    return id == session.id and session or nil
+                end,
+                activate = function(value)
+                    activated = value
+                end,
+            }
+            local ok, err = pcall(function()
+                SessionList.open()
+                local callback
+                for _, map in ipairs(vim.api.nvim_buf_get_keymap(0, "n")) do
+                    if map.lhs == "<CR>" then
+                        callback = map.callback
+                        break
+                    end
+                end
+                assert.is_not_nil(callback)
+                callback()
+                assert.are.equal(session, activated)
+                assert.is_true(focused)
+            end)
+            package.loaded["pi.sessions.manager"] = real_manager
+            if not ok then
+                error(err)
+            end
+        end)
+
         it("opens a window on the shared list buffer with a placeholder", function()
             SessionList.open()
             assert.are.equal(Ft.sessions, vim.bo.filetype)
