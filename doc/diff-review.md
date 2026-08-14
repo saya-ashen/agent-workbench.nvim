@@ -6,7 +6,7 @@ Once the diff is open:
 
 - **Left pane** — the current file content, opened read-only.
 - **Right pane** — the content the agent is proposing. You can modify the _right_ pane before accepting — anything you change there becomes the new content and pi2.nvim will write your edited version instead of the agent's original proposal.
-- **Accept** with `<Leader>da` (default) — or just `:w` the right pane.
+- **Accept** with `<Leader>da` (default) — or just `:w` the right pane. If disk write or close fails, review stays open and no acceptance response is sent.
 - **Reject** with `<Leader>dr`.
 - **Add/edit a review note** on the current line with `<Leader>dn`, or select multiple lines with `V` first to attach one note to the selected range. In the note dialog, `<CR>` submits and `<S-CR>` inserts a newline. Notes are review metadata: they show below the last target line as wrapped virtual text with a vertical border, plus a configurable sign/icon on the first line. Range notes use small dots on following lines. Multiple note blocks ending on the same line are separated by a horizontal separator. They are not inserted into the file. Set `diff.icons.note = false` to omit gutter signs. Submitting an empty note deletes it.
 - **Delete a review note** on the current line with `<Leader>dx`. If multiple notes cover the cursor line, choose one from a picker.

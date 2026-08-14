@@ -69,7 +69,7 @@ end
 ---@param path string
 ---@param lines string[]
 ---@return boolean
-local function write_file(path, lines)
+function M._write_file(path, lines)
     local dir = vim.fn.fnamemodify(path, ":h")
     vim.fn.mkdir(dir, "p")
     local f = io.open(path, "w")
@@ -77,8 +77,17 @@ local function write_file(path, lines)
         Notify.error("Failed to write: " .. path)
         return false
     end
-    f:write(table.concat(lines, "\n"))
-    f:close()
+    local write_ok, wrote, write_err = pcall(f.write, f, table.concat(lines, "\n"))
+    if not write_ok or not wrote then
+        pcall(f.close, f)
+        Notify.error("Failed to write: " .. path .. ": " .. tostring(write_ok and write_err or wrote))
+        return false
+    end
+    local close_ok, closed, close_err = pcall(f.close, f)
+    if not close_ok or not closed then
+        Notify.error("Failed to close: " .. path .. ": " .. tostring(close_ok and close_err or closed))
+        return false
+    end
     return true
 end
 
@@ -113,48 +122,6 @@ local function abs(path)
         return path
     end
     return vim.fn.getcwd() .. "/" .. path
-end
-
--- AI models cannot reliably reproduce Unicode characters outside the basic
--- multilingual plane — in particular Nerd Font icons in the private-use
--- area (U+E000–U+F8FF). When the model reads a file it *sees* the icon,
--- but when it writes the oldText parameter of an Edit tool call the
--- multi-byte sequence (e.g. ef 81 97 for U+F057) is silently dropped or
--- replaced by a plain ASCII space. The oldText then has different bytes
--- than the file content and string.find fails.
---
--- Workaround: when exact byte match fails, fallback to a line-by-line
--- comparison that strips non-ASCII bytes (the "ASCII fingerprint").
--- Unchanged lines in the replacement are copied from the original content
--- so their multi-byte characters are preserved in the result.
-
---- Keep only printable ASCII — used to compare lines while ignoring
---- multi-byte encoding differences introduced by the AI model.
----@param s string
----@return string
-local function ascii_fingerprint(s)
-    return (s:gsub("[^\x20-\x7e]", ""))
-end
-
---- Find the 1-based line index where `old_lines` match inside
---- `content_lines` using ASCII fingerprints.
----@param content_lines string[]
----@param old_lines string[]
----@return integer?
-local function find_lines_fuzzy(content_lines, old_lines)
-    for i = 1, #content_lines - #old_lines + 1 do
-        local ok = true
-        for j = 1, #old_lines do
-            if ascii_fingerprint(content_lines[i + j - 1]) ~= ascii_fingerprint(old_lines[j]) then
-                ok = false
-                break
-            end
-        end
-        if ok then
-            return i
-        end
-    end
-    return nil
 end
 
 --- Apply multiple edits against the original content.
@@ -1318,8 +1285,6 @@ function M.open(payload, callback, opts)
         if responded then
             return
         end
-        responded = true
-
         local final_lines = vim.api.nvim_buf_get_lines(after_buf, 0, -1, false)
 
         -- Check if user modified the proposed content (before EOL fixup).
@@ -1339,7 +1304,10 @@ function M.open(payload, callback, opts)
         end
 
         local review_notes = collect_notes()
-        write_file(path, final_lines)
+        if not M._write_file(path, final_lines) then
+            return
+        end
+        responded = true
         require("pi.cache.files").invalidate()
         reload_buf_for_file(vim.fn.fnamemodify(path, ":p"))
         close_review_tab()

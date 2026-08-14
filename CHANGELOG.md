@@ -18,6 +18,8 @@
 
 - **FIXED:** persisted transcript opens now rebind session ownership and workspace metadata to the attached History buffer without deleting the old buffer.
 
+- **FIXED:** accepting a pre-execution diff now stays open and sends no acceptance response when writing or closing the target file fails.
+
 - **CHANGED:** Prompt shell prefixes are now persistent command modes. `!command` still runs through pi's backend, streams into chat History, joins the next LLM context, and resets the prompt to `!`; each submission uses a fresh backend shell. `!!command` now bypasses pi RPC and runs inside one persistent, session-local Neovim terminal, preserving `cd` / `export` state while keeping command output out of chat History and LLM context. Entering `!!` swaps the History area to that terminal; deleting back to `!` or normal text restores chat History. `<C-g>t` or `pi.focus_terminal()` focuses the terminal for interactive input.
 
 - **CHANGED:** Completed full-block tools now keep their output folded by default, matching the pi TUI and preventing tool-heavy turns from flooding History. Tool names and argument summaries remain visible; complete output stays in the buffer and opens with existing `<Tab>` / native fold controls, while long output keeps its preview and read-only split flow. Inline tools such as `read` remain single-line.
