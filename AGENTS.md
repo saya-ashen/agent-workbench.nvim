@@ -23,7 +23,7 @@ Use `find lua -type f` for the authoritative file list — don't rely on any sna
 - `lua/pi/ui/` — all UI: `ui/chat/` holds the Chat class, history rendering, prompt, tool blocks, layout modes; `diff.lua` is the pre-execution diff review; `dialog.lua` / `extension.lua` handle blocking extension UI; `render.lua` is the optional render-markdown.nvim integration
 - `lua/pi/completion/` — @-mention / slash-command completion (blink.cmp source + omnifunc fallback, shared fuzzy matching)
 - `lua/pi/cache/` — project file listing and slash-command caches
-- `tests/` — plenary specs (`make test`); `make smoke` = headless boot check
+- `tests/` — plenary specs (`make test`); `make smoke` = hermetic current-checkout boot with stubbed RPC
 
 ## Key Patterns
 

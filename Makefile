@@ -1,7 +1,7 @@
 # pi.nvim development helpers.
 #
 #   make test    — run the plenary unit test suite (hermetic, -u tests/minimal_init.lua)
-#   make smoke   — headless end-to-end smoke check (loads the user config, opens the chat)
+#   make smoke   — hermetic headless boot check (current checkout, stubbed RPC)
 #   make format  — reformat lua/ and tests/ in place with stylua
 #   make style   — check formatting only (stylua --check); non-zero exit on drift, for CI/hooks
 #   make lint    — static/type check lua/ with lua-language-server (--check); non-zero on problems
@@ -23,7 +23,7 @@ test:
 		-c "lua require('plenary.test_harness').test_directory('tests', { minimal_init = '$(MIN_INIT)' })"
 
 smoke:
-	$(NVIM_BIN) --headless -u $(HOME)/.config/nvim/init.lua -l /tmp/pi_smoke.lua
+	$(NVIM_BIN) --headless -i NONE -u $(MIN_INIT) -l tests/smoke.lua
 
 # NOTE: stylua's built-in default indent is Tabs; .stylua.toml pins the 4-space
 # convention used here, so always format through this target (or `stylua .` with

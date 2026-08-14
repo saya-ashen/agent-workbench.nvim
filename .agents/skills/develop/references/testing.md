@@ -1,6 +1,6 @@
 # Testing — the three layers in depth
 
-The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary), `smoke` (headless boot of the user config + open the chat), plus `format`/`style`/`lint` (stylua + lua-language-server; `style` and `lint` also gate CI — see `SKILL.md` § CI verification). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
+The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary), `smoke` (hermetic current-checkout boot with stubbed RPC), plus `format`/`style`/`lint` (stylua + lua-language-server; `style` and `lint` also gate CI — see `SKILL.md` § CI verification). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
 
 ## Layer 1 — Unit tests (hermetic plenary)
 
@@ -9,6 +9,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 **How it runs:** `make test` → `nvim --headless -u tests/minimal_init.lua -c "...test_directory('tests'...)"`. `minimal_init.lua` prepends plenary + the repo root to `runtimepath` *without* loading the user's config, so it is fast and deterministic. `PLENARY_PATH` overrides the plenary location. Because the repo root is resolved from `minimal_init.lua`'s **own file path**, this layer runs against the current **worktree's** code — it is worktree-safe (G23).
 
 **Rules / pitfalls:**
+
 - `before_each` / `after_each` **must be inside a `describe`**. At the top level they silently no-op *and* the run exits non-zero (`make: Error 1`) with no clear message — the spec just never executes (G14). Always wrap.
 - Make stateful modules testable: a `_reset()` to clear singletons and a path-override hook (`_set_path`) so tests use a `vim.fn.tempname()` file, never the real `stdpath`. See `draft.lua` / `prompt_history.lua`.
 - Don't name a Makefile variable `NVIM` — nvim injects `$NVIM` (its server socket) into the environment and `?=` won't override it; use `NVIM_BIN` (G15).
@@ -18,13 +19,14 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 ## Layer 2 — Headless end-to-end
 
-**What it's for:** the real plugin loading under the real config, the real chat opening, the RPC backend spawning, buffer/extmark wiring, keymap *registration*, and method-level behavior — everything that doesn't need pixels or real key events.
+**What it's for:** plugin loading from the current checkout, chat opening, buffer/extmark wiring, keymap *registration*, and method-level behavior — everything that doesn't need pixels or real key events.
 
-**How it runs:** `nvim --headless -u ~/.config/nvim/init.lua -l script.lua`. The script drives `require("pi").show{layout="side"}`, `vim.wait(...)` for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` is the minimal version of this (load + assert the two chat buffers exist). **Worktree caveat:** this boots the user's real config, so lazy loads pi from the **main checkout** (`~/.local/share/nvim/lazy/pi2.nvim`), not a feature worktree. To exercise worktree code headless, run the script under `-u tests/minimal_init.lua` instead (path-relative, worktree-safe); see G23.
+**How it runs:** `nvim --headless -i NONE -u tests/minimal_init.lua -l script.lua`. The script drives `require("pi").show{layout="side"}`, waits for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` runs `tests/smoke.lua`, stubs RPC lifecycle, opens chat, and asserts session/History/prompt exist. It never loads user config, starts real pi, or writes real session data. Both paths resolve the current checkout from `tests/minimal_init.lua`, so they are worktree-safe (G23).
 
-**Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) end` (get `chat` via `require("pi.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
+**Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) return true end` (get `chat` via `require("pi.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
 
 **Pitfalls unique to headless:**
+
 - **`TextChanged` / `TextChangedI` do NOT fire for programmatic edits in `-l` mode** — not for `nvim_buf_set_lines`, not for `setline`. So a debounced "save on edit" autocmd will never run in the test. Fix: factor the save body into a callable method (e.g. `Prompt:_save_draft()`) that the autocmd calls; the test calls the method directly (G4). The autocmd path is then trusted by construction (it's a one-line call to a unit-covered method).
 - **Insert mode does not persist across separate `feedkeys`/`wait` calls.** An `<Up>` expr mapping bound insert-only will look dead because by the time the key is processed the mode reverted to normal. Either feed the whole sequence in one call (`"i<Up>"`) or bind the key in `{ "i", "n" }` (G5). The `<C-p>`/`<C-n>` recall keys use `{ "i", "n" }` precisely so they are robust here *and* for real users who happen to be in normal mode on the prompt.
 - **You cannot see rendering.** Treesitter/extmark *counts* are observable (`nvim_buf_get_extmarks`), but whether it *looks right* is not. Visual proof is Layer 3 only (G6).
@@ -34,13 +36,14 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 ## Layer 3 — GUI automation (xdotool + wmctrl + maim + RPC)
 
-**What it's for:** the only layer that exercises real keybindings through the terminal emulator, real insert mode, and **visual rendering**. This is where G1, G2, G3, G11, G12 were actually caught. Like `make smoke`, it boots the user config and loads pi from the **main checkout**, so a GUI run does not see a feature worktree's code (G23) — verify worktree changes via unit / headless-`minimal_init`, or point lazy at the worktree first.
+**What it's for:** the only layer that exercises real keybindings through the terminal emulator, real insert mode, and **visual rendering**. This is where G1, G2, G3, G11, G12 were actually caught. It boots user config and loads pi from the **main checkout**, so a GUI run does not see feature-worktree code unless lazy is redirected (G23).
 
 **Topology.** A dedicated WezTerm window runs `nvim --listen <SOCK>` on its own i3 workspace (so it tiles full-screen and screenshots are legible — a shared workspace splits the screen and the UI is tiny). `xdotool` sends keys to that window id; `wmctrl` enumerates windows; `maim -i <WID>` screenshots; the nvim **RPC socket** is ground truth (`nvim --server $SOCK --remote-expr 'luaeval("...")'`).
 
 **Why RPC is ground truth, not the screenshot.** The screenshot proves pixels; RPC proves state (cursor line, buffer text, mode, extmark counts, whether render-markdown attached). Assert state over RPC; capture a screenshot as the human-readable artifact and as the only way to confirm visual rendering.
 
 **The harness (`scripts/gui_harness.sh`).** `source` it. Key helpers:
+
 - `q '<lua-expr>'` — evaluate one expression, print it. **Single-quote** the expression in bash.
 - `qlua <<'LUA' ... RESULT = ... LUA` — run a multi-line block that sets `RESULT`; printed. Use this whenever the expression has quotes/loops — it writes Lua to a file and `:luafile`s it over RPC, which **avoids shell-quoting hell entirely**. Prefer `qlua`/`runlua` over clever quoting.
 - `runlua <<'LUA' ... LUA` — same, side effects only.
@@ -51,17 +54,21 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 - `check <name> <got> <want>` / `wait_for '<lua-bool>' <tries>`.
 
 **Isolation recipe (do this, every GUI run, or you corrupt the user's data — G17):**
+
 1. Before opening the chat, the user's `~/.local/share/nvim/pi/draft.txt` (if present) is moved to a backup; restored at the end. This stops `restore_once` from pulling a real in-progress draft into the test prompt.
 2. Right after the chat opens, redirect the test instance's storage to `/tmp`:
+
    ```lua
    require("pi.draft")._set_path("/tmp/<run>/draft.txt")
    require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"
    ```
+
    The history store is lazy, so setting the path before the first recall/send makes it use the temp file; the user's `prompt_history.json` is never opened by the test instance → no concurrent-write race.
 3. Assert at the end: user's draft untouched, user's history has zero test-residue (`grep -c` of your sentinel strings == 0).
 4. Delete the temp files; restore the user's workspace (`i3-msg workspace <saved>`).
 
 **Driving real keybindings — the gotchas that matter here:**
+
 - Leader is whatever `vim.g.mapleader` is (in the user's config it is `,`); send it as `comma`. Always `normal` (Esc) first (G12).
 - lazy may only *load* the plugin on the first keypress; `wait_for` the `pi-chat-prompt` buffer instead of assuming the toggle completed (G13).
 - side layout's WinEnter redirect (G11): to focus history programmatically without a bounce, enter it from the prompt window; or use the real `<C-g>h` binding which the user presses from the prompt anyway.
@@ -78,7 +85,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 Same topology, same RPC ground truth, same isolation recipe (G17) and verification discipline — only the OS-facing tools differ. The three scripts mirror the Linux ones (`gui_launch.sh` / `gui_harness.sh` / `gui_cleanup.sh`) and take the same `$RUN` wiring, so a run script written against the helper names (`send`/`type_text`/`shot`/`q`/`qlua`/`wait_for`/`check`) works under both.
 
 | purpose | Linux (X11) | macOS |
-|---|---|---|
+| --- | --- | --- |
 | send keys | `xdotool key --window` | `wezterm cli send-text --pane-id <N> --no-paste` over the instance's own mux socket (`WEZTERM_UNIX_SOCKET=~/.local/share/wezterm/gui-sock-<pid>`) — injects the byte stream a keypress produces; focus-independent, no Accessibility (G28). `type_text` focuses the prompt + `startinsert` via RPC first (byte injection fires no OS focus events) |
 | window discovery | `wmctrl -l` | `pgrep -f "wezterm-gui.*$SOCK"` for the pid (G29); CGWindowID via an embedded Swift helper calling `CGWindowListCopyWindowInfo` by owner pid over ALL windows, largest area wins (G27) |
 | screenshot | `maim -i WID` | `screencapture -x -o -l <CGWindowID>`; needs **Screen Recording** (G27) — and the window on the ACTIVE Space, which no background CLI can arrange, so the test instance **self-fullscreens at launch** (G30) |
@@ -86,6 +93,7 @@ Same topology, same RPC ground truth, same isolation recipe (G17) and verificati
 | launch / cleanup / RPC | `wezterm start --always-new-process`, pgrep-by-socket kill, `nvim --server` — identical | |
 
 **Permissions checklist (the macOS-specific part, G27).** Granted to the *host terminal app* (the app owning your shell) and takes effect only after that app **restarts**:
+
 - **Screen Recording** — required for `shot` *and* for the CGWindowID lookup. Probe: `screencapture -x -R0,0,50,50 /tmp/probe.png` (errors when denied; the window list silently hides other apps' windows when denied).
 - Accessibility is **not** needed: input goes through the mux socket, not System Events (G28).
 
@@ -107,14 +115,16 @@ When in doubt, add the cheaper test *and* the GUI screenshot; the screenshot is 
 1. **Lock a baseline first (M0).** Before any feature work, confirm `make test` + `make smoke` are green on a clean checkout and create a feature branch. Every later step re-runs these; a regression fails fast.
 2. **Small steps, each verified, each committed.** Build a feature as: pure module → unit test (green) → commit; wire it in → headless e2e (green) → commit; if key/visual → GUI e2e (green) → commit. Each commit is a rollback point.
 3. **Milestone gates.** Group steps into milestones; do not start the next milestone until the gate (unit + smoke + relevant e2e, all green) passes. The risky rendering work goes *after* the low-risk input work is locked.
-4. **Stub the LLM.** In any e2e that submits a prompt, replace the backend so no real model call and no transcript write happen: `chat._agent.send = function(_) end`. Because the stub short-circuits *before* the RPC send, the pi backend never writes a session file — so sessions are not polluted. (Do **not** `grep` your way to "test sessions" to delete: a match can be inside an *assistant* quote of your test text, i.e. a real session. See gotcha G18.)
+4. **Stub the LLM.** In any e2e that submits a prompt, replace the backend so no real model call and no transcript write happen: `chat._agent.send = function(_) return true end`. Because the stub short-circuits *before* the RPC send, the pi backend never writes a session file — so sessions are not polluted. (Do **not** `grep` your way to "test sessions" to delete: a match can be inside an *assistant* quote of your test text, i.e. a real session. See gotcha G18.)
 5. **Isolate from the user's data.** A test instance shares the user's `stdpath` history/draft files and races with their live pi. Redirect both to `/tmp` (gotcha G17) and assert the user's files stayed untouched.
 6. **State exactly what you verified and what you could not**, per `AGENTS.md`.
 7. **End the verification section with a manual-test command.** Every final report's 验证情况 / verification section must include a complete, copy-pasteable command the user can run to launch nvim and check the change by hand, plus the exact in-editor steps (command/keymap to trigger the behavior, what to look at):
    - Change still in a **worktree** → use the G23 env gate so the user's real config loads the worktree code:
+
      ```bash
      PI_DEV_DIR="$WT_ROOT/<name>" nvim
      ```
+
      (requires the one-time `dir = vim.env.PI_DEV_DIR or nil` line in the user's pi lazy spec — present in this setup). Mention that a plain `nvim` (no `PI_DEV_DIR`) shows the pre-change behavior for comparison.
    - Change already **merged to `main`** → plain `nvim` (the live lazy checkout tracks `main`; restart nvim so lazy reloads, G21).
 8. **Confirm CI is green post-merge.** After pushing `main`, check the GitHub Actions run for the merge commit (`make style` + `make lint`). The runner is a clean environment, so a local pass does not guarantee a CI pass — the run is the authoritative reproducibility gate, and the feature is not done until it is green. Commands in `SKILL.md` § CI verification.

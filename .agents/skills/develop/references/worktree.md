@@ -36,10 +36,11 @@ Path resolution differs by layer (the trap is G23):
 | Layer | In a worktree it exercises… |
 |-------|------------------------------|
 | `make test` (unit) | **the worktree** ✓ — `tests/minimal_init.lua` resolves the repo root from its own file path |
+| `make smoke` | **the worktree** ✓ — same minimal init, with RPC stubbed |
 | Headless e2e with `-u tests/minimal_init.lua` | **the worktree** ✓ — same path-relative resolution |
-| `make smoke` / GUI automation | **the MAIN checkout** ⚠ — these boot `~/.config/nvim/init.lua`, and lazy loads pi from its installed path, not your worktree |
+| GUI automation | **the MAIN checkout** ⚠ — it boots `~/.config/nvim/init.lua`, and lazy loads pi from its installed path |
 
-So do feature verification with `make test` plus headless e2e scripts run under `-u tests/minimal_init.lua`. For smoke/GUI proof of the worktree code, either run it **after merging to `main`**, or temporarily point lazy at the worktree with an env-gated `dir` in the pi lazy spec (recipe in G23).
+Use `make test`, `make smoke`, and headless e2e under `-u tests/minimal_init.lua` for worktree verification. For GUI proof, run after merging to `main` or temporarily point lazy at the worktree with an env-gated `dir` (G23).
 
 ## Cleanup
 

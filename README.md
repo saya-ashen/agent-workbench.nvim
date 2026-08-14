@@ -351,7 +351,7 @@ Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.
 
 **Developer infrastructure**
 
-- A hermetic plenary test suite (`make test`) plus a headless boot check (`make smoke`), and an agent "develop" skill documenting the test stack and Neovim-Lua gotchas.
+- A hermetic plenary test suite (`make test`) plus a current-checkout headless boot check with stubbed RPC (`make smoke`), and an agent "develop" skill documenting the test stack and Neovim-Lua gotchas.
 
 ## License
 

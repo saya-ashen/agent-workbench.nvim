@@ -53,7 +53,7 @@ MAIN=~/.local/share/nvim/lazy/pi2.nvim; WT_ROOT=~/.local/share/pi.nvim-worktrees
 git -C "$MAIN" worktree add "$WT_ROOT/$name" -b "feat/$name" origin/main   # keep OUTSIDE .../nvim/lazy
 ```
 
-In a worktree, `make test` and headless e2e under `-u tests/minimal_init.lua` exercise **the worktree**, but `make smoke`/GUI load the **main checkout** (G23). Remove the worktree only after review is approved and merged. Full setup/verification/cleanup commands: `references/worktree.md`.
+In a worktree, `make test`, `make smoke`, and headless e2e under `-u tests/minimal_init.lua` exercise **the worktree**. GUI automation still loads the installed main checkout unless explicitly redirected (G23). Remove the worktree only after review is approved and merged. Full setup/verification/cleanup commands: `references/worktree.md`.
 
 ## Verification layers
 
