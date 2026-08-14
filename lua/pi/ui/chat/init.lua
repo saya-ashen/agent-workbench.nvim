@@ -137,6 +137,18 @@ function Chat:_set_keymaps()
         end, { buffer = hbuf, desc = "Redirect to π prompt" })
     end
 
+    local function capture_history_view()
+        local win = vim.api.nvim_get_current_win()
+        if
+            hbuf == self:history_buf()
+            and vim.api.nvim_win_is_valid(win)
+            and vim.api.nvim_win_get_buf(win) == hbuf
+        then
+            self._history_cursor = vim.api.nvim_win_get_cursor(win)
+            self._history:_capture_fold_state(win)
+        end
+    end
+
     vim.api.nvim_create_autocmd("CursorMoved", {
         buffer = hbuf,
         callback = function()
@@ -144,6 +156,10 @@ function Chat:_set_keymaps()
                 self._history_cursor = vim.api.nvim_win_get_cursor(0)
             end
         end,
+    })
+    vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+        buffer = hbuf,
+        callback = capture_history_view,
     })
 
     -- Keep ordinary window navigation in Normal mode. Layout switches may

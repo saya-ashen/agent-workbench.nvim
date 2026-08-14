@@ -1386,7 +1386,11 @@ end
 ---@param win integer?
 function History:set_win(win)
     if not win then
-        if self._win and vim.api.nvim_win_is_valid(self._win) then
+        if
+            self._win
+            and vim.api.nvim_win_is_valid(self._win)
+            and vim.api.nvim_win_get_buf(self._win) == self._buf
+        then
             self:_capture_fold_state(self._win)
         end
         self._win = nil

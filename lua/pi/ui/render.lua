@@ -8,6 +8,8 @@ local Ft = require("pi.filetypes")
 local warned_missing = {}
 local markview_scheduled = {}
 local markview_paused = {}
+local markview_dirty = {}
+local markview_rendered_tick = {}
 
 ---@return string engine "builtin"|"markview"|"render-markdown"
 function M.engine()
@@ -73,31 +75,60 @@ local function ensure_render_markdown()
 end
 
 ---@param buf integer
+---@return boolean
+local function is_visible(buf)
+    return vim.api.nvim_buf_is_valid(buf) and #vim.fn.win_findbuf(buf) > 0
+end
+
+---@param buf integer
 local function render_markview(buf)
-    if markview_paused[buf] or markview_scheduled[buf] then
+    if
+        markview_paused[buf]
+        or markview_scheduled[buf]
+        or not markview_dirty[buf]
+        or not is_visible(buf)
+    then
         return
     end
     markview_scheduled[buf] = true
     vim.schedule(function()
         markview_scheduled[buf] = nil
-        if markview_paused[buf] or not vim.api.nvim_buf_is_valid(buf) then
+        if markview_paused[buf] or not markview_dirty[buf] or not is_visible(buf) then
             return
         end
         local markview = ensure_markview()
         if not markview or type(markview.render) ~= "function" then
             return
         end
+        local clear_ok = true
         if type(markview.clear) == "function" then
-            pcall(markview.clear, buf)
+            clear_ok = pcall(markview.clear, buf)
         end
-        vim.b[buf].pi_markview = pcall(markview.render, buf)
+        local render_ok = pcall(markview.render, buf)
+        local ok = clear_ok and render_ok
+        vim.b[buf].pi_markview = ok
+        if ok then
+            markview_rendered_tick[buf] = vim.b[buf].changedtick
+            markview_dirty[buf] = nil
+        end
     end)
+end
+
+---@param buf integer
+local function refresh_markview(buf)
+    if
+        vim.api.nvim_buf_is_valid(buf)
+        and markview_rendered_tick[buf] ~= vim.b[buf].changedtick
+    then
+        markview_dirty[buf] = true
+    end
+    render_markview(buf)
 end
 
 ---@param buf integer
 function M.refresh_history(buf)
     if M.engine() == "markview" then
-        render_markview(buf)
+        refresh_markview(buf)
     end
 end
 
@@ -108,7 +139,14 @@ function M.attach_history(buf)
         if not ensure_markview() then
             return
         end
+        markview_dirty[buf] = true
         vim.api.nvim_create_autocmd("TextChanged", {
+            buffer = buf,
+            callback = function()
+                refresh_markview(buf)
+            end,
+        })
+        vim.api.nvim_create_autocmd("BufWinEnter", {
             buffer = buf,
             callback = function()
                 render_markview(buf)
@@ -145,6 +183,7 @@ function M.pause_history(buf)
     end
     if M.engine() == "markview" then
         markview_paused[buf] = true
+        markview_dirty[buf] = true
         local markview = ensure_markview()
         if markview and type(markview.clear) == "function" then
             pcall(markview.clear, buf)
@@ -166,6 +205,7 @@ function M.resume_history(buf)
     end
     if M.engine() == "markview" then
         markview_paused[buf] = nil
+        markview_dirty[buf] = true
         render_markview(buf)
         return
     end
@@ -186,6 +226,8 @@ function M._reset()
     warned_missing = {}
     markview_scheduled = {}
     markview_paused = {}
+    markview_dirty = {}
+    markview_rendered_tick = {}
 end
 
 return M

@@ -514,12 +514,25 @@ function M.restore_state(history, win)
         return
     end
     vim.api.nvim_win_call(win, function()
+        local states = {}
         for anchor, open in pairs(history._fold_open_state) do
-            if open then
-                local row = history:_extmark_row(anchor)
-                if row then
-                    vim.cmd("silent! " .. (row + 1) .. "foldopen")
-                end
+            local row = history:_extmark_row(anchor)
+            if row then
+                states[#states + 1] = { row = row, open = open }
+            end
+        end
+        table.sort(states, function(left, right)
+            return left.row < right.row
+        end)
+        for _, state in ipairs(states) do
+            if state.open then
+                vim.cmd("silent! " .. (state.row + 1) .. "foldopen")
+            end
+        end
+        for index = #states, 1, -1 do
+            local state = states[index]
+            if not state.open then
+                vim.cmd("silent! " .. (state.row + 1) .. "foldclose")
             end
         end
     end)

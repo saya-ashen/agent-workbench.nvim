@@ -2,7 +2,9 @@
 
 ## 2026-08-14
 
-- **FIXED:** switching or resuming sessions now keeps History, prompt, and RPC ownership together. Prompt drafts cannot send until the backend session switch finishes, background output stays in its owning hidden History buffer, and late reload callbacks no longer replace the active session view. Session navigation now focuses the prompt with History at latest output on first entry, restores the last moved History cursor afterward, avoids reparsing an unchanged transcript on re-entry, and keeps ordinary panel focus in Normal mode.
+- **FIXED:** background sessions no longer ask markview.nvim to render hidden History buffers, preventing their decorations from leaking over unrelated windows such as Neo-tree. Hidden changes render when History becomes visible, while unchanged History buffers reuse their existing decorations instead of reparsing on every switch.
+
+- **FIXED:** switching or resuming sessions now keeps History, prompt, and RPC ownership together. Prompt drafts cannot send until the backend session switch finishes, background output stays in its owning hidden History buffer, and late reload callbacks no longer replace the active session view. Session navigation now focuses the prompt with History at latest output on first entry, restores each History buffer's cursor and expanded/collapsed folds afterward, and keeps ordinary panel focus in Normal mode.
 
 - **FIXED:** concurrent transcript resources for one session now receive unique readable History buffer names instead of raising `E95: Buffer with this name already exists`.
 

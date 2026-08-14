@@ -71,12 +71,17 @@ local function clear_pending(pending)
 end
 
 describe("buffer-owned sessions", function()
+    local original_render_engine
+
     before_each(function()
+        original_render_engine = Config.options.render.engine
+        Config.options.render.engine = "builtin"
         install_stub()
         Sessions.setup_autocmds()
     end)
 
     after_each(function()
+        Config.options.render.engine = original_render_engine
         WorkspaceBuffers._reset()
         restore_stub()
     end)
@@ -209,6 +214,63 @@ describe("buffer-owned sessions", function()
         local restored_history_win = assert(session.chat._layout:history_win())
         assert.same(cursor, vim.api.nvim_win_get_cursor(restored_history_win))
         assert.are.equal(0, startup_calls)
+    end)
+
+    it("restores cursor and fold state when switching between History buffers", function()
+        local function add_transcript(session, label)
+            local history = session.chat:history()
+            history:add_user_message(label .. " question\nsecond line", 1786438920000)
+            history:on_agent_start(1786438920001, "output")
+            history:on_text_delta(label .. " answer\nsecond line\nthird line")
+            history:on_agent_end(nil, { force_completion = true })
+            assert.is_true(vim.wait(200, function()
+                return #history._message_blocks == 2
+            end))
+            return history:_extmark_row(history._message_blocks[2].anchor) + 1
+        end
+
+        local first = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local first_row = add_transcript(first, "first")
+        local first_win = assert(first.chat._layout:history_win())
+        vim.api.nvim_set_current_win(first_win)
+        local first_cursor = { first_row, 2 }
+        vim.api.nvim_win_set_cursor(first_win, first_cursor)
+        vim.cmd("silent! foldclose")
+        assert.are.equal(first_row, vim.fn.foldclosed(first_row))
+
+        local second = assert(Sessions.get_or_create({ new = true, layout = "buffer" }))
+        local second_row = add_transcript(second, "second")
+        local second_win = assert(second.chat._layout:history_win())
+        vim.api.nvim_set_current_win(second_win)
+        vim.api.nvim_win_set_cursor(second_win, { second_row, 0 })
+        vim.cmd("silent! foldopen")
+        local second_cursor = { second_row, 1 }
+        vim.api.nvim_win_set_cursor(second_win, second_cursor)
+        assert.are.equal(-1, vim.fn.foldclosed(second_row))
+
+        vim.cmd("buffer " .. first.history_buf)
+        assert.is_true(vim.wait(200, function()
+            local win = first.chat._layout:history_win()
+            return win
+                and vim.api.nvim_get_current_win() == win
+                and vim.api.nvim_win_get_cursor(win)[1] == first_cursor[1]
+                and vim.fn.foldclosed(first_row) == first_row
+        end))
+        local restored_first_win = first.chat._layout:history_win()
+        assert.is_not_nil(restored_first_win)
+        assert.same(first_cursor, vim.api.nvim_win_get_cursor(restored_first_win))
+
+        vim.cmd("buffer " .. second.history_buf)
+        assert.is_true(vim.wait(200, function()
+            local win = second.chat._layout:history_win()
+            return win
+                and vim.api.nvim_get_current_win() == win
+                and vim.api.nvim_win_get_cursor(win)[1] == second_cursor[1]
+                and vim.fn.foldclosed(second_row) == -1
+        end))
+        local restored_second_win = second.chat._layout:history_win()
+        assert.is_not_nil(restored_second_win)
+        assert.same(second_cursor, vim.api.nvim_win_get_cursor(restored_second_win))
     end)
 
     it("keeps background reload completion out of the active session view", function()
