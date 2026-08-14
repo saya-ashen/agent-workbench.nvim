@@ -1130,31 +1130,8 @@ function Chat:_send_message(queue_type)
         return
     end
 
-    -- Record the raw prompt in readline-style history (before mention expansion).
-    local hist_store = self:_history_store()
-    if hist_store and text ~= "" then
-        hist_store:add(text)
-    end
-
-    -- Exit zen mode before sending so the user returns to normal chat.
-    if self._zen:is_active() then
-        self._zen:exit()
-    end
-
-    self._prompt:clear_text()
-
     local attachments = self._attachments:count() > 0 and self._attachments:get() or nil
-    self._attachments:clear()
-
     local expanded = Mentions.expand(text)
-
-    if queue_type then
-        -- Queued message: show in pending area, render in history on delivery
-        self._history:add_pending_queue_entry(queue_type, text, expanded, attachments and #attachments or nil)
-    else
-        -- Immediate: render in history now
-        self._history:add_user_message(text, nil, attachments and #attachments or nil)
-    end
 
     ---@type pi.RpcCommand
     local cmd
@@ -1169,7 +1146,25 @@ function Chat:_send_message(queue_type)
         cmd.images = attachments
     end
 
-    self._agent.send(cmd)
+    if self._agent.send(cmd) == false then
+        return
+    end
+
+    -- Mutate draft/UI only after transport accepts the command.
+    local hist_store = self:_history_store()
+    if hist_store and text ~= "" then
+        hist_store:add(text)
+    end
+    if self._zen:is_active() then
+        self._zen:exit()
+    end
+    self._prompt:clear_text()
+    self._attachments:clear()
+    if queue_type then
+        self._history:add_pending_queue_entry(queue_type, text, expanded, attachments and #attachments or nil)
+    else
+        self._history:add_user_message(text, nil, attachments and #attachments or nil)
+    end
 end
 
 --- Execute a direct bash command (! prefix) via the RPC `bash` command.

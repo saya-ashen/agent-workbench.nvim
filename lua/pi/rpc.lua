@@ -127,6 +127,8 @@
 ---@field _handler fun(msg: pi.RpcEvent)?
 ---@field _pending table<string, fun(msg: pi.RpcEvent)>
 ---@field _tab pi.TabId
+---@field _cwd? string
+---@field _stopping boolean
 ---@field _req_id integer
 ---@field _stdout_parts string[] Chunks of the not-yet-complete trailing stdout line
 local Rpc = {}
@@ -294,13 +296,16 @@ end
 local warned = {}
 
 ---@param tab pi.TabId
+---@param cwd? string
 ---@return pi.Rpc
-function Rpc.new(tab)
+function Rpc.new(tab, cwd)
     local self = setmetatable({}, Rpc)
     self._job_id = nil
     self._handler = nil
     self._pending = {}
     self._tab = tab
+    self._cwd = cwd
+    self._stopping = false
     self._req_id = 1
     self._stdout_parts = {}
     return self
@@ -318,17 +323,19 @@ function Rpc:_dispatch(msg)
 
     log("incoming", msg)
 
-    if self._handler then
-        self._handler(msg)
-    end
-
     -- Only responses consume pending callbacks: streamed events may carry the
     -- same id (e.g. bash_execution_update echoes its bash command's id) and
-    -- must not eat the one-shot response callback.
+    -- must not eat the one-shot response callback. Matched responses are owned
+    -- by their callback; only late/unmatched responses reach the event handler.
     if msg.type == "response" and msg.id and self._pending[msg.id] then
         local cb = self._pending[msg.id]
         self._pending[msg.id] = nil
         cb(msg)
+        return
+    end
+
+    if self._handler then
+        self._handler(msg)
     end
 end
 
@@ -338,8 +345,10 @@ function Rpc:start()
         return true
     end
     self._stdout_parts = {}
+    self._stopping = false
     local cmd = Cli.command()
     self._job_id = vim.fn.jobstart(cmd, {
+        cwd = self._cwd,
         on_stdout = function(_, data)
             self:_on_stdout(data)
         end,
@@ -385,7 +394,18 @@ function Rpc:send(cmd, callback)
         self._pending[cmd.id] = callback
     end
     log("outgoing", cmd)
-    vim.fn.chansend(self._job_id, vim.json.encode(cmd) .. "\n")
+    local encoded, payload = pcall(vim.json.encode, cmd)
+    if not encoded then
+        self._pending[cmd.id] = nil
+        Notify.error("Failed to encode RPC command: " .. tostring(payload))
+        return false
+    end
+    local sent, result = pcall(vim.fn.chansend, self._job_id, payload .. "\n")
+    if not sent or type(result) ~= "number" or result <= 0 then
+        self._pending[cmd.id] = nil
+        Notify.error("Failed to send RPC command: " .. tostring(result))
+        return false
+    end
     return true
 end
 
@@ -396,6 +416,7 @@ end
 
 function Rpc:stop()
     if self._job_id then
+        self._stopping = true
         vim.fn.jobstop(self._job_id)
         self._job_id = nil
     end
@@ -488,6 +509,23 @@ end
 function Rpc:_on_exit(code)
     self._job_id = nil
     self._stdout_parts = {}
+    if self._stopping then
+        self._stopping = false
+        return
+    end
+    local pending = self._pending
+    self._pending = {}
+    for id, callback in pairs(pending) do
+        local ok, err = pcall(callback, {
+            type = "response",
+            id = id,
+            success = false,
+            error = "Process exited with code " .. tostring(code),
+        })
+        if not ok then
+            log("ERROR", "RPC callback failed during process exit: " .. tostring(err))
+        end
+    end
     self:_dispatch({ type = "_process_exit", code = code })
 end
 

@@ -26,6 +26,97 @@ local function jsonl(t)
     return vim.json.encode(t)
 end
 
+describe("rpc process", function()
+    local old_encode
+    local old_chansend
+
+    before_each(function()
+        old_encode = vim.json.encode
+        old_chansend = vim.fn.chansend
+    end)
+
+    after_each(function()
+        vim.json.encode = old_encode
+        vim.fn.chansend = old_chansend
+    end)
+
+    it("starts in the configured cwd", function()
+        local cwd = vim.fn.getcwd()
+        local rpc = Rpc.new("test", cwd)
+        local old_jobstart = vim.fn.jobstart
+        local captured
+        vim.fn.jobstart = function(_, opts)
+            captured = opts
+            return 42
+        end
+
+        local ok, err = pcall(function()
+            assert.is_true(rpc:start())
+            assert.are.equal(cwd, captured.cwd)
+        end)
+        vim.fn.jobstart = old_jobstart
+        assert.is_true(ok, err)
+    end)
+
+    it("returns false and removes pending callback when JSON encode fails", function()
+        local rpc = Rpc.new("test")
+        rpc._job_id = 42
+        vim.json.encode = function()
+            error("encode boom")
+        end
+
+        assert.is_false(rpc:send({ type = "prompt", id = "encode" }, function() end))
+        assert.is_nil(rpc._pending.encode)
+    end)
+
+    it("returns false and removes pending callback when chansend fails", function()
+        local rpc = Rpc.new("test")
+        rpc._job_id = 42
+        vim.fn.chansend = function()
+            return 0
+        end
+
+        assert.is_false(rpc:send({ type = "prompt", id = "send" }, function() end))
+        assert.is_nil(rpc._pending.send)
+    end)
+
+    it("routes matched responses only to pending callbacks", function()
+        local handled = {}
+        local callback_msg
+        local rpc = make_rpc(handled)
+        rpc._pending.one = function(msg)
+            callback_msg = msg
+        end
+
+        rpc:_dispatch({ type = "response", id = "one", success = true })
+        assert.are.equal("one", callback_msg.id)
+        assert.are.same({}, handled)
+        rpc:_dispatch({ type = "response", id = "late", success = true })
+        assert.are.equal("late", handled[1].id)
+    end)
+
+    it("fails pending callbacks on process exit but stop stays silent", function()
+        local responses = {}
+        local rpc = make_rpc({})
+        rpc._job_id = 42
+        rpc._pending.one = function(msg)
+            responses[#responses + 1] = msg
+        end
+        rpc:_on_exit(7)
+        assert.are.equal(false, responses[1].success)
+        assert.matches("7", responses[1].error)
+
+        rpc._job_id = nil
+        rpc._pending.two = function(msg)
+            responses[#responses + 1] = msg
+        end
+        rpc:stop()
+        rpc:_on_exit(143)
+        assert.are.equal(1, #responses)
+        assert.is_nil(rpc._pending.two)
+    end)
+end)
+
 describe("rpc stdout reassembly", function()
     it("decodes a complete line delivered in one chunk", function()
         local out = {}
