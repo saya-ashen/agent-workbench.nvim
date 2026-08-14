@@ -651,17 +651,7 @@ activate = function(session)
     end
 
     if entered_history then
-        local history_win = session.chat._layout:history_win()
-        vim.schedule(function()
-            if
-                history_win
-                and vim.api.nvim_win_is_valid(history_win)
-                and vim.api.nvim_win_get_buf(history_win) == session.history_buf
-            then
-                vim.api.nvim_set_current_win(history_win)
-                vim.cmd("stopinsert")
-            end
-        end)
+        session.chat:focus_history()
     end
 
     require("pi.ui.sessions").clear_flags(session)

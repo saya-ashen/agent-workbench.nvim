@@ -172,35 +172,43 @@ describe("buffer-owned sessions", function()
         assert.is_true(requested_insert)
     end)
 
-    it("opens first session entry on prompt then restores its History cursor", function()
+    it("restores History cursor after a same-window buffer round trip", function()
         local session = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local history = session.chat:history()
         local history_win = assert(session.chat._layout:history_win())
-        local prompt_win = assert(session.chat:prompt_win())
-
-        session.chat:focus_for_session_entry()
-        vim.wait(100, function()
-            return vim.api.nvim_get_current_win() == prompt_win
-        end)
-        assert.are.equal(prompt_win, vim.api.nvim_get_current_win())
 
         session.chat:focus_history()
-        vim.wait(100, function()
+        assert.is_true(vim.wait(100, function()
             return vim.api.nvim_get_current_win() == history_win
-        end)
-        local line = vim.api.nvim_buf_get_lines(session.history_buf, 0, 1, false)[1] or ""
-        local col = math.min(3, #line)
-        vim.api.nvim_win_set_cursor(history_win, { 1, col })
-        session.chat:focus_prompt()
-        vim.wait(100, function()
-            return vim.api.nvim_get_current_win() == prompt_win
-        end)
-        vim.api.nvim_win_set_cursor(history_win, { 1, 0 })
+        end))
+        local line = vim.api.nvim_buf_get_lines(session.history_buf, 1, 2, false)[1] or ""
+        local cursor = { 2, math.min(3, #line) }
+        vim.api.nvim_win_set_cursor(history_win, cursor)
+        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = session.history_buf })
+        assert.same(cursor, session.chat._history_cursor)
 
-        session.chat:focus_for_session_entry()
+        local editor_buf = vim.api.nvim_create_buf(true, false)
+        vim.cmd("buffer " .. editor_buf)
         vim.wait(100, function()
-            return vim.api.nvim_get_current_win() == history_win
+            return vim.api.nvim_get_current_buf() == editor_buf and not session.chat:is_visible()
         end)
-        assert.same({ 1, col }, vim.api.nvim_win_get_cursor(history_win))
+        assert.same(cursor, session.chat._history_cursor)
+
+        local startup_calls = 0
+        local show_loading_startup = history.show_loading_startup
+        history.show_loading_startup = function(...)
+            startup_calls = startup_calls + 1
+            return show_loading_startup(...)
+        end
+        vim.cmd("buffer " .. session.history_buf)
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == session.chat._layout:history_win()
+        end)
+        history.show_loading_startup = show_loading_startup
+
+        local restored_history_win = assert(session.chat._layout:history_win())
+        assert.same(cursor, vim.api.nvim_win_get_cursor(restored_history_win))
+        assert.are.equal(0, startup_calls)
     end)
 
     it("keeps background reload completion out of the active session view", function()

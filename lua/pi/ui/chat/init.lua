@@ -137,15 +137,11 @@ function Chat:_set_keymaps()
         end, { buffer = hbuf, desc = "Redirect to π prompt" })
     end
 
-    vim.api.nvim_create_autocmd("WinLeave", {
+    vim.api.nvim_create_autocmd("CursorMoved", {
         buffer = hbuf,
         callback = function()
-            if hbuf ~= self:history_buf() then
-                return
-            end
-            local win = vim.api.nvim_get_current_win()
-            if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == hbuf then
-                self._history_cursor = vim.api.nvim_win_get_cursor(win)
+            if hbuf == self:history_buf() and vim.api.nvim_get_current_buf() == hbuf then
+                self._history_cursor = vim.api.nvim_win_get_cursor(0)
             end
         end,
     })
@@ -429,8 +425,12 @@ function Chat:show(opts)
     self:_set_keymaps()
     if opts and opts.loading then
         self:show_loading()
-    else
-        -- Render the welcome header with loading hint until startup data arrives.
+    elseif
+        vim.api.nvim_buf_line_count(self:history_buf()) == 1
+        and vim.api.nvim_buf_get_lines(self:history_buf(), 0, 1, false)[1] == ""
+    then
+        -- Render loading state only for a new transcript. Rewriting an existing
+        -- startup block makes large History buffers reparse on every re-entry.
         self._history:show_loading_startup()
     end
     self:refresh_prompt_attention()
@@ -714,6 +714,8 @@ function Chat:focus_history()
                 local row = math.min(cursor[1], vim.api.nvim_buf_line_count(self:history_buf()))
                 local line = vim.api.nvim_buf_get_lines(self:history_buf(), row - 1, row, false)[1] or ""
                 pcall(vim.api.nvim_win_set_cursor, hwin, { row, math.min(cursor[2], #line) })
+            else
+                self:scroll_history_to_bottom()
             end
             vim.cmd("stopinsert")
         end
@@ -724,7 +726,10 @@ function Chat:focus_for_session_entry()
     if self._history_cursor then
         self:focus_history()
     else
-        self:focus_prompt()
+        vim.schedule(function()
+            self:scroll_history_to_bottom()
+            self._prompt:focus(nil, "normal")
+        end)
     end
 end
 
