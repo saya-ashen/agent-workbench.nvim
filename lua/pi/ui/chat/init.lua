@@ -11,6 +11,7 @@
 ---@field _history pi.ChatHistory
 ---@field _prompt pi.ChatPrompt
 ---@field _keymaps_set boolean
+---@field _history_cursor integer[]?
 ---@field _streaming boolean
 ---@field _retrying boolean True while the core is in an auto-retry backoff (between agent_end and the retry's agent_start). The double-<Esc> abort gesture stays live here even though nothing is streaming.
 ---@field _abort_esc_at number? Timestamp (ms) of the first <Esc> in a double-<Esc> abort gesture (nil = not armed)
@@ -77,6 +78,7 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._history = History.new(tab, history_name, self._session_id)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
+    self._history_cursor = nil
     self._streaming = false
     self._retrying = false
     self._abort_esc_at = nil
@@ -134,6 +136,19 @@ function Chat:_set_keymaps()
             self:ensure_shown_and_focus_prompt(true)
         end, { buffer = hbuf, desc = "Redirect to π prompt" })
     end
+
+    vim.api.nvim_create_autocmd("WinLeave", {
+        buffer = hbuf,
+        callback = function()
+            if hbuf ~= self:history_buf() then
+                return
+            end
+            local win = vim.api.nvim_get_current_win()
+            if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == hbuf then
+                self._history_cursor = vim.api.nvim_win_get_cursor(win)
+            end
+        end,
+    })
 
     -- Keep ordinary window navigation in Normal mode. Layout switches may
     -- restore Insert mode when they started there.
@@ -554,6 +569,7 @@ function Chat:attach_history(history)
         self:hide()
     end
     self._history = history
+    self._history_cursor = nil
     self._layout:set_history(history)
     local statusline = self._prompt:statusline()
     history:set_status_listener(function(model)
@@ -693,9 +709,23 @@ function Chat:focus_history()
     vim.schedule(function()
         if hwin and vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == self:history_buf() then
             vim.api.nvim_set_current_win(hwin)
+            local cursor = self._history_cursor
+            if cursor then
+                local row = math.min(cursor[1], vim.api.nvim_buf_line_count(self:history_buf()))
+                local line = vim.api.nvim_buf_get_lines(self:history_buf(), row - 1, row, false)[1] or ""
+                pcall(vim.api.nvim_win_set_cursor, hwin, { row, math.min(cursor[2], #line) })
+            end
             vim.cmd("stopinsert")
         end
     end)
+end
+
+function Chat:focus_for_session_entry()
+    if self._history_cursor then
+        self:focus_history()
+    else
+        self:focus_prompt()
+    end
 end
 
 function Chat:focus_attachments()

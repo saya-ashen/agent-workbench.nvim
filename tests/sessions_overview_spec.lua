@@ -564,12 +564,12 @@ describe("sessions overview", function()
     end)
 
     describe("open / render / toggle", function()
-        it("opens selected sessions on History", function()
+        it("uses session entry focus when opening a selected session", function()
             local session = fake_session({ tab = vim.api.nvim_get_current_tabpage() })
             session.id = 42
             local activated
             local focused
-            session.chat.focus_history = function()
+            session.chat.focus_for_session_entry = function()
                 focused = true
             end
             SessionList.on_session_info_changed(session, "selected")

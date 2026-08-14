@@ -1087,7 +1087,7 @@ load_session = function(session, session_path)
         session.chat:clear()
         replay_messages(session, preview.messages)
     end
-    session.chat:focus_history()
+    session.chat:focus_for_session_entry()
 
     local sent_switch = session.rpc:send({ type = "switch_session", sessionPath = session_path }, function(msg)
         local data = msg.data or {}

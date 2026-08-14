@@ -648,7 +648,7 @@ local function jump_under_cursor()
         return
     end
     require("pi.sessions.manager").activate(session)
-    session.chat:focus_history()
+    session.chat:focus_for_session_entry()
 end
 
 --- Rename the session under the cursor: prompt for a display name and send it

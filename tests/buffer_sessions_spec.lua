@@ -172,6 +172,37 @@ describe("buffer-owned sessions", function()
         assert.is_true(requested_insert)
     end)
 
+    it("opens first session entry on prompt then restores its History cursor", function()
+        local session = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local history_win = assert(session.chat._layout:history_win())
+        local prompt_win = assert(session.chat:prompt_win())
+
+        session.chat:focus_for_session_entry()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == prompt_win
+        end)
+        assert.are.equal(prompt_win, vim.api.nvim_get_current_win())
+
+        session.chat:focus_history()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == history_win
+        end)
+        local line = vim.api.nvim_buf_get_lines(session.history_buf, 0, 1, false)[1] or ""
+        local col = math.min(3, #line)
+        vim.api.nvim_win_set_cursor(history_win, { 1, col })
+        session.chat:focus_prompt()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == prompt_win
+        end)
+        vim.api.nvim_win_set_cursor(history_win, { 1, 0 })
+
+        session.chat:focus_for_session_entry()
+        vim.wait(100, function()
+            return vim.api.nvim_get_current_win() == history_win
+        end)
+        assert.same({ 1, col }, vim.api.nvim_win_get_cursor(history_win))
+    end)
+
     it("keeps background reload completion out of the active session view", function()
         local first = assert(Sessions.get_or_create({ layout = "buffer" }))
         local pending = install_pending_rpc()
@@ -236,9 +267,9 @@ describe("buffer-owned sessions", function()
         messages.callback({ success = true, data = preview })
         vim.wait(40)
 
-        local history_win = assert(session.chat._layout:history_win())
-        assert.are.equal(history_win, vim.api.nvim_get_current_win())
-        assert.are.equal(session.history_buf, vim.api.nvim_win_get_buf(history_win))
+        local prompt_win = assert(session.chat:prompt_win())
+        assert.are.equal(prompt_win, vim.api.nvim_get_current_win())
+        assert.are.equal(session.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
         assert.is_false(session._switching_session)
         session.chat:submit()

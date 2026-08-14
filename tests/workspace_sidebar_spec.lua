@@ -37,7 +37,7 @@ describe("workspace sidebar", function()
                 is_compacting = function()
                     return state == "compacting"
                 end,
-                focus_history = function()
+                focus_for_session_entry = function()
                     focused_session = id
                 end,
             },
