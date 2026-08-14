@@ -20,8 +20,15 @@ local function fold_row(history, block)
 end
 
 describe("agent activity and output folds", function()
+    local original_notify
+
     before_each(function()
         Config.options.render.engine = "builtin"
+        original_notify = vim.notify
+    end)
+
+    after_each(function()
+        vim.notify = original_notify
     end)
 
     it("classifies tool prose as Activity and final prose as Output", function()
@@ -47,6 +54,22 @@ describe("agent activity and output folds", function()
             vim.fn.foldclosed(fold_row(history, history._message_blocks[1]))
         )
         assert.are.equal(-1, vim.fn.foldclosed(fold_row(history, history._message_blocks[2])))
+        vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
+    it("auto-dismisses the completion notification", function()
+        local notification
+        vim.notify = function(message, level, opts)
+            notification = { message = message, level = level, opts = opts }
+        end
+
+        local chat, history = setup_chat(983)
+        chat:on_agent_end()
+
+        assert.are.equal("π │ Agent finished - waiting for your input", notification.message)
+        assert.are.equal(vim.log.levels.INFO, notification.level)
+        assert.are.equal(3000, notification.opts.timeout)
+        assert.is_nil(notification.opts.id)
         vim.api.nvim_buf_delete(history:buf(), { force = true })
     end)
 

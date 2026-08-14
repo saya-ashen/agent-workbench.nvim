@@ -55,16 +55,21 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **Isolation recipe (do this, every GUI run, or you corrupt the user's data — G17):**
 
-1. Before opening the chat, the user's `~/.local/share/nvim/pi/draft.txt` (if present) is moved to a backup; restored at the end. This stops `restore_once` from pulling a real in-progress draft into the test prompt.
-2. Right after the chat opens, redirect the test instance's storage to `/tmp`:
+1. Before opening chat, redirect the test instance's draft storage to `/tmp`:
 
    ```lua
    require("pi.draft")._set_path("/tmp/<run>/draft.txt")
+   ```
+
+   Production drafts isolate workspaces and live processes, but a test instance could still claim a stale real draft if the override is installed after chat opens.
+2. Before the first recall/send, redirect prompt history:
+
+   ```lua
    require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"
    ```
 
-   The history store is lazy, so setting the path before the first recall/send makes it use the temp file; the user's `prompt_history.json` is never opened by the test instance → no concurrent-write race.
-3. Assert at the end: user's draft untouched, user's history has zero test-residue (`grep -c` of your sentinel strings == 0).
+   The history store is lazy, so the user's `prompt_history.json` is never opened by the test instance.
+3. Assert at the end: user's drafts are untouched and user's history has zero test residue (`grep -c` of sentinel strings == 0).
 4. Delete the temp files; restore the user's workspace (`i3-msg workspace <saved>`).
 
 **Driving real keybindings — the gotchas that matter here:**

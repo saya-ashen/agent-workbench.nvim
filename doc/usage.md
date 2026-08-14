@@ -163,7 +163,7 @@ require("pi").setup({
 
 ## Draft persistence
 
-While [prompt history](#prompt-history) remembers what you've _sent_, draft persistence makes sure you don't lose what you're _typing_. The unsent prompt is saved to `stdpath("data")/pi/draft.txt` as you edit (debounced) and restored into the prompt the next time Neovim starts — so a crash or restart no longer costs you a half-written message. Sending or clearing the prompt removes the stored draft. To avoid surprises, a draft is restored at most once per Neovim process (an in-session `:PiNewSession` won't re-restore a stale draft).
+While [prompt history](#prompt-history) remembers what you've _sent_, draft persistence makes sure you don't lose what you're _typing_. Unsent prompts are saved below `stdpath("data")/pi/drafts/` as you edit (debounced), isolated by workspace and Neovim process. A new process restores only a draft left by an exited process in the same workspace, so concurrent Neovim instances never show or overwrite each other's drafts. Sending or clearing the prompt removes that process's stored draft. Each workspace restores at most once per process (an in-session `:PiNewSession` won't re-restore a stale draft).
 
 Disable it under `prompt.draft`:
 

@@ -6,6 +6,7 @@
 ---@field _layout pi.LayoutMode
 ---@field _statusline pi.StatusLine
 ---@field _attachments pi.ChatAttachments
+---@field _cwd string
 ---@field _tab pi.TabId
 ---@field _zen boolean
 ---@field _command_mode pi.PromptCommandMode
@@ -77,11 +78,13 @@ end
 
 ---@param key integer
 ---@param attachments pi.ChatAttachments
+---@param cwd? string
 ---@return pi.ChatPrompt
-function Prompt.new(key, attachments)
+function Prompt.new(key, attachments, cwd)
     local self = setmetatable({}, Prompt)
     self._win = nil
     self._attachments = attachments
+    self._cwd = cwd or vim.uv.cwd()
     self._tab = vim.api.nvim_get_current_tabpage()
     self._zen = false
     self._command_mode = "compose"
@@ -106,11 +109,11 @@ function Prompt.new(key, attachments)
     -- paths to this prompt's attachments. It only acts inside a π prompt buffer.
     Paste.register(self._buf, self._attachments)
 
-    -- Unsent-draft persistence: restore a draft saved before a restart (once
-    -- per process) and keep saving the current text (debounced) thereafter.
+    -- Unsent-draft persistence: restore a stale draft for this workspace and
+    -- keep saving this process's current text (debounced) thereafter.
     local draft_cfg = Config.options.prompt and Config.options.prompt.draft
     if draft_cfg and draft_cfg.enabled ~= false then
-        local draft = Draft.restore_once()
+        local draft = Draft.restore_once(self._cwd)
         if draft and draft ~= "" then
             vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, vim.split(draft, "\n", { plain = true }))
         end
@@ -616,7 +619,7 @@ function Prompt:_save_draft()
         return
     end
     local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")
-    Draft.save(vim.trim(text) == "" and "" or text)
+    Draft.save(vim.trim(text) == "" and "" or text, self._cwd)
 end
 
 ---@return integer

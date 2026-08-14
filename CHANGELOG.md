@@ -2,6 +2,10 @@
 
 ## 2026-08-14
 
+- **FIXED:** agent completion notifications now disappear after three seconds instead of remaining open until the prompt receives focus.
+
+- **FIXED:** unsent prompt drafts are now isolated by workspace and Neovim process. Concurrent instances no longer restore or overwrite each other's live drafts; later instances still recover drafts left by exited processes in the same workspace.
+
 - **FIXED:** background sessions no longer ask markview.nvim to render hidden History buffers, preventing their decorations from leaking over unrelated windows such as Neo-tree. Hidden changes render when History becomes visible, while unchanged History buffers reuse their existing decorations instead of reparsing on every switch.
 
 - **FIXED:** switching or resuming sessions now keeps History, prompt, and RPC ownership together. Prompt drafts cannot send until the backend session switch finishes, background output stays in its owning hidden History buffer, and late reload callbacks no longer replace the active session view. Session navigation now focuses the prompt with History at latest output on first entry, restores each History buffer's cursor and expanded/collapsed folds afterward, and keeps ordinary panel focus in Normal mode.

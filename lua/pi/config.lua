@@ -63,7 +63,7 @@
 ---@field scope? "clipboard"|"all" Which attachments to compress: only clipboard pastes, or also dropped/attached files (default: "all")
 
 ---@class pi.PromptDraftConfig
----@field enabled? boolean Persist the unsent prompt and restore it once after a restart (default: true)
+---@field enabled? boolean Persist unsent prompts per workspace and restore stale drafts after restart (default: true)
 
 ---@class pi.RenderConfig
 ---@field engine? string Markdown renderer for chat history: "markview" (default), "render-markdown", or "builtin"

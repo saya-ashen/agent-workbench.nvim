@@ -34,7 +34,7 @@ With auto-open disabled, you drain the queue explicitly with `:PiAttention`.
 
 ## Completion notification
 
-`attention.notify_on_completion` (default `true`) shows an info notification when the agent finishes a turn and the π prompt isn't focused:
+`attention.notify_on_completion` (default `true`) shows a three-second info notification when the agent finishes a turn and the π prompt isn't focused:
 
 > Agent finished - waiting for your input
 

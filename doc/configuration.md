@@ -292,7 +292,8 @@ require("pi").setup({
             -- History file. nil = stdpath("data")/pi/prompt_history.json.
             path = nil,
         },
-        -- Unsent-draft persistence across restarts.
+        -- Unsent-draft persistence across restarts, isolated by workspace and
+        -- Neovim process.
         draft = {
             enabled = true,
         },

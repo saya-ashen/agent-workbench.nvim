@@ -74,7 +74,7 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._cwd = cwd or vim.uv.cwd()
     self._agent = agent
     self._attachments = Attachments.new()
-    self._prompt = Prompt.new(self._session_id, self._attachments)
+    self._prompt = Prompt.new(self._session_id, self._attachments, self._cwd)
     self._history = History.new(tab, history_name, self._session_id)
     self._layout = Layout.new(mode, self._history, self._prompt, self._attachments)
     self._keymaps_set = false
@@ -1594,7 +1594,7 @@ function Chat:on_agent_end()
     if not self:has_prompt_focus() then
         local attention_config = Config.options.attention
         if attention_config and attention_config.notify_on_completion then
-            Attention.notify(self._tab, "Agent finished - waiting for your input", vim.log.levels.INFO)
+            Notify.dispatch("Agent finished - waiting for your input", vim.log.levels.INFO, { timeout = 3000 })
         end
     end
 end

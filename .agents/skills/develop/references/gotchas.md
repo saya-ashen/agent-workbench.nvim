@@ -175,9 +175,9 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 ### G17 — Test run corrupts the user's prompt history / draft
 
-- **现象:** After a test, the user's `prompt_history.json` contains the test's sentinel prompts, or their unsent draft is overwritten; worse, two pi instances writing the same file race and clobber each other.
-- **根因:** A test instance and the user's live instance share `stdpath("data")/pi/...`.
-- **修法:** Redirect the test instance: `require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"` (set before the first send/recall; the store is lazy) and `require("pi.draft")._set_path("/tmp/<run>/draft.txt")`. Move the user's `draft.txt` aside before the chat opens (so `restore_once` can't pull a real draft into the test prompt) and restore it after. Assert the user's files are untouched and residue-free at the end.
+- **现象:** After a test, the user's `prompt_history.json` contains the test's sentinel prompts, or their unsent draft is overwritten.
+- **根因:** A test instance still shares `stdpath("data")/pi/...` with the user's live instance. Production drafts isolate workspaces and processes, but a test can claim a stale real draft when it opens.
+- **修法:** Before opening chat, redirect the draft with `require("pi.draft")._set_path("/tmp/<run>/draft.txt")`. Also set `require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"` before the first send/recall; the history store is lazy. Assert the user's files are untouched and residue-free at the end.
 
 ### G18 — You almost delete a real session file
 
