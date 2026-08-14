@@ -5,6 +5,8 @@
 -- Usage (see Makefile `test` target):
 --   nvim --headless -u tests/minimal_init.lua -c "lua require('plenary.test_harness').test_directory('tests')"
 
+vim.opt.shadafile = "NONE"
+
 local function repo_root()
     -- tests/minimal_init.lua lives in <root>/tests/
     return vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
