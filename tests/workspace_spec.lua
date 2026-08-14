@@ -45,6 +45,17 @@ describe("agent workspace", function()
         assert.is_nil(Workspace.buffer("agent://project/session-123"))
     end)
 
+    it("keeps concurrent transcript buffer names unique", function()
+        local first = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/first/transcript", 42)
+        local second = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/second/transcript", 42)
+
+        assert.are_not.equal(vim.api.nvim_buf_get_name(first:buf()), vim.api.nvim_buf_get_name(second:buf()))
+        assert.is_truthy(vim.api.nvim_buf_get_name(second:buf()):find("π session 42 [", 1, true))
+
+        vim.api.nvim_buf_delete(first:buf(), { force = true })
+        vim.api.nvim_buf_delete(second:buf(), { force = true })
+    end)
+
     it("folds user and assistant messages from their timestamp headers", function()
         Config.options.render.engine = "builtin"
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/folds/transcript")
@@ -193,7 +204,9 @@ describe("agent workspace", function()
         history._startup_block_line_count = 3
         local prompt = Prompt.new(vim.api.nvim_get_current_tabpage(), attachments)
         local layout = Layout.new("buffer", history, prompt, attachments)
-        local original = vim.api.nvim_get_current_buf()
+        local original = vim.api.nvim_create_buf(true, false)
+        vim.api.nvim_buf_set_name(original, vim.fn.tempname())
+        vim.api.nvim_set_current_buf(original)
         vim.wo.number = false
         vim.wo.relativenumber = true
         vim.cmd("setglobal number relativenumber")
@@ -251,5 +264,6 @@ describe("agent workspace", function()
         vim.api.nvim_buf_delete(history:buf(), { force = true })
         vim.api.nvim_buf_delete(prompt:buf(), { force = true })
         vim.api.nvim_buf_delete(attachments:buf(), { force = true })
+        vim.api.nvim_buf_delete(original, { force = true })
     end)
 end)

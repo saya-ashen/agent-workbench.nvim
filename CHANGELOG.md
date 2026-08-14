@@ -2,6 +2,10 @@
 
 ## 2026-08-14
 
+- **FIXED:** concurrent transcript resources for one session now receive unique readable History buffer names instead of raising `E95: Buffer with this name already exists`.
+
+- **FIXED:** buffer-layout History now honors global `number` and `relativenumber` settings while restoring the editor buffer's local window options when chat closes.
+
 - **FIXED:** workspace switches once again keep bufferline and native buffer navigation scoped to each tab without cross-assigning every listed buffer. The workspace sidebar still shows tracked buffers from every workspace, and opening a buffer or session with `l` / `<CR>` now reuses the existing editor or History window instead of creating an extra split and `No Name` buffer above the sidebar.
 
 - **FIXED:** changing an idle workspace cwd now hands the visible History and prompt windows directly to the replacement session before stopping the old process, then deletes the stale History buffer so the previous session no longer remains in bufferline or workspace navigation.

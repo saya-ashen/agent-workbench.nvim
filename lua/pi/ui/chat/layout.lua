@@ -319,7 +319,9 @@ function Layout:set_history(history)
 end
 
 ---@param win integer
-function Layout:_configure_content_window(win)
+---@param number? boolean
+---@param relativenumber? boolean
+function Layout:_configure_content_window(win, number, relativenumber)
     if self._content_buf then
         set_terminal_win_opts(win)
         if self._mode == "side" and Config.resolve_side_layout().panels.history.winbar then
@@ -337,6 +339,8 @@ function Layout:_configure_content_window(win)
     end
     set_win_opts(win, function(target)
         if self._mode == "buffer" then
+            vim.wo[target].number = number == true
+            vim.wo[target].relativenumber = relativenumber == true
             vim.wo[target].foldenable = true
             vim.wo[target].foldmethod = "expr"
             vim.wo[target].foldexpr = "v:lua.require'pi.ui.chat.history'.nvim_foldexpr(v:lnum)"
@@ -694,7 +698,7 @@ function Layout:_open_in_buffer_layout()
             vim.wo[win].conceallevel = 0
         end
     end)
-    self:_configure_content_window(self._history_win)
+    self:_configure_content_window(self._history_win, global_number, global_relativenumber)
     if not self._content_buf then
         self._history:set_win(self._history_win)
     end

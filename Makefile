@@ -19,7 +19,7 @@ LUA_LS_BIN ?= lua-language-server
 .PHONY: test smoke format style lint docs-links
 
 test:
-	PLENARY_PATH=$(PLENARY_PATH) $(NVIM_BIN) --headless -u $(MIN_INIT) \
+	PLENARY_PATH=$(PLENARY_PATH) $(NVIM_BIN) --headless -i NONE -u $(MIN_INIT) \
 		-c "lua require('plenary.test_harness').test_directory('tests', { minimal_init = '$(MIN_INIT)' })"
 
 smoke:

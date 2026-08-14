@@ -57,15 +57,15 @@ describe("history native fold text", function()
         assert.is_not_nil(text:find("[3 lines]", 1, true))
     end)
 
-    it("groups consecutive assistant messages into one fold", function()
+    it("groups consecutive assistant activity messages into one fold", function()
         local history = history_with_lines({ "user", "", "assistant one", "body", "assistant two", "body" })
         local user = vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), 0, 0, {})
         local first = vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), 2, 0, {})
         local second = vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), 4, 0, {})
         history._message_blocks = {
             { anchor = user, role = "user" },
-            { anchor = first, role = "assistant" },
-            { anchor = second, role = "assistant" },
+            { anchor = first, role = "assistant", section = "activity" },
+            { anchor = second, role = "assistant", section = "activity" },
         }
 
         local values = history:_native_fold_values()

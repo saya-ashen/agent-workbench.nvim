@@ -525,7 +525,8 @@ function M.present(session, msg)
     end
 
     local prompt_request = entry.kind == "select" or entry.kind == "confirm"
-    if session.chat:has_prompt_focus()
+    if
+        session.chat:has_prompt_focus()
         and not session.chat:has_prompt_request()
         and (prompt_request or not session.chat:has_draft())
     then

@@ -406,6 +406,7 @@ local function highlight_table_pipes(buf, ns_id, row, line)
 end
 
 ---@param tab pi.TabId
+---@param name? string
 ---@param session_id? integer
 ---@return pi.ChatHistory
 function History.new(tab, name, session_id)
@@ -486,7 +487,14 @@ function History.new(tab, name, session_id)
     vim.bo[self._buf].modifiable = false
     -- Keep listed History buffers readable to bufferline and file trees. The
     -- agent:// URI stays in `pi_session_uri` and workspace resource registry.
-    vim.api.nvim_buf_set_name(self._buf, ("π session %s"):format(session_id or tab))
+    local buffer_name = ("π session %s"):format(session_id or tab)
+    local ok, err = pcall(vim.api.nvim_buf_set_name, self._buf, buffer_name)
+    if not ok then
+        if not tostring(err):find("E95", 1, true) then
+            error(err)
+        end
+        vim.api.nvim_buf_set_name(self._buf, ("%s [%d]"):format(buffer_name, self._buf))
+    end
     histories[self._buf] = self
     WorkspaceHistory.attach(self, name)
     vim.api.nvim_create_autocmd("BufWipeout", {
@@ -1818,7 +1826,7 @@ function History:mark_agent_activity()
         block.section = "activity"
         local row = self:_extmark_row(block.anchor)
         if row and block.section_extmark then
-            vim.api.nvim_buf_set_extmark(self._buf, ns, row, #(Config.options.labels.agent_response), {
+            vim.api.nvim_buf_set_extmark(self._buf, ns, row, #Config.options.labels.agent_response, {
                 id = block.section_extmark,
                 virt_text = { { " Agent Activity", "PiAgentResponseLabel" } },
                 virt_text_pos = "inline",

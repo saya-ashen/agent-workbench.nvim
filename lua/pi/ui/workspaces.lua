@@ -38,11 +38,12 @@ end
 ---@return string
 local function workspace_label(row)
     local options = Config.options.workspace_bar
+    local label_option = options.label
     local label = row.name
-    if options.label == "path" then
+    if label_option == "path" then
         label = row.cwd
-    elseif type(options.label) == "function" then
-        local ok, custom = pcall(options.label, row)
+    elseif type(label_option) == "function" then
+        local ok, custom = pcall(label_option, row)
         if ok and type(custom) == "string" and custom ~= "" then
             label = custom
         end

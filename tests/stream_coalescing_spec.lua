@@ -181,7 +181,7 @@ describe("stream coalescing", function()
         Config.options.show_thinking = false
     end)
 
-    it("keeps a running tool title-only, then expands its short final output", function()
+    it("keeps a running tool title-only, then folds its short final output", function()
         local h = History.new(TAB)
         local original_buf = vim.api.nvim_get_current_buf()
         vim.api.nvim_win_set_buf(0, h:buf())
@@ -208,8 +208,10 @@ describe("stream coalescing", function()
 
         h:on_tool_end("bash", "t1", { content = { { type = "text", text = "done" } } }, false)
         pump(80)
-        assert.is_false(block.foldable)
-        assert.are.equal(-1, vim.fn.foldclosed(header_row + 1))
+        footer_row = vim.api.nvim_buf_get_extmark_by_id(buf, h:ns(), block.end_extmark, {})[1]
+        assert.is_true(block.foldable)
+        assert.is_true(vim.fn.foldclosed(header_row + 1) ~= -1)
+        assert.are.equal(-1, vim.fn.foldclosed(footer_row + 1))
         assert.are.equal(1, #rows_with(buf, "done"))
 
         vim.wo[0].winfixbuf = false
