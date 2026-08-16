@@ -1,9 +1,8 @@
 # Formatting + static-analysis gate.
 #
-# Lives under .github/workflows/ so it runs on GitHub Actions and is also picked
-# up by Gitea Actions (which reads .github/workflows/ by default) on the
-# canonical Gitea mirror. Tools are installed by direct binary download so the
-# workflow is self-contained (no third-party actions, no Neovim required).
+# Lives under .github/workflows/ for the standalone Agent Workbench repository.
+# Tools are installed by direct binary download so the workflow is
+# self-contained (no Neovim required).
 #
 # Mirrors `make style` and `make lint`; both must pass to merge.
 
