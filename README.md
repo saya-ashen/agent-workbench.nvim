@@ -241,13 +241,31 @@ See [doc/configuration.md](doc/configuration.md) for all options.
 
 ## Development
 
+Enter the reproducible Linux development shell:
+
+```sh
+nix develop
+```
+
+It provides Neovim, pi, Fish, Plenary, StyleLua, LuaLS, Python, Node.js, Make, Git, and the Linux GUI-automation tools. `PLENARY_PATH` points at the packaged Plenary checkout, so tests do not depend on a user plugin installation.
+
+Run the standard checks:
+
+```sh
+make test
+make smoke
+make style
+make lint
+make docs-links
+```
+
 Run Neovim from this checkout:
 
 ```sh
 ./scripts/nvim-dev
 ```
 
-The repository includes Plenary unit tests and a hermetic headless boot check. `make` is used by project documentation when available; direct Neovim commands are documented in `.agents/skills/develop/` for environments without `make`.
+Direct Neovim test commands are documented in `.agents/skills/develop/` for environments without Nix or Make.
 
 ## Documentation
 

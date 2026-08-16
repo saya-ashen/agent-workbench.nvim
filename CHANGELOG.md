@@ -4,6 +4,8 @@
 
 - **CHANGED:** The project is now presented as **Agent Workbench**, an independent Neovim workbench for coding agents currently powered by pi.dev. The Lua namespace (`pi`), `:Pi*` commands, and `pi-chat-*` filetypes remain unchanged for compatibility. The canonical repository is now [saya-ashen/agent-workbench.nvim](https://github.com/saya-ashen/agent-workbench.nvim).
 
+- **ADDED:** `flake.nix` and `flake.lock` provide a reproducible Linux development shell with Neovim, pi, Fish, packaged Plenary, formatting, lint, documentation, repository, and GUI-automation tools. `nix develop` sets `PLENARY_PATH`, so `make test` does not depend on plugins installed in the user's Neovim profile.
+
 ## 2026-08-14
 
 - **CHANGED:** `!!` now opens a Neovim-native persistent fish shell worksheet in Prompt, not a raw terminal. Current input uses ordinary Vim editing; completed command/output blocks become read-only searchable lines, preventing edits and undo from corrupting prior results. `<CR>` executes the current cell from Normal or Insert mode, while Insert `<S-CR>` adds a newline for multi-line commands. Output streams through a virtual preview, exit/duration metadata stays virtual, multi-line result folds stay open until explicitly closed, and `<C-g>c` interrupts. `q` / `<C-g>p` preserve worksheet text, cursor, folds, and input undo while returning to compose; requests and layout changes suspend and restore the same worksheet. Initial `!!command` runs exactly once and places the cursor after the virtual `❯` prompt.
