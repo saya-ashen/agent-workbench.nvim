@@ -215,9 +215,14 @@ function M.has_attention(tab)
     return require("agent-workbench.attention").has_attention(tab)
 end
 
---- Start a new conversation in the current session.
+--- Start a separate conversation in the current workspace.
 function M.new_session()
     require("agent-workbench.sessions.manager").new_session()
+end
+
+--- Replace the current conversation and discard its live History buffer.
+function M.replace_session()
+    require("agent-workbench.sessions.manager").replace_session()
 end
 
 --- Navigate the session tree (:AgentWorkbenchTree): pick a past conversation point and

@@ -20,6 +20,7 @@ pi.layout()                   -- "side" | "float" | nil
 pi.continue_session(opts?)    -- load the most recent session for the current cwd
 pi.resume_session(opts?)      -- pick a past session for the current cwd
 pi.new_session()              -- create and activate a separate session buffer
+pi.replace_session()          -- replace current idle session and delete its live History buffer
 pi.tree()                     -- navigate the session tree (:AgentWorkbenchTree)
 pi.sessions()                 -- toggle the live sessions overview (:AgentWorkbenchSessions)
 pi.workspaces()               -- pick and switch a tab-backed workspace (:AgentWorkbenchWorkspaces)

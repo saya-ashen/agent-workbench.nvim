@@ -17,6 +17,7 @@ describe("local slash commands", function()
         end
         assert.are.equal(1, names.new)
         assert.are.equal(1, names.review)
+        assert.is_truthy(names.replace)
         assert.is_truthy(names.resume)
         assert.is_truthy(names.model)
         assert.is_truthy(names.thinking)
@@ -41,6 +42,9 @@ describe("local slash commands", function()
         package.loaded["agent-workbench"] = {
             new_session = function()
                 called.new = true
+            end,
+            replace_session = function()
+                called.replace = true
             end,
             resume_session = function()
                 called.resume = true
@@ -67,6 +71,7 @@ describe("local slash commands", function()
 
         local ok, err = pcall(function()
             assert.is_true(SlashCommands.execute("/new ignored"))
+            assert.is_true(SlashCommands.execute("/replace ignored"))
             assert.is_true(SlashCommands.execute("/resume ignored"))
             assert.is_true(SlashCommands.execute("/model"))
             assert.is_true(SlashCommands.execute("/thinking"))
@@ -80,6 +85,7 @@ describe("local slash commands", function()
         assert.is_true(ok, err)
 
         assert.is_true(called.new)
+        assert.is_true(called.replace)
         assert.is_true(called.resume)
         assert.is_true(called.model)
         assert.is_true(called.thinking)

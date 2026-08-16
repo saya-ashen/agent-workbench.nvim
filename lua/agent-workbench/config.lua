@@ -272,7 +272,7 @@
 
 ---@class agent_workbench.Options
 ---@field cli agent_workbench.CliConfig
----@field auto_start_session boolean Create and show a Pi session for every tab-backed workspace on startup and tab entry (default: true)
+---@field auto_start_session boolean Create and show a Pi session for every tab-backed workspace on startup and tab entry (default: false)
 ---@field rpc agent_workbench.RpcConfig
 ---@field agent_dir? string Override the π agent directory (default: $PI_CODING_AGENT_DIR or ~/.pi/agent)
 ---@field debug boolean Enable RPC debug logging to stdpath("log")/pi/<session>/rpc.log
@@ -315,7 +315,7 @@ math.randomseed(os.time())
 
 ---@type agent_workbench.Options
 local defaults = {
-    auto_start_session = true,
+    auto_start_session = false,
     cli = {
         bin = "pi",
         args = {},

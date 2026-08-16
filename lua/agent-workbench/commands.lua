@@ -87,7 +87,11 @@ function M.setup()
 
     create_user_command("PiNewSession", function()
         Pi.new_session()
-    end, { desc = "Start new π session" })
+    end, { desc = "Start a separate π session" })
+
+    create_user_command("PiReplaceSession", function()
+        Pi.replace_session()
+    end, { desc = "Replace the current π session" })
 
     create_user_command("PiTree", function()
         Pi.tree()

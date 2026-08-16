@@ -252,7 +252,9 @@ Output is trimmed and capped at 256 KB per provider (larger payloads are truncat
 
 ## Slash commands
 
-Slash commands come from Agent Workbench's local controls and the **pi backend**. Local controls mirror pi's TUI commands: `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort`. Backend commands cover three sources:
+Slash commands come from Agent Workbench's local controls and the **pi backend**. Local controls are `/new`, `/replace`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort`. `/new` creates another independent session and keeps the current one alive; `/replace` starts a fresh session in the same view, then stops and removes the previous idle session.
+
+Completion merges four sources:
 
 - **Local controls** — handled directly by Agent Workbench and mapped to existing APIs.
 - **Extension commands** — registered by pi extensions (e.g. `/permission-toggle-auto-accept`).

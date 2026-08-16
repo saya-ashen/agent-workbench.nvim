@@ -86,6 +86,18 @@ describe("buffer-owned sessions", function()
         restore_stub()
     end)
 
+    it("does not create a session when a workspace tab opens by default", function()
+        assert.is_false(Config.options.auto_start_session)
+        vim.cmd("tabnew")
+        vim.wait(20)
+        local current = Sessions.get()
+        local count = #Sessions.list()
+        vim.cmd("tabclose")
+
+        assert.is_nil(current)
+        assert.are.equal(0, count)
+    end)
+
     it("switches full chat view when a listed History buffer is entered", function()
         local first = assert(Sessions.get_or_create({ layout = "buffer" }))
         local second = assert(Sessions.get_or_create({ new = true, layout = "buffer" }))
@@ -123,6 +135,74 @@ describe("buffer-owned sessions", function()
         assert.are.equal(first.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_true(first.rpc:is_running())
         assert.is_true(second.rpc:is_running())
+    end)
+
+    it("replaces an idle session in the same view", function()
+        local first = assert(Sessions.get_or_create({ layout = "buffer" }))
+        local old_history_buf = first.history_buf
+        local history_win = assert(first.chat._layout:history_win())
+        local prompt_win = assert(first.chat:prompt_win())
+        local window_count = #vim.api.nvim_tabpage_list_wins(0)
+
+        Sessions.replace_session()
+        vim.wait(20)
+
+        local second = assert(Sessions.get())
+        assert.is_not.equal(first, second)
+        assert.are.same({ second }, Sessions.list())
+        assert.is_false(first.rpc:is_running())
+        assert.is_true(second.rpc:is_running())
+        assert.is_false(vim.api.nvim_buf_is_valid(old_history_buf))
+        assert.are.equal(window_count, #vim.api.nvim_tabpage_list_wins(0))
+        assert.are.equal(history_win, second.chat._layout:history_win())
+        assert.are.equal(second.history_buf, vim.api.nvim_win_get_buf(history_win))
+        assert.are.equal(prompt_win, second.chat:prompt_win())
+    end)
+
+    it("keeps /new separate and replaces only the current session with /replace", function()
+        local first = assert(Sessions.get_or_create({ layout = "buffer" }))
+        first.chat._prompt:set_text("/new")
+        first.chat:submit()
+
+        local second = assert(Sessions.get())
+        assert.is_not.equal(first, second)
+        assert.are.same({ first, second }, Sessions.list())
+        assert.is_true(first.rpc:is_running())
+        assert.is_true(second.rpc:is_running())
+
+        second.chat._prompt:set_text("/replace")
+        second.chat:submit()
+
+        local third = assert(Sessions.get())
+        assert.are.same({ first, third }, Sessions.list())
+        assert.is_true(first.rpc:is_running())
+        assert.is_false(second.rpc:is_running())
+        assert.is_true(third.rpc:is_running())
+        assert.is_false(vim.api.nvim_buf_is_valid(second.history_buf))
+    end)
+
+    it("creates a session when replace has no current session", function()
+        assert.is_nil(Sessions.get())
+
+        Sessions.replace_session()
+
+        local session = assert(Sessions.get())
+        assert.are.same({ session }, Sessions.list())
+        assert.is_true(session.rpc:is_running())
+        assert.is_true(session.chat:is_visible())
+    end)
+
+    it("refuses to replace a busy session", function()
+        local session = assert(Sessions.get_or_create({ layout = "buffer" }))
+        session.chat._streaming = true
+
+        Sessions.replace_session()
+
+        assert.are.equal(session, Sessions.get())
+        assert.are.same({ session }, Sessions.list())
+        assert.is_true(session.rpc:is_running())
+        assert.is_true(vim.api.nvim_buf_is_valid(session.history_buf))
+        session.chat._streaming = false
     end)
 
     it("keeps prompt navigation and zen layout Normal unless a History insert key is used", function()

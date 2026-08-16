@@ -781,6 +781,30 @@ function M.new_session()
     end
 end
 
+--- Replace the current conversation while keeping its workspace and view.
+function M.replace_session()
+    local current = M.get()
+    if not current then
+        M.new_session()
+        return
+    end
+    if current.chat:is_busy() then
+        Notify.warn("Cannot replace session while π is running")
+        return
+    end
+
+    local history_buf = current.history_buf
+    local replacement = M.get_or_create({ new = true, layout = current.chat:layout() })
+    if not replacement then
+        return
+    end
+    destroy_session(current)
+    if vim.api.nvim_buf_is_valid(history_buf) then
+        vim.api.nvim_buf_delete(history_buf, { force = true })
+    end
+    replacement.chat:ensure_shown_and_focus_prompt()
+end
+
 --- Replay messages from get_messages response into chat.
 ---@param messages table[]
 ---@return table[]

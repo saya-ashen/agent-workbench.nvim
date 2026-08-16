@@ -62,6 +62,7 @@ Sessions are buffer-owned instead of being one global chat singleton.
 - `:AgentWorkbenchTree` navigates conversation branches and can summarize abandoned branches.
 - `:AgentWorkbenchSessionStats` shows messages, tokens, cache usage, cost, and context usage.
 - Manual and automatic context compaction keep long sessions usable.
+- `/new` keeps the current session alive and opens another; `/replace` discards the current idle session and reuses its view.
 
 ### Agent Edits With Review Control
 
@@ -190,6 +191,7 @@ Defaults are usable without a custom configuration. Full options live in [doc/co
 | `:AgentWorkbenchContinue` | Continue the newest session for the current cwd |
 | `:AgentWorkbenchResume` | Pick a previous session for the current cwd |
 | `:AgentWorkbenchNewSession` | Create another independent session |
+| `:AgentWorkbenchReplaceSession` | Replace the current idle session |
 | `:AgentWorkbenchStop` | Stop the current RPC process and close its session |
 | `:AgentWorkbenchToggleChat` | Hide or show chat without stopping the session |
 | `:AgentWorkbenchToggleLayout` | Switch between side and float layouts |
@@ -221,7 +223,7 @@ Legacy `:Pi*` aliases remain available during the migration period. Agent Workbe
 
 ```lua
 require("agent-workbench").setup({
-    auto_start_session = true,
+    auto_start_session = false,
     layout = {
         default = "buffer",
         side = { position = "right", width = 80 },

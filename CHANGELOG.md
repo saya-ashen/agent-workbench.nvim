@@ -2,6 +2,10 @@
 
 ## 2026-08-16
 
+- **CHANGED:** Agent sessions now start lazily by default. Opening Neovim or a new workspace tab no longer starts `pi --mode rpc`; set `auto_start_session = true` to restore one automatic visible session per workspace.
+
+- **ADDED:** `:AgentWorkbenchReplaceSession`, `replace_session()`, and `/replace` start a fresh session in the current view, then stop the previous process and delete its live History buffer. Busy sessions refuse replacement. Existing `/new` and `:AgentWorkbenchNewSession` retain the current session and create another independent one.
+
 - **CHANGED:** Agent Workbench is now a standalone GitHub repository rather than a member of the `pi2.nvim` fork network. Original Git history and attribution remain, while upstream updates are reviewed and ported selectively.
 
 - **CHANGED:** The canonical Lua module moved from `require("pi")` to `require("agent-workbench")`, internal modules moved from `lua/pi/` to `lua/agent-workbench/`, and canonical commands now use `:AgentWorkbench*`. Deprecated `require("pi")`, `pi.completion.blink`, `:checkhealth pi`, and non-conflicting `:Pi*` command aliases remain until `2.0.0`; `pi-chat-*` filetypes and `Pi*` highlight groups remain unchanged for this migration phase.

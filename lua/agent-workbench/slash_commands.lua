@@ -6,7 +6,8 @@ local builtin = {
     { name = "thinking", description = "Set thinking level", source = "builtin" },
     { name = "compact", description = "Compact session context", source = "builtin" },
     { name = "name", description = "Set session display name", source = "builtin" },
-    { name = "new", description = "Start a new session", source = "builtin" },
+    { name = "new", description = "Start a separate session", source = "builtin" },
+    { name = "replace", description = "Replace current session", source = "builtin" },
     { name = "resume", description = "Resume another session", source = "builtin" },
     { name = "session", description = "Show session overview", source = "builtin" },
     { name = "abort", description = "Abort current operation", source = "builtin" },
@@ -80,6 +81,8 @@ function M.execute(text)
     local Pi = require("agent-workbench")
     if name == "new" then
         Pi.new_session()
+    elseif name == "replace" then
+        Pi.replace_session()
     elseif name == "resume" then
         Pi.resume_session()
     elseif name == "model" then

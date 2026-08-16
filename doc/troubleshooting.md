@@ -51,11 +51,11 @@ When filing an issue, attaching the relevant section of `rpc.log` is by far the 
 
 ## Process lifecycle
 
-At startup, default `auto_start_session = true` replaces an untouched empty `[No Name]` buffer with visible Pi chat. New tab-backed workspaces do same. Set `auto_start_session = false` to restore lazy session creation. Named files, modified buffers, and non-empty scratch buffers stay intact.
+By default, Agent Workbench creates no process at startup or when a new workspace tab opens. `:AgentWorkbench`, continue/resume, and explicit session commands start one when needed. Set `auto_start_session = true` to opt into one visible session for every tab-backed workspace; named files, modified buffers, and non-empty scratch buffers remain protected.
 
-- **Spawned** when Neovim starts, when a new tab-backed workspace opens, or when `:AgentWorkbench`, `:AgentWorkbenchNewSession`, `:AgentWorkbenchContinue`, or `:AgentWorkbenchResume` creates a session. Set `auto_start_session = false` to restore lazy session creation.
+- **Spawned** when `:AgentWorkbench`, `:AgentWorkbenchNewSession`, `:AgentWorkbenchReplaceSession`, `:AgentWorkbenchContinue`, or `:AgentWorkbenchResume` needs a session. With `auto_start_session = true`, startup and new tab-backed workspaces also spawn one.
 - **Alive** while History buffer exists. Hiding chat, switching buffers, or closing a tab does **not** stop process.
-- **Torn down** by `:bdelete` / `:bwipeout` on History buffer, or by `VimLeavePre` for all sessions.
+- **Torn down** by `:bdelete` / `:bwipeout` on History buffer, by `:AgentWorkbenchReplaceSession` after its replacement starts, or by `VimLeavePre` for all sessions.
 - **Stopped explicitly** via `:AgentWorkbenchStop` / `pi.stop()` — kills current session RPC and deletes its History buffer.
 - **Aborted** via `:AgentWorkbenchAbort` / `pi.abort()` — cancels whatever the agent is currently doing mid-turn but keeps the session and process alive, so you can immediately send a new prompt. Different from `:AgentWorkbenchStop`: abort stops the _agent_, stop kills the _process_.
 

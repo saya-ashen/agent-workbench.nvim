@@ -17,6 +17,7 @@ end
 
 local ok, err = pcall(function()
     require("agent-workbench").setup({ auto_start_session = false })
+    assert(vim.fn.exists(":AgentWorkbenchReplaceSession") == 2, "replace command missing")
     require("agent-workbench").show({ layout = "side" })
     local session = assert(require("agent-workbench.sessions.manager").get(), "session missing")
     assert(vim.api.nvim_buf_is_valid(session.history_buf), "History buffer missing")

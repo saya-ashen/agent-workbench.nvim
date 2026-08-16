@@ -6,11 +6,12 @@
 
 Agent Workbench binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and `pi --mode rpc` subprocess.
 
-Use normal buffer commands to switch sessions:
+Use normal buffer commands to switch sessions. Sessions start lazily by default: opening a workspace does not start `pi --mode rpc` until one of these chat/session commands runs.
 
 ```vim
 :AgentWorkbench
 :AgentWorkbenchNewSession
+:AgentWorkbenchReplaceSession
 :bnext
 :bprevious
 :buffer <session-history-buffer>
@@ -90,7 +91,8 @@ And mid-session management:
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:AgentWorkbenchNewSession` | `pi.new_session()` | Create and activate a separate session buffer and RPC process. Existing sessions keep running. |
+| `:AgentWorkbenchNewSession` | `pi.new_session()` | Create and activate a separate session buffer and RPC process. Existing sessions keep running. `/new` uses this behavior. |
+| `:AgentWorkbenchReplaceSession` | `pi.replace_session()` | Create a fresh session in the current view, then stop the previous session and delete its live History buffer. `/replace` uses this behavior and refuses while the current session is busy. |
 | `:AgentWorkbenchTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-agentworkbenchtree). |
 | `:AgentWorkbenchSessions` | `pi.sessions()` | Toggle the live overview of all active sessions (name + busy/idle/attention). See [Sessions overview](#sessions-overview-agentworkbenchsessions). |
 | `:AgentWorkbenchSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens an input dialog prefilled with the current name. Names appear in the `:AgentWorkbenchResume` picker so you can identify long-running conversations at a glance. |

@@ -5,9 +5,9 @@ All options are optional — `require("agent-workbench").setup()` with no argume
 ```lua
 ---@type agent_workbench.Options
 require("agent-workbench").setup({
-    -- Create and show Agent Workbench in every tab-backed workspace at startup and tab entry.
-    -- Set false to restore lazy session creation.
-    auto_start_session = true,
+    -- Sessions start lazily when a chat command is first used.
+    -- Set true to create and show one in every tab-backed workspace.
+    auto_start_session = false,
     -- pi CLI invocation. Extra args are inserted before `--mode rpc`.
     -- Args that conflict with RPC mode (`--mode`, `--print`, `--help`, etc.)
     -- are dropped with a one-time warning.
