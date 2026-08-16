@@ -2,6 +2,30 @@
 
 ## 2026-08-14
 
+- **CHANGED:** `!!` now opens a Neovim-native persistent fish shell worksheet in Prompt, not a raw terminal. Current input uses ordinary Vim editing; completed command/output blocks become read-only searchable lines, preventing edits and undo from corrupting prior results. `<CR>` executes the current cell from Normal or Insert mode, while Insert `<S-CR>` adds a newline for multi-line commands. Output streams through a virtual preview, exit/duration metadata stays virtual, multi-line result folds stay open until explicitly closed, and `<C-g>c` interrupts. `q` / `<C-g>p` preserve worksheet text, cursor, folds, and input undo while returning to compose; requests and layout changes suspend and restore the same worksheet. Initial `!!command` runs exactly once and places the cursor after the virtual `❯` prompt.
+
+- **ADDED:** completed worksheet results now project ANSI 16/256/true-color styles and high-confidence unified-diff, URL, validated-path, and optional Tree-sitter JSON semantics through Neovim extmarks. Relative path validation follows persistent fish cwd changes, and path-looking filename fields receive probe priority before `ls -l` metadata. Optional `nvim-web-devicons` adds virtual file/folder icons without changing copied or searchable output; unsupported terminal controls safely retain Neovim's plain-text screen.
+
+- **ADDED:** shell worksheet input now completes asynchronously from `fish complete -C` inside the same persistent Fish session, including current commands, options, functions, aliases, variables, cwd-relative paths, and user completion definitions. Installed blink.cmp receives a dedicated `pi_shell_fish` source and retains the user's normal Blink UI and keymaps; only the no-Blink fallback owns `<Tab>` / `<S-Tab>`. Pi prompt `/` and `@` sources stay disabled until compose mode returns.
+
+- **CHANGED:** shell worksheet keeps the virtual `❯` prompt before running and completed commands, giving adjacent command results a shell-like visual boundary without changing copied or searchable command text.
+
+- **CHANGED:** shell worksheet Normal-mode edit keys (`i`, `I`, `a`, `A`, `o`, `O`, `c`, `C`) now jump from completed commands or output to the current input and enter Insert mode. Inside the current input they retain native Vim behavior; colliding buffer-local mappings restore when worksheet mode closes.
+
+- **CHANGED:** empty shell worksheet input now treats `<C-d>` like shell EOF and returns to compose without destroying the persistent Fish session. Historical rows and non-empty input retain native Vim `<C-d>` behavior; colliding buffer-local mappings restore on exit.
+
+- **CHANGED:** Normal-mode `<C-c>` now interrupts a running shell worksheet command. While idle it retains native Vim behavior; Insert mode remains unchanged, and `<C-g>c` still interrupts from either mode.
+
+- **FIXED:** moving through blink.cmp candidates in the Prompt or shell worksheet no longer inserts the highlighted candidate before explicit acceptance, even when global Blink `auto_insert` is enabled.
+
+- **FIXED:** shell completion no longer presents Fish's structural `command link` type as if it were a command description. Real Fish descriptions, including option details from inputs such as `ls -`, now also populate Blink's documentation window.
+
+- **FIXED:** shell completion no longer flashes between Blink's normal buffer sources and the asynchronous Fish source. Shell mode now enables only `pi_shell_fish`; compose and other buffers retain their original providers.
+
+- **FIXED:** typing whitespace after a shell command now opens Fish argument and path completion immediately, including empty-token contexts such as `ls<Space>` and `git<Space>`.
+
+- **FIXED:** shell completion keeps the currently typed short option token visible and first, and enriches its description from Fish's one-character-shorter completion query when Fish returns only longer prefixes. Parent results are cached across keystrokes, so `ls -la` no longer shows an older list before refreshing; exact Fish results are not duplicated.
+
 - **FIXED:** agent completion notifications now disappear after three seconds instead of remaining open until the prompt receives focus.
 
 - **FIXED:** unsent prompt drafts are now isolated by workspace and Neovim process. Concurrent instances no longer restore or overwrite each other's live drafts; later instances still recover drafts left by exited processes in the same workspace.

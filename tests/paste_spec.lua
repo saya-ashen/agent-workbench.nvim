@@ -149,6 +149,27 @@ describe("pi.paste", function()
             assert.is_true(orig_called)
             assert.equals(0, attach_calls)
         end)
+
+        it("routes every paste phase to an attached Prompt terminal", function()
+            local received = {}
+            Paste.set_terminal_handler(buf, function(lines, phase)
+                received[#received + 1] = { lines = lines, phase = phase }
+                return true
+            end)
+            local orig_called = false
+            local handler = Paste._make_handler(function()
+                orig_called = true
+                return false
+            end)
+
+            assert.is_true(handler({ "one", "two" }, 1))
+            assert.is_true(handler({ "tail" }, 3))
+            assert.is_false(orig_called)
+            assert.are.same({
+                { lines = { "one", "two" }, phase = 1 },
+                { lines = { "tail" }, phase = 3 },
+            }, received)
+        end)
     end)
 
     describe("drag-and-drop file path", function()

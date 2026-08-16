@@ -12,16 +12,23 @@
 ---@field _command_mode pi.PromptCommandMode
 ---@field _on_command_mode_change fun(mode: pi.PromptCommandMode)?
 ---@field _on_mode_change fun(mode: pi.PromptMode, kind?: pi.PromptRequestKind)?
+---@field _on_terminal_resize fun(win: integer, buf: integer)?
 ---@field _mode pi.PromptMode
+---@field _display_mode pi.PromptDisplayMode
+---@field _request_return_mode pi.PromptDisplayMode
 ---@field _request pi.PromptRequest?
 ---@field _compose_lines string[]?
 ---@field _compose_cursor integer[]?
+---@field _compose_undolevels integer?
+---@field _compose_undo_path string?
+---@field _use_shell_blink boolean
 ---@field _request_timer integer?
 ---@field _resume_insert? "eol"|"bol"|"mid"
 local Prompt = {}
 Prompt.__index = Prompt
 
 ---@alias pi.PromptMode "compose"|"request"
+---@alias pi.PromptDisplayMode "compose"|"terminal"|"request"
 ---@alias pi.PromptCommandMode "compose"|"bash"|"terminal"
 ---@alias pi.PromptRequestKind "select"|"confirm"
 
@@ -40,8 +47,10 @@ local Config = require("pi.config")
 local Keys = require("pi.keys")
 local Decorators = require("pi.ui.chat.decorators")
 local Draft = require("pi.draft")
+local Notify = require("pi.notify")
 
 local blink_auto_insert_wrapped = false
+local blink_prompt_sources_wrapped = false
 local Paste = require("pi.paste")
 local StatusLine = require("pi.ui.chat.statusline")
 
@@ -90,10 +99,16 @@ function Prompt.new(key, attachments, cwd)
     self._command_mode = "compose"
     self._on_command_mode_change = nil
     self._on_mode_change = nil
+    self._on_terminal_resize = nil
     self._mode = "compose"
+    self._display_mode = "compose"
+    self._request_return_mode = "compose"
     self._request = nil
     self._compose_lines = nil
     self._compose_cursor = nil
+    self._compose_undolevels = nil
+    self._compose_undo_path = nil
+    self._use_shell_blink = false
     self._request_timer = nil
 
     local panel = Config.options.panels.prompt
@@ -105,6 +120,13 @@ function Prompt.new(key, attachments, cwd)
     vim.bo[self._buf].swapfile = false
     vim.bo[self._buf].bufhidden = "hide"
     vim.api.nvim_buf_set_name(self._buf, name)
+    vim.api.nvim_create_autocmd("BufWipeout", {
+        buffer = self._buf,
+        once = true,
+        callback = function()
+            self:_discard_compose_undo()
+        end,
+    })
     -- Let the single global paste handler (pi.paste) route dropped image file
     -- paths to this prompt's attachments. It only acts inside a π prompt buffer.
     Paste.register(self._buf, self._attachments)
@@ -122,7 +144,7 @@ function Prompt.new(key, attachments, cwd)
         vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
             buffer = self._buf,
             callback = function()
-                if self._mode ~= "compose" then
+                if self._mode ~= "compose" or self._display_mode ~= "compose" then
                     return
                 end
                 save_timer:stop()
@@ -148,10 +170,10 @@ function Prompt.new(key, attachments, cwd)
     vim.bo[self._buf].completefunc = "v:lua.require'pi.completion.omnifunc'.completefunc"
     vim.bo[self._buf].omnifunc = "v:lua.require'pi.completion.omnifunc'.completefunc"
     vim.api.nvim_set_option_value("completeopt", "menuone,noselect", { buf = self._buf })
+    vim.b[self._buf].pi_prompt_completion = true
     local blink_ok, blink = pcall(require, "blink.cmp")
-    local use_blink = blink_ok and type(blink.add_filetype_source) == "function" and type(blink.show) == "function"
+    local use_blink = blink_ok and type(blink.add_source_provider) == "function" and type(blink.show) == "function"
     if use_blink then
-        vim.b[self._buf].pi_prompt_completion = true
         local config_ok, blink_config = pcall(require, "blink.cmp.config")
         local selection = config_ok
             and blink_config.completion
@@ -167,7 +189,45 @@ function Prompt.new(key, attachments, cwd)
             end
             blink_auto_insert_wrapped = true
         end
-        pcall(blink.add_filetype_source, Ft.prompt, "omni")
+        if config_ok and blink_config.sources then
+            local source_id = "pi_shell_fish"
+            local providers = blink_config.sources.providers
+            local provider = providers and providers[source_id] or nil
+            if not provider then
+                pcall(blink.add_source_provider, source_id, {
+                    name = "Fish",
+                    module = "pi.completion.shell",
+                    async = true,
+                    timeout_ms = 500,
+                    max_items = 256,
+                    min_keyword_length = 0,
+                })
+                provider = providers and providers[source_id] or nil
+            end
+            self._use_shell_blink = provider ~= nil and provider.module == "pi.completion.shell"
+            if self._use_shell_blink and not blink_prompt_sources_wrapped then
+                local original = blink_config.sources.per_filetype[Ft.prompt]
+                blink_config.sources.per_filetype[Ft.prompt] = function()
+                    if vim.b[0].pi_shell_worksheet then
+                        return { source_id }
+                    end
+                    local configured = type(original) == "function" and original() or original
+                    local result = {}
+                    if configured then
+                        vim.list_extend(result, configured)
+                        result.inherit_defaults = configured.inherit_defaults
+                    else
+                        result.inherit_defaults = true
+                    end
+                    if not vim.tbl_contains(result, "omni") then
+                        result[#result + 1] = "omni"
+                    end
+                    return result
+                end
+                blink_prompt_sources_wrapped = true
+            end
+        end
+        vim.b[self._buf].pi_shell_blink_completion = false
         if type(blink.resubscribe) == "function" then
             blink.resubscribe()
         end
@@ -175,7 +235,7 @@ function Prompt.new(key, attachments, cwd)
     vim.api.nvim_create_autocmd("TextChangedI", {
         buffer = self._buf,
         callback = function()
-            if self._mode ~= "compose" then
+            if self._mode ~= "compose" or self._display_mode ~= "compose" then
                 return
             end
             if vim.api.nvim_get_current_buf() ~= self._buf or vim.fn.pumvisible() == 1 then
@@ -225,6 +285,9 @@ function Prompt.new(key, attachments, cwd)
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
         buffer = self._buf,
         callback = function()
+            if self._display_mode ~= "compose" then
+                return
+            end
             self:resize()
             self:_render_statusline()
             if self._mode == "compose" then
@@ -244,8 +307,10 @@ function Prompt.new(key, attachments, cwd)
                 return
             end
             vim.schedule(function()
-                self:resize()
-                self:_render_statusline()
+                if self._display_mode == "compose" then
+                    self:resize()
+                    self:_render_statusline()
+                end
             end)
         end,
     })
@@ -258,7 +323,11 @@ function Prompt.new(key, attachments, cwd)
             if self._win and vim.api.nvim_win_is_valid(self._win) then
                 for _, win in ipairs(vim.v.event.windows) do
                     if win == self._win then
-                        self:_render_statusline()
+                        if self._display_mode == "terminal" and self._on_terminal_resize then
+                            self._on_terminal_resize(self._win, self._buf)
+                        else
+                            self:_render_statusline()
+                        end
                         return
                     end
                 end
@@ -305,9 +374,24 @@ function Prompt:set_on_mode_change(cb)
     self._on_mode_change = cb
 end
 
+---@param cb fun(win: integer, buf: integer)
+function Prompt:set_on_terminal_resize(cb)
+    self._on_terminal_resize = cb
+end
+
 ---@return pi.PromptMode
 function Prompt:mode()
     return self._mode
+end
+
+---@return pi.PromptDisplayMode
+function Prompt:display_mode()
+    return self._display_mode
+end
+
+---@return boolean
+function Prompt:is_terminal_display()
+    return self._display_mode == "terminal"
 end
 
 ---@return boolean
@@ -324,6 +408,9 @@ end
 --- Leading whitespace stays compatible with existing direct-bash behavior.
 ---@return pi.PromptCommandMode
 function Prompt:_compute_command_mode()
+    if self._display_mode == "terminal" then
+        return "terminal"
+    end
     if self._mode ~= "compose" or not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return "compose"
     end
@@ -355,7 +442,9 @@ end
 --- after a wrapped line splits before the statusline extmark is moved.
 function Prompt:_render_statusline()
     self._statusline:render()
-    self:_reset_view_if_content_fits()
+    if self._display_mode == "compose" then
+        self:_reset_view_if_content_fits()
+    end
 end
 
 function Prompt:_reset_view_if_content_fits()
@@ -394,11 +483,16 @@ function Prompt:resize()
     if not self._win or not vim.api.nvim_win_is_valid(self._win) then
         return
     end
-    local visual_lines = vim.api.nvim_win_text_height(self._win, {}).all
-    local status_rows = self._statusline:virt_line_count() > 0 and 1 or 0
-    -- Remove virtual padding, but keep one row when the optional statusline is visible.
-    local content_lines = visual_lines - self._statusline:virt_line_count() + status_rows
-    local target_height = math.max(Prompt.HEIGHT, math.min(content_lines, Prompt.MAX_HEIGHT))
+    local target_height
+    if self._display_mode == "terminal" then
+        target_height = Prompt.MAX_HEIGHT
+    else
+        local visual_lines = vim.api.nvim_win_text_height(self._win, {}).all
+        local status_rows = self._statusline:virt_line_count() > 0 and 1 or 0
+        -- Remove virtual padding, but keep one row when the optional statusline is visible.
+        local content_lines = visual_lines - self._statusline:virt_line_count() + status_rows
+        target_height = math.max(Prompt.HEIGHT, math.min(content_lines, Prompt.MAX_HEIGHT))
+    end
     local current_height = vim.api.nvim_win_get_height(self._win)
     if target_height ~= current_height then
         if self._layout == "float" then
@@ -422,12 +516,26 @@ end
 ---@param cb? fun()
 ---@param mode? pi.PromptFocusMode
 function Prompt:focus(cb, mode)
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    local win = self._win
+    if not win or not vim.api.nvim_win_is_valid(win) then
         return
     end
-    vim.api.nvim_set_current_win(self._win)
+    vim.api.nvim_set_current_win(win)
     vim.schedule(function()
-        if self:is_request_mode() or mode == nil or mode == "normal" then
+        if
+            self._win ~= win
+            or not vim.api.nvim_win_is_valid(win)
+            or vim.api.nvim_get_current_win() ~= win
+            or vim.api.nvim_win_get_buf(win) ~= self._buf
+        then
+            return
+        end
+        if self:is_request_mode() then
+            vim.cmd("stopinsert")
+        elseif self:is_terminal_display() then
+            -- Shell worksheet owns normal Vim modes; fish never owns input keys.
+            vim.cmd("stopinsert")
+        elseif mode == nil or mode == "normal" then
             vim.cmd("stopinsert")
         elseif mode == "insert" then
             vim.cmd("startinsert")
@@ -443,7 +551,8 @@ function Prompt:text()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return ""
     end
-    local lines = self:is_request_mode() and self._compose_lines or vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+    local lines = self._display_mode == "compose" and vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+        or self._compose_lines
     return vim.fn.trim(table.concat(lines or {}, "\n"))
 end
 
@@ -451,6 +560,144 @@ end
 function Prompt:_set_lines(lines)
     vim.bo[self._buf].modifiable = true
     vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, #lines > 0 and lines or { "" })
+end
+
+function Prompt:_discard_compose_undo()
+    if self._compose_undo_path then
+        vim.fn.delete(self._compose_undo_path)
+        self._compose_undo_path = nil
+    end
+end
+
+---@param preserve boolean
+function Prompt:_suspend_compose_undo(preserve)
+    self._compose_undolevels = vim.bo[self._buf].undolevels
+    if preserve then
+        local path = vim.fn.tempname()
+        local ok, err = pcall(vim.api.nvim_buf_call, self._buf, function()
+            vim.cmd("silent wundo! " .. vim.fn.fnameescape(path))
+        end)
+        if ok and vim.fn.filereadable(path) == 1 then
+            self._compose_undo_path = path
+        else
+            vim.fn.delete(path)
+            if not ok then
+                Notify.warn("Could not preserve prompt undo history: " .. tostring(err))
+            end
+        end
+    end
+    vim.bo[self._buf].undolevels = -1
+end
+
+function Prompt:_restore_compose_undo()
+    if self._compose_undolevels ~= nil then
+        vim.bo[self._buf].undolevels = self._compose_undolevels
+        self._compose_undolevels = nil
+    end
+    local path = self._compose_undo_path
+    self._compose_undo_path = nil
+    if not path then
+        return
+    end
+    local ok, err = pcall(vim.api.nvim_buf_call, self._buf, function()
+        vim.cmd("silent rundo " .. vim.fn.fnameescape(path))
+    end)
+    vim.fn.delete(path)
+    if not ok then
+        Notify.warn("Could not restore prompt undo history: " .. tostring(err))
+    end
+end
+
+---@param return_text? string
+---@param preserve_compose? boolean
+---@return boolean
+function Prompt:enter_terminal(return_text, preserve_compose)
+    if self._display_mode ~= "compose" or self:is_request_mode() then
+        return false
+    end
+    if preserve_compose then
+        self._compose_lines = vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+        local win = self:win()
+        self._compose_cursor = win and vim.api.nvim_win_get_cursor(win) or nil
+    else
+        self._compose_lines = vim.split(return_text or "", "\n", { plain = true })
+        self._compose_cursor = { math.max(1, #self._compose_lines), #(self._compose_lines[#self._compose_lines] or "") }
+        local draft_cfg = Config.options.prompt and Config.options.prompt.draft
+        if draft_cfg and draft_cfg.enabled ~= false then
+            Draft.save("", self._cwd)
+        end
+    end
+    self:_suspend_compose_undo(preserve_compose == true)
+    self._display_mode = "terminal"
+    vim.b[self._buf].pi_prompt_terminal = true
+    vim.b[self._buf].pi_shell_blink_completion = self._use_shell_blink
+    self._statusline:set_suspended(true)
+    if vim.api.nvim_get_current_buf() == self._buf then
+        local blink_ok, blink = pcall(require, "blink.cmp")
+        if blink_ok and type(blink.hide) == "function" then
+            blink.hide()
+        end
+        if vim.fn.pumvisible() == 1 then
+            vim.api.nvim_feedkeys(vim.keycode("<C-e>"), "n", false)
+        end
+        if self._use_shell_blink and blink_ok and type(blink.resubscribe) == "function" then
+            blink.resubscribe()
+        end
+    end
+    self:_set_lines({ "" })
+    -- Restore normal undo recording after clearing compose history from the
+    -- worksheet. The compose tree itself stays in `_compose_undo_path`.
+    vim.bo[self._buf].undolevels = self._compose_undolevels or vim.bo[self._buf].undolevels
+    vim.bo[self._buf].modifiable = true
+    Decorators.update(self._buf)
+    self:resize()
+    self:_refresh_command_mode()
+    return true
+end
+
+---@return boolean
+function Prompt:leave_terminal()
+    if self._display_mode ~= "terminal" then
+        return false
+    end
+    self._display_mode = "compose"
+    vim.b[self._buf].pi_prompt_terminal = false
+    vim.b[self._buf].pi_shell_blink_completion = false
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok and type(blink.hide) == "function" then
+        blink.hide()
+    end
+    if blink_ok and type(blink.resubscribe) == "function" then
+        blink.resubscribe()
+    end
+    vim.bo[self._buf].undolevels = -1
+    self:_set_lines(self._compose_lines or { "" })
+    self._compose_lines = nil
+    self:_restore_compose_undo()
+    vim.bo[self._buf].modifiable = true
+    self._statusline:set_suspended(false)
+    Decorators.update(self._buf)
+    local win = self:win()
+    if win and self._compose_cursor then
+        pcall(vim.api.nvim_win_set_cursor, win, self._compose_cursor)
+    end
+    self._compose_cursor = nil
+    self:resize()
+    self:_render_statusline()
+    self:_refresh_command_mode()
+    return true
+end
+
+---@return boolean
+function Prompt:terminal_stopped()
+    if self._display_mode == "terminal" then
+        return self:leave_terminal()
+    end
+    if self._display_mode == "request" and self._request_return_mode == "terminal" then
+        self._request_return_mode = "compose"
+        return true
+    end
+    return false
 end
 
 function Prompt:_render_request()
@@ -499,9 +746,15 @@ function Prompt:set_request(request)
     if self:is_request_mode() or #request.options == 0 then
         return false
     end
-    self._compose_lines = vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
-    local win = self:win()
-    self._compose_cursor = win and vim.api.nvim_win_get_cursor(win) or nil
+    self._request_return_mode = self._display_mode
+    if self._display_mode == "compose" then
+        self._compose_lines = vim.api.nvim_buf_get_lines(self._buf, 0, -1, false)
+        local win = self:win()
+        self._compose_cursor = win and vim.api.nvim_win_get_cursor(win) or nil
+    end
+    self._display_mode = "request"
+    vim.b[self._buf].pi_prompt_terminal = false
+    self._statusline:set_suspended(false)
     self._request = request
     self._request.selected = math.max(1, math.min(request.selected or 1, #request.options))
     self._mode = "request"
@@ -559,16 +812,29 @@ function Prompt:_finish_request(value, expired)
     self._request = nil
     self._mode = "compose"
     vim.api.nvim_buf_clear_namespace(self._buf, request_ns, 0, -1)
-    self:_set_lines(self._compose_lines or { "" })
-    vim.bo[self._buf].modifiable = true
-    self._compose_lines = nil
-    local win = self:win()
-    if win and self._compose_cursor then
-        local line_count = vim.api.nvim_buf_line_count(self._buf)
-        self._compose_cursor[1] = math.min(self._compose_cursor[1], line_count)
-        pcall(vim.api.nvim_win_set_cursor, win, self._compose_cursor)
+    local return_mode = self._request_return_mode
+    self._request_return_mode = "compose"
+    self._display_mode = return_mode
+    if return_mode == "terminal" then
+        vim.b[self._buf].pi_prompt_terminal = true
+        self:_set_lines({ "" })
+        self._statusline:set_suspended(true)
+    else
+        vim.b[self._buf].pi_prompt_terminal = false
+        self:_set_lines(self._compose_lines or { "" })
+        self._statusline:set_suspended(false)
+        self._compose_lines = nil
+        self:_restore_compose_undo()
+        local win = self:win()
+        if win and self._compose_cursor then
+            local line_count = vim.api.nvim_buf_line_count(self._buf)
+            self._compose_cursor[1] = math.min(self._compose_cursor[1], line_count)
+            pcall(vim.api.nvim_win_set_cursor, win, self._compose_cursor)
+        end
+        self._compose_cursor = nil
     end
-    self._compose_cursor = nil
+    vim.bo[self._buf].modifiable = true
+    Decorators.update(self._buf)
     self:resize()
     self:_render_statusline()
     self:_refresh_command_mode()
@@ -588,8 +854,9 @@ end
 
 ---@param text string
 function Prompt:set_text(text)
-    if self:is_request_mode() then
+    if self._display_mode ~= "compose" then
         self._compose_lines = vim.split(text, "\n", { plain = true })
+        self:_discard_compose_undo()
         return
     end
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
@@ -615,7 +882,12 @@ end
 --- Called (debounced) on text changes; exposed as a method so the save logic is
 --- testable independent of the TextChanged event.
 function Prompt:_save_draft()
-    if self._mode ~= "compose" or not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
+    if
+        self._mode ~= "compose"
+        or self._display_mode ~= "compose"
+        or not self._buf
+        or not vim.api.nvim_buf_is_valid(self._buf)
+    then
         return
     end
     local text = table.concat(vim.api.nvim_buf_get_lines(self._buf, 0, -1, false), "\n")
@@ -626,6 +898,9 @@ end
 function Prompt:content_height()
     if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
         return Prompt.HEIGHT
+    end
+    if self._display_mode == "terminal" then
+        return Prompt.MAX_HEIGHT
     end
     local status_rows = self._statusline:virt_line_count() > 0 and 1 or 0
     local line_count = vim.api.nvim_buf_line_count(self._buf) + status_rows

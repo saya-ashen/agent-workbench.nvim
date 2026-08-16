@@ -37,6 +37,9 @@ local IMAGE_EXTS = { png = true, jpg = true, jpeg = true, gif = true, webp = tru
 ---@type table<integer, pi.ChatAttachments>
 local prompts = {}
 
+---@type table<integer, fun(lines: string[], phase: integer): boolean>
+local terminal_handlers = {}
+
 --- Register a prompt buffer so pasted image file paths attach to it.
 ---@param buf integer
 ---@param attachments pi.ChatAttachments
@@ -48,6 +51,13 @@ end
 ---@param buf integer
 function M.unregister(buf)
     prompts[buf] = nil
+    terminal_handlers[buf] = nil
+end
+
+---@param buf integer
+---@param handler? fun(lines: string[], phase: integer): boolean
+function M.set_terminal_handler(buf, handler)
+    terminal_handlers[buf] = handler
 end
 
 --- Quietly check whether the system clipboard currently holds an image.
@@ -95,12 +105,16 @@ end
 ---@return fun(lines: string[], phase: integer): boolean
 function M._make_handler(orig)
     return function(lines, phase)
-        -- Streamed pastes (phase 1/2/3) are never ours: delegate immediately.
+        local buf = vim.api.nvim_get_current_buf()
+        local terminal_handler = terminal_handlers[buf]
+        if terminal_handler then
+            return terminal_handler(lines, phase)
+        end
+
+        -- Streamed editor pastes are delegated immediately.
         if phase ~= -1 then
             return orig(lines, phase)
         end
-
-        local buf = vim.api.nvim_get_current_buf()
         -- Scope guarantee: anything outside a π prompt buffer is a pure
         -- pass-through — no clipboard query, no fs_stat, no π logic at all.
         if vim.bo[buf].filetype ~= Ft.prompt then
@@ -144,6 +158,7 @@ function M.setup()
         vim.api.nvim_create_autocmd("BufWipeout", {
             callback = function(args)
                 prompts[args.buf] = nil
+                terminal_handlers[args.buf] = nil
             end,
         })
     end
@@ -153,6 +168,7 @@ end
 function M._reset()
     installed = false
     prompts = {}
+    terminal_handlers = {}
 end
 
 return M

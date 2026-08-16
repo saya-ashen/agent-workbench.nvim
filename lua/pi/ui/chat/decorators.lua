@@ -19,6 +19,9 @@ end
 ---@param buf integer
 function M.update(buf)
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    if vim.b[buf].pi_prompt_terminal then
+        return
+    end
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
     -- /command highlight — first line, starting with /
@@ -72,6 +75,9 @@ function M.attach(buf)
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
         buffer = buf,
         callback = function()
+            if vim.b[buf].pi_prompt_terminal then
+                return
+            end
             timer:stop()
             timer:start(
                 DEBOUNCE_MS,

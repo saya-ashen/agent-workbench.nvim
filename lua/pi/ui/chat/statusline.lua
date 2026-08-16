@@ -41,6 +41,7 @@
 ---@field _virt_line_count integer
 ---@field _on_change fun(state: pi.StatusLineState)?
 ---@field _state pi.StatusLineState
+---@field _suspended boolean
 local StatusLine = {}
 StatusLine.__index = StatusLine
 
@@ -295,6 +296,7 @@ function StatusLine.new(buf, tab, win_fn)
     self._virt_line_count = 0
     self._on_change = nil
     self._state = new_state()
+    self._suspended = false
     self:render()
     return self
 end
@@ -315,6 +317,15 @@ end
 ---@param callback fun(state: pi.StatusLineState)?
 function StatusLine:set_on_change(callback)
     self._on_change = callback
+end
+
+---@param suspended boolean
+function StatusLine:set_suspended(suspended)
+    if self._suspended == suspended then
+        return
+    end
+    self._suspended = suspended
+    self:render()
 end
 
 ---@return pi.StatusLineState
@@ -569,6 +580,14 @@ function StatusLine:render()
     end
     if self._on_change then
         self._on_change(self._state)
+    end
+    if self._suspended then
+        if self._extmark_id then
+            pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, self._extmark_id)
+            self._extmark_id = nil
+        end
+        self._virt_line_count = 0
+        return
     end
 
     local sl_cfg = Config.options.statusline

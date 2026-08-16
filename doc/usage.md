@@ -113,7 +113,7 @@ require("pi").setup({
 
 ## Persistent command modes (`!` / `!!`)
 
-The prompt supports two persistent command modes. Type a prefix to enter; after each command the prefix remains in the prompt for the next command. Delete the prefix to leave the mode (`!!` → `!` switches from local terminal to backend bash; deleting the remaining `!` returns to normal compose mode). Submitting a bare prefix does nothing.
+`!` is a persistent command prefix. `!!` is a worksheet-entry prefix: submit `!!` to open the shell worksheet, or submit `!!command` to open it and run one initial command. Merely typing `!!` does not replace any panel; the transition happens on `<CR>`.
 
 ### Backend bash (`!`)
 
@@ -121,18 +121,23 @@ Prefix a command with `!`, for example `!ls -la`. Pi's backend executes it throu
 
 Each backend command starts a fresh shell, so `cd`, `export`, aliases, and shell functions do not persist across `!` submissions. Chain state-dependent work in one command.
 
-### Local terminal (`!!`)
+### Shell worksheet (`!!`)
 
-Prefix a command with `!!`, for example `!!git status`. Pi switches the History area to one persistent Neovim terminal owned by the current session and sends the command directly to that terminal channel. Commands never pass through pi RPC and never join LLM context. Shell state persists, so `cd`, `export`, aliases, and functions remain available to later `!!` commands. Leaving `!!` restores chat History; entering it again reveals the same terminal transcript and shell process.
+Submit `!!` to open a persistent, session-local fish worksheet in the existing Prompt buffer. Submit `!!command` to run its first command. Commands bypass pi RPC and never join LLM context; fish state persists, so `cd`, variables, functions, and aliases remain available for later cells.
 
-The terminal is session-local and starts in that session's workspace cwd. It survives chat hide/show and layout changes, then stops with the owning session. Use `<C-g>t` from the prompt, or `:lua require("pi").focus_terminal()`, to focus it for interactive programs. In terminal Normal mode, `q` returns focus to the prompt.
+This is a file-style Neovim worksheet, not terminal-mode:
 
-Minimal-mode limits:
+- Insert-mode `<CR>` runs the current input cell, matching normal terminal input; `<S-CR>` inserts a newline for multi-line fish commands. Completed command/output blocks are read-only and end with a protected blank separator before the next input cell.
+- Completion comes from `fish complete -C` in the same persistent session, so current commands, command options such as `ls -`, functions, aliases, variables, cwd-relative paths, and user Fish completion definitions stay in sync. A space after a command, such as `ls<Space>` or `git<Space>`, immediately requests argument and path candidates. When Fish returns only longer option prefixes, Pi performs a second completion query with the current option shortened by one character and uses an exact matching result to fill the current token's description; it never executes the shortened command. Structural labels such as `command link` are omitted. Command-name descriptions depend on Fish's safe `man`/`apropos` data and remain blank when the system has no matching manual metadata; Pi does not execute arbitrary candidates with `--help` to synthesize descriptions. When blink.cmp is available, Pi registers the `pi_shell_fish` source and uses the user's normal Blink menu and keymaps; shell mode requests only that source, preventing unrelated buffer/path/snippet candidates and competing menu refreshes. Worksheet keymaps do not override `<Tab>` or other Blink keys. Candidate movement is selection-only in the Pi Prompt: input changes only after explicit acceptance, even when global Blink `auto_insert` is enabled. Without Blink, a native completion-menu fallback opens while typing and uses `<Tab>` / `<S-Tab>` plus `<C-n>` / `<C-p>` / `<C-y>`. Pi prompt `/` and `@` sources are suspended until compose mode returns.
+- Normal-mode `<CR>` also runs the current input cell. On completed command/output blocks it keeps Neovim's normal `<CR>` motion. Normal edit keys `i`, `I`, `a`, `A`, `o`, `O`, `c`, and `C` keep native behavior inside the current input; from any completed command or output they jump to the end of the current input and enter Insert mode. Every running and completed command retains the virtual `❯` prompt, so adjacent results remain visually separated without changing copied or searchable command text. Output streams as a virtual preview, then becomes protected real buffer text with extmark-backed command status (`exit N · duration`).
+- Completed output projects ANSI 16/256/true-color styles, unified-diff syntax, URLs, shell-relative paths, and JSON syntax when a JSON Tree-sitter parser is available through extmarks. Relative path validation follows persistent fish cwd changes such as `cd`; existing `nvim-web-devicons` adds virtual file/folder icons when available. The stored text never changes, so copy, search, and `gf` still operate on exact command output. Unsupported cursor-moving sequences and large/high-cardinality results fall back to Neovim's correct plain-text screen instead of risking misaligned or excessive decorations; this renderer does not use Markview.
+- Multi-line results have native fold regions but stay open by default. Use `za`, `zo`, or `zc` explicitly; search, motions, Visual selection, copying, `gf`, and user mappings remain normal Neovim behavior.
+- `q` or `<C-g>p` returns to compose while preserving worksheet content and cursor. `<C-d>` does the same when the cursor is in an empty current input; elsewhere it retains native Vim behavior. In Normal mode, `<C-c>` interrupts a running command and retains native Vim behavior while idle; `<C-g>c` remains available from Normal or Insert mode. `<C-g>t` reopens the worksheet.
+- Prompt requests temporarily replace worksheet view; fish keeps running and worksheet content restores when request closes.
 
-- Plugin does not parse shell prompts, completion markers, or exit codes; terminal itself renders all output.
-- Prompt submission appends one newline. Multi-line shell editing and interactive input work best after focusing the terminal.
-- Attachments cannot be sent with `!!`; they stay attached and a warning is shown.
-- `!!` means excluded from LLM context, not private: local shell commands can still affect files and external systems.
+Worksheet currently supports Fish only and needs the `fish` executable; it does not follow `vim.o.shell`. Neovim owns hidden terminal PTY and output capture. Fish reads normal user configuration in a private session, so functions, aliases, and completions work without adding worksheet commands to fish history. Fish abbreviations do not expand because Neovim submits complete commands directly to `eval`. Missing fish produces an explicit error.
+
+`!!` means excluded from LLM context, not private: local shell commands can still affect files and external systems.
 
 ## Prompt history
 

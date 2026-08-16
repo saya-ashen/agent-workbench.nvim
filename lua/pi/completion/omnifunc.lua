@@ -10,6 +10,9 @@ local SlashCommands = require("pi.slash_commands")
 ---@param base string
 ---@return integer|table[]
 function M.completefunc(findstart, base)
+    if vim.b.pi_shell_worksheet then
+        return findstart == 1 and -3 or {}
+    end
     if findstart == 1 then
         local line = vim.api.nvim_get_current_line()
         local col = vim.fn.col(".") - 1

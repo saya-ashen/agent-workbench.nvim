@@ -177,7 +177,7 @@ function Layout:refresh_prompt_attention(has_attention)
     self:_refresh_prompt_chrome()
 end
 
---- Update prompt styling for compose, backend bash, or local terminal mode.
+--- Update prompt styling for compose, backend bash, or shell worksheet mode.
 ---@param mode pi.PromptCommandMode
 function Layout:set_command_mode(mode)
     if self._command_mode == mode then
@@ -201,7 +201,7 @@ function Layout:_refresh_prompt_chrome()
 
     local prompt_cfg = Config.options.panels.prompt
     local request_title = self._prompt_request_kind == "confirm" and "confirm" or "choose"
-    local command_title = self._command_mode == "terminal" and "terminal" or (prompt_cfg.bash_title or "bash")
+    local command_title = self._command_mode == "terminal" and "shell" or (prompt_cfg.bash_title or "bash")
     local title = self._prompt_mode == "request" and request_title
         or (self._command_mode ~= "compose" and command_title)
         or prompt_cfg.title
@@ -393,6 +393,27 @@ end
 ---@return integer
 function Layout:content_buf()
     return self._content_buf or self._history:buf()
+end
+
+---@param active boolean
+function Layout:set_prompt_terminal(active)
+    local win = self:prompt_win()
+    if not win then
+        return
+    end
+    if active then
+        set_terminal_win_opts(win)
+        vim.wo[win].virtualedit = "onemore"
+    else
+        set_win_opts(win, function(target)
+            vim.wo[target].winfixheight = true
+            vim.wo[target].virtualedit = "onemore"
+            if self._mode == "side" then
+                vim.wo[target].winfixwidth = true
+            end
+        end)
+    end
+    self:_refresh_prompt_chrome()
 end
 
 ---@param after_win integer

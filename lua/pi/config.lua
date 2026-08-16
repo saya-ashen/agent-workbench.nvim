@@ -51,6 +51,7 @@
 ---@class pi.PromptConfig
 ---@field history pi.PromptHistoryConfig
 ---@field draft pi.PromptDraftConfig
+---@field terminal pi.PromptTerminalConfig
 ---@field paste_image? boolean Intercept paste in the prompt: when the clipboard holds an image, attach it instead of inserting text (default: true, requires img-clip.nvim)
 ---@field image_compress pi.ImageCompressConfig
 

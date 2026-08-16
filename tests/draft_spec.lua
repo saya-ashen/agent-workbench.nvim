@@ -81,6 +81,40 @@ describe("pi.draft", function()
                 vim.api.nvim_buf_delete(buf, { force = true })
             end
         end)
+
+        it("never persists terminal grid contents as compose draft", function()
+            local Config = require("pi.config")
+            local Attachments = require("pi.ui.chat.attachments")
+            local Prompt = require("pi.ui.chat.prompt")
+            local draft_enabled = Config.options.prompt.draft.enabled
+            Config.options.prompt.draft.enabled = true
+            local attachments = Attachments.new()
+            local prompt = Prompt.new(9003, attachments, "/workspace/terminal")
+            prompt:set_text("!!")
+            prompt:_save_draft()
+            assert.are.equal("!!", Draft.load("/workspace/terminal"))
+
+            assert.is_true(prompt:enter_terminal(""))
+            prompt:_set_lines({ "shell output must not become a draft" })
+            prompt:_save_draft()
+            assert.is_nil(Draft.load("/workspace/terminal"))
+            assert.is_true(prompt:leave_terminal())
+            assert.are.equal("", prompt:text())
+
+            prompt:set_text("unsent compose draft")
+            prompt:_save_draft()
+            assert.is_true(prompt:enter_terminal(nil, true))
+            prompt:_set_lines({ "new shell output" })
+            prompt:_save_draft()
+            assert.are.equal("unsent compose draft", Draft.load("/workspace/terminal"))
+            assert.is_true(prompt:leave_terminal())
+            assert.are.equal("unsent compose draft", prompt:text())
+
+            Config.options.prompt.draft.enabled = draft_enabled
+            for _, buf in ipairs({ prompt:buf(), attachments:buf() }) do
+                vim.api.nvim_buf_delete(buf, { force = true })
+            end
+        end)
     end)
 
     describe("restore_once", function()

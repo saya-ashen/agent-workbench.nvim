@@ -1,357 +1,271 @@
-```text
-            ████████████████████████    █████
-              ██                ██          ██
-              ██                ██       ████
-              ██                ██      ██
-              ██                ██      █████
-              ██                ██
-              p i ²    ·    p i 2 . n v i m
-```
+# Agent Workbench
 
-# pi2.nvim
+> A workspace-aware Neovim workbench for coding agents, currently powered by [pi.dev](https://pi.dev).
+>
+> Built from [`pi.nvim`](https://github.com/alex35mil/pi.nvim)'s foundation, independently maintained around multi-workspace sessions, reviewed edits, and an in-editor command workflow.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Neovim](https://img.shields.io/badge/Neovim-0.10%2B-green.svg?logo=neovim)](https://neovim.io)
 [![pi](https://img.shields.io/badge/pi-0.65.2%2B-blue.svg)](https://pi.dev)
 
-Use the [pi coding agent](https://pi.dev) without leaving Neovim — **π²**, a heavily extended fork of [`alex35mil/pi.nvim`](https://github.com/alex35mil/pi.nvim).
+Agent Workbench runs `pi --mode rpc` beside Neovim and turns agent work into an editor-native workflow. Conversations, files, workspace state, tool output, shell commands, diffs, and attention requests stay inside Neovim without replacing normal editing.
 
-`pi2.nvim` runs `pi --mode rpc` in the background and gives you an in-editor workflow for project-aware prompts, reviewed edits, session resume, and extension prompts — plus a growing set of features that live here rather than upstream (see [Differences from upstream](#differences-from-upstream)).
+The editor layer is designed to support additional coding-agent backends over time. Current releases support pi.dev only.
 
-> [!NOTE]
-> The project is named **pi2.nvim** (π²), but the Lua namespace, commands, and filetypes are unchanged for compatibility: you still `require("pi")`, use the `:Pi*` commands, and the buffers keep the `pi-chat-*` filetypes. Only the project / repository name differs.
+The Lua namespace remains `pi` for compatibility:
 
-## Features
+```lua
+require("pi").setup()
+```
 
-<https://github.com/user-attachments/assets/55080963-3066-44c2-9017-a81828033ef7>
+The project name is separate from the Lua namespace. This repository is not an official new version of `pi.nvim`.
 
-<p align="center">
-    <sub> Workflow demo </sub>
-</p>
+![Agent Workbench demo](assets/demo.gif)
 
-![pi2.nvim demo](assets/demo.gif)
+## Why It Exists
 
-<p align="center">
-    <sub> pi2.nvim in action — agent reads, edits, and verifies a file with live streaming and <code>:PiTree</code> session navigation </sub>
-</p>
+Most agent integrations treat one Neovim process, one project, and one chat as one global context. That breaks down when work spans several projects, tabs, sessions, or editor windows.
 
-<details>
-<summary>Chat with an agent in a side panel or a floating window</summary>
+This frontend treats agent work as stateful editor work:
 
-<https://github.com/user-attachments/assets/2ab6ea5c-7c52-4977-8a12-b5dee55affaa>
-</details>
+- each tab can own one project workspace;
+- each session owns its own transcript, prompt, attachments, model state, and RPC process;
+- hidden sessions keep running without taking over the visible chat;
+- agent edits remain reviewable before they reach files;
+- local shell work stays available without entering model context;
+- normal Neovim buffers and navigation remain first-class.
 
-<details>
-<summary>Point an agent at the exact code with @-mentions</summary>
+## Core Features
 
-<https://github.com/user-attachments/assets/c94b0099-f2d3-403a-962b-69bc23b78fb1>
-</details>
+### Workspaces Without Context Mixing
 
-<details>
-<summary>Run skills and commands</summary>
+Each tab acts as an independent workspace with its own working directory, buffers, sessions, and agent process.
 
-<https://github.com/user-attachments/assets/eec9d926-724c-426d-a6ac-03c8a11530dc>
-</details>
+- `:PiNewWorkspace` creates a workspace rooted at a selected directory.
+- `:PiWorkspaces` switches workspaces through a searchable picker.
+- `:PiWorkspaceSidebar` shows workspaces, sessions, and ordinary buffers together.
+- `:PiMoveBuffer` moves ordinary buffers between workspaces.
+- Workspace buffers stay scoped to the current tab instead of leaking across projects.
+- Changing workspace cwd starts a fresh session only when the current session is idle.
+- Workspace state and unsent drafts are isolated by cwd and Neovim process.
 
-<details>
-<summary>Review agent-proposed edits in a two-way diff before they are applied, and tweak the proposed result if needed</summary>
+### Multiple Independent Agent Sessions
 
-<https://github.com/user-attachments/assets/c20dfa72-79e4-4160-b7f0-6817b0793fda>
-</details>
+Sessions are buffer-owned instead of being one global chat singleton.
 
-<details>
-<summary>Be notified when an agent needs your attention without interrupting your flow</summary>
+- Keep several sessions alive in one tab or across tabs.
+- Switch sessions with ordinary buffer commands.
+- Continue or resume sessions for the current working directory.
+- Background output stays in its owning History buffer.
+- Re-entering a session restores its last History cursor and folds.
+- `:PiSessions` gives one live overview of busy, idle, attention, and stopped sessions.
+- `:PiTree` navigates conversation branches and can summarize abandoned branches.
+- `:PiSessionStats` shows messages, tokens, cache usage, cost, and context usage.
+- Manual and automatic context compaction keep long sessions usable.
 
-<https://github.com/user-attachments/assets/7b83bff0-b747-4232-9921-10a0955d58f7>
-</details>
+### Agent Edits With Review Control
 
-<details>
-<summary>Scroll chat history without leaving the prompt</summary>
+Agent output is useful only when its changes remain understandable and reversible.
 
-<https://github.com/user-attachments/assets/5f1b22a2-c682-4be1-8713-4155eca54437>
-</details>
+- `:PiDiff` reviews all files changed by the current session in one panel.
+- Two-way diff review supports accepting, rejecting, and editing proposed results.
+- Review notes and permission-extension requests stay in the editor workflow.
+- Unsaved buffers are never overwritten by automatic reload.
+- Failed writes keep diff review open instead of silently closing it.
+- `gf` jumps from paths, mentions, and line references in chat history.
+- Search results can populate quickfix for normal `:cnext` and `:cprev` navigation.
 
-<details>
-<summary>See tool activity, diffs, and agent status inline, with collapsible tool blocks</summary>
+### Prompt That Behaves Like Neovim
 
-<https://github.com/user-attachments/assets/6df13dd4-2c1e-41c1-8be0-9ac71432e31d>
-</details>
+Prompt editing keeps normal editor habits while adding agent-specific controls.
 
-<details>
-<summary>Switch to zen mode for composing larger prompts comfortably</summary>
+- Readline-style prompt history with `<C-p>` and `<C-n>`.
+- Unsent prompts persist across restart.
+- Drafts are scoped by workspace and process, preventing cross-project prompt leaks.
+- `@` mentions support files, line ranges, git state, LSP errors, quickfix entries, and custom providers.
+- Slash commands and popup completion work inside the prompt.
+- Queue follow-up prompts while the agent is busy.
+- Double `<Esc>` aborts a running turn, including retry backoff.
+- Attach images from disk, clipboard, or drag-and-drop.
+- Optional image downscaling and re-encoding reduce attachment size.
+- Zen mode provides a larger prompt for long instructions.
+- Models and thinking levels can change during a session.
 
-<https://github.com/user-attachments/assets/b1074303-1f16-40d8-8413-55a7cb88a687>
-</details>
+### Persistent Shell Worksheet
 
-<details>
-<summary>Queue follow-up instructions while the agent is still working</summary>
+Submit `!!` to open a persistent Fish worksheet inside the existing Prompt buffer. Submit `!!command` to run an initial command.
 
-<https://github.com/user-attachments/assets/c4a7b6e6-cf13-454e-b073-f3205ac3eda6>
-</details>
+The worksheet is file-style Neovim editing, not terminal-mode input:
 
-<details>
-<summary>Switch models and thinking levels mid-session</summary>
+- Fish state persists across cells, including cwd, variables, aliases, and functions.
+- Commands bypass pi RPC and stay outside LLM context.
+- Fish completion comes from the same persistent session.
+- Completion covers commands, options, aliases, functions, variables, and paths.
+- Command whitespace triggers argument and path completion immediately.
+- Exact current options remain visible alongside longer Fish candidates.
+- Completed command and output blocks are protected and foldable.
+- Each command keeps a virtual `❯` prompt without changing stored text.
+- ANSI colors, URLs, paths, unified diffs, and JSON output receive editor highlights when supported.
+- Copying, searching, visual selection, `gf`, and normal motions operate on original output text.
+- Normal-mode editing from historical output jumps to the current input cell.
+- `<C-c>` interrupts only while a command is running; idle behavior stays native.
+- `<C-d>`, `q`, and `<C-g>p` return to compose while preserving worksheet state.
+- Prompt requests can temporarily replace the worksheet while Fish keeps running.
 
-<https://github.com/user-attachments/assets/c8535554-ea69-4ea9-8098-6b63185bd410>
-</details>
+The worksheet currently requires the `fish` executable. It does not replace the user's normal shell configuration and does not make `!!` commands private: commands can still modify files and external systems.
 
-<details>
-<summary>Continue or resume past sessions for the current working directory</summary>
+### Native Neovim UI
 
-<https://github.com/user-attachments/assets/d2d595db-e11d-40b7-87b0-5124867e160e>
-</details>
+The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and buffer navigation.
 
-<details>
-<summary>Keep separate conversations per tab</summary>
+- Chat supports buffer, side, and float layouts.
+- History is a listed `nofile` buffer with structured tool and thinking blocks.
+- Tool output folds without losing extmarks or transcript state.
+- Statusline shows agent state, elapsed time, queue count, context, token usage, cost, and abort hints.
+- Attention requests queue until the user opens them.
+- Extension UI can use dialogs, pickers, widgets, and custom blocks.
+- Existing plugins such as `markview.nvim`, `blink.cmp`, `img-clip.nvim`, `bufferline.nvim`, and `nvim-web-devicons` integrate when installed but are not required for core session management.
 
-<https://github.com/user-attachments/assets/4d087f23-c459-496d-92b9-7540be7340ce>
-</details>
+## Quick Start
 
-<details>
-<summary>Attach screenshots and other images from disk, clipboard, or drag-and-drop</summary>
-
-<https://github.com/user-attachments/assets/f210246a-2427-4fdb-b679-eeb6ceae4538>
-</details>
+1. Install `pi` and make sure it is in `$PATH`.
+2. Install this plugin and the default Markdown renderer.
+3. Run `:checkhealth pi`.
+4. Open a project and run `:Pi`.
+5. Type a prompt and press `<CR>`.
+6. Use `@path/to/file` to attach code context.
+7. Use `:PiDiff` before accepting agent edits.
+8. Use `!!` when local shell work should stay outside agent context.
 
 ## Requirements
 
 - Neovim 0.10+
-- `pi` in `$PATH`
-- [`OXY2DEV/markview.nvim`](https://github.com/OXY2DEV/markview.nvim) for the default chat-history renderer (`render.engine = "markview"`)
+- [`pi`](https://pi.dev) in `$PATH`
+- [`OXY2DEV/markview.nvim`](https://github.com/OXY2DEV/markview.nvim) for the default `render.engine = "markview"`
+- `fish` for the `!!` Shell Worksheet
 
-Optional but useful:
+Optional:
 
-- `nvim-treesitter` markdown parser for nicer chat history highlighting
+- `nvim-treesitter` with the Markdown parser for richer History highlighting
 - [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:PiPasteImage`
-- `blink.cmp` if you want popup completion in the π prompt buffer
+- `blink.cmp` for popup prompt completion
+- `bufferline.nvim` for workspace tabs
+- `nvim-web-devicons` for workspace sidebar icons and path highlights
 
-Run `:checkhealth pi` to verify.
+Run `:checkhealth pi` after installation.
 
 ## Installation
 
-### Installing with an agent
-
-The easiest way to install `pi2.nvim` is to hand the job to an AI coding agent (pi, Claude Code, Cursor, …). Point your agent at the instructions below — they tell it how to detect your setup, what to add, and how to verify the result.
-
-> **For the agent:** install the `pi2.nvim` Neovim plugin for the user by following these steps.
->
-> 1. **Detect the plugin manager.** Read the user's Neovim config (usually `init.lua` under `stdpath("config")`, e.g. `~/.config/nvim/init.lua`) and find which plugin manager is in use — `lazy.nvim`, the built-in `vim.pack` (Neovim 0.11+), `packer.nvim`, etc. Follow that manager's spec conventions; if you can't tell which one is used, ask the user.
-> 2. **Add the plugin and its dependency.** Add `zgs225/pi2.nvim` together with `OXY2DEV/markview.nvim`, which the default history renderer (`render.engine = "markview"`) requires. Optionally add `HakonHarnes/img-clip.nvim` (needed only for `:PiPasteImage` clipboard-image paste). Use the specs under [Installing manually](#installing-manually) as a reference for the two most common managers.
-> 3. **Recommended setup.** Ensure `require("pi").setup()` runs after the plugin loads. The defaults are a good first install — do not add options the user hasn't asked for. See [Configuration](#configuration) for the full option list, and [Keymaps](doc/keymaps.md) for a recommended mapping set; if the user already has `<Leader>` conventions, adapt to them rather than introducing new ones.
-> 4. **Verify with the healthcheck.** After installing, run `:checkhealth pi` and confirm it reports OK: the `pi` executable is in `$PATH`, the pi backend version is compatible, Neovim is 0.10+, and the default renderer's dependencies resolve. Fix anything it flags — e.g. install `pi`, or set `cli = { bin = "/absolute/path/to/pi" }` if it isn't on `$PATH`.
-
-### Installing manually
-
-#### vim.pack
-
-```lua
-vim.pack.add({
-    "https://github.com/zgs225/pi2.nvim",
-    -- Default chat-history renderer (render.engine = "markview"):
-    "https://github.com/OXY2DEV/markview.nvim",
-})
-
--- if you're fine with defaults:
-require("pi").setup()
-
--- or, if you want to customize:
-require("pi").setup({
-    models = { ... },
-    layout = { ... },
-})
-```
-
-#### lazy.nvim
+### lazy.nvim
 
 ```lua
 {
     "zgs225/pi2.nvim",
-
-    -- markview.nvim powers default chat-history renderer
-    -- (render.engine = "markview"); img-clip.nvim is optional and
-    -- required only for `:PiPasteImage` (clipboard image paste).
     dependencies = {
         "OXY2DEV/markview.nvim",
-        "HakonHarnes/img-clip.nvim",
+        "HakonHarnes/img-clip.nvim", -- optional: :PiPasteImage
     },
-
-    -- if you're fine with defaults:
-    config = true,
-
-    -- or, if you want to customize:
-    opts = {
-        models = { ... },
-        layout = { ... },
-        sessions_list = { ... },
-    },
+    opts = {},
 }
 ```
 
-## Local development
+### vim.pack
 
-Run Neovim directly from this checkout without changing your Nix or plugin-manager configuration:
+```lua
+vim.pack.add({
+    "https://github.com/zgs225/pi2.nvim",
+    "https://github.com/OXY2DEV/markview.nvim",
+})
+
+require("pi").setup()
+```
+
+Defaults are usable without a custom configuration. Full options live in [doc/configuration.md](doc/configuration.md).
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `:Pi` | Open or toggle chat in the current workspace |
+| `:PiContinue` | Continue the newest session for the current cwd |
+| `:PiResume` | Pick a previous session for the current cwd |
+| `:PiNewSession` | Create another independent session |
+| `:PiStop` | Stop the current RPC process and close its session |
+| `:PiToggleChat` | Hide or show chat without stopping the session |
+| `:PiToggleLayout` | Switch between side and float layouts |
+| `:PiSessions` | Show all live sessions and their state |
+| `:PiTree` | Navigate the current session tree |
+| `:PiSessionStats` | Show usage and cost statistics |
+| `:PiDiff` | Review files changed by the current session |
+| `:PiNewWorkspace` | Create a directory-backed workspace |
+| `:PiWorkspaces` | Pick a workspace |
+| `:PiWorkspaceSidebar` | Toggle the workspace explorer |
+| `:PiMoveBuffer {tab}` | Move an ordinary buffer to another workspace |
+| `:PiAttention` | Open the next queued attention request |
+| `:PiAbort` | Abort the current agent turn |
+| `:PiAbortBash` | Abort the running `!` command |
+| `:PiCompact [instructions]` | Compact session context |
+| `:PiCycleModel` / `:PiSelectModel` | Change model |
+| `:PiCycleThinking` / `:PiSelectThinking` | Change thinking level |
+| `:PiAttachImage {path}` | Attach an image file |
+| `:PiPasteImage` | Attach an image from the clipboard |
+| `:PiToggleAutoCompaction` | Toggle automatic compaction |
+| `:PiSessionName [name]` | Set or show session name |
+| `:PiToggleDebug` | Toggle RPC debug logging |
+
+Every command has a Lua API counterpart. See [doc/api.md](doc/api.md).
+
+## Configuration
+
+```lua
+require("pi").setup({
+    auto_start_session = true,
+    layout = {
+        default = "buffer",
+        side = { position = "right", width = 80 },
+    },
+    workspace_bar = {
+        enabled = true,
+        label = "name",
+        session_count = true,
+        status = true,
+    },
+    workspace_sidebar = {
+        position = "right",
+        width = 38,
+    },
+})
+```
+
+See [doc/configuration.md](doc/configuration.md) for all options.
+
+## Development
+
+Run Neovim from this checkout:
 
 ```sh
 ./scripts/nvim-dev
 ```
 
-Pass normal Neovim arguments through the script:
-
-```sh
-./scripts/nvim-dev --clean
-./scripts/nvim-dev path/to/project
-```
-
-The script prepends this repository to `runtimepath` and runs `require("pi").setup()`.
-
-## Quick start
-
-1. Open a project in Neovim.
-2. Run `:Pi`.
-3. Type a prompt and press `<CR>`.
-4. Mention files with `@path/to/file` or `@path/to/file#L12-20`.
-5. Use `:PiContinue` or `:PiResume` to revisit earlier sessions for the current working directory.
-
-## Configuration
-
-All options are optional — the defaults are a good first install. The full annotated reference lives in [doc/configuration.md](doc/configuration.md); these are the knobs people reach for most:
-
-```lua
-require("pi").setup({
-    -- Curate the models you cycle through (:PiCycleModel / :PiSelectModel).
-    models = {
-        { match = "opus", latest = true },
-        { match = "sonnet", latest = true },
-    },
-
-    -- Chat placement: "buffer" (default), "side", or "float".
-    layout = {
-        default = "buffer",
-        side = { position = "right", width = 80 },
-    },
-
-    -- Where search results land (:cnext / :cprev); see doc/usage.md#quickfix.
-    quickfix = { grep = true, find = false },
-
-    -- Everything else (statusline, diff keys, prompt behavior, zen, …):
-    -- see doc/configuration.md
-})
-```
-
-> [!IMPORTANT]
-> `pi2.nvim` runs pi in RPC mode and does not implement the TUI's interactive project-trust prompt. Project-local pi files (settings, extensions, skills) are not loaded unless you opt in — see [Project trust](doc/configuration.md#project-trust).
-
-## Keymaps
-
-`pi2.nvim` ships a deliberately small default keymap set (submission, abort, history recall, `<Tab>` tool-output viewer, block preview toggles, `gf` file jumps, diff-review keys) and leaves the rest to you. See [doc/keymaps.md](doc/keymaps.md) for the key-spec format, the stable `pi-chat-*` filetypes, and a complete example setup you can adapt.
-
-## Commands
-
-| Command | Description |
-| --- | --- |
-| `:Pi [layout=side\|float]` | Open or toggle the chat in the current tab |
-| `:PiContinue [layout=side\|float]` | Continue the most recent session for the current working directory |
-| `:PiResume [layout=side\|float]` | Pick and resume a past session for the current working directory |
-| `:PiToggleChat` | Toggle chat visibility |
-| `:PiToggleLayout` | Switch between side and float layout |
-| `:PiAbort` | Abort the current agent operation |
-| `:PiAbortBash` | Abort the running direct bash (`!`) command |
-| `:PiStop` | Stop the RPC process and close the chat |
-| `:PiAttention` | Open the next queued attention request |
-| `:PiNewSession` | Create a separate session buffer and RPC process; existing sessions keep running |
-| `:PiTree` | Navigate the session tree: jump back to any past conversation point |
-| `:PiSessions` | Toggle the live sessions overview (all active sessions: name + busy/idle/attention) |
-| `:PiWorkspaces` | Pick and switch a tab-backed workspace |
-| `:PiWorkspaceSidebar` | Toggle the collapsible workspace explorer sidebar |
-| `:PiNewWorkspace` | Select a directory and create a workspace rooted there |
-| `:PiMoveBuffer {tab}` | Move current ordinary buffer to another workspace |
-| `:PiSessionStats` | Show the session stats dashboard: messages, tokens (with cache split), per-model cost breakdown, cache re-billed waste, context usage |
-| `:PiDiff` | Review the git diff of every file changed by the current session in one panel: file list + diff |
-| `:PiToggleStartupDetails` | Toggle the startup block between compact and expanded |
-| `:PiToggleThinking` | Show or hide thinking blocks |
-| `:PiCycleThinking` | Cycle to the next thinking level |
-| `:PiSelectThinking` | Pick a thinking level |
-| `:PiCycleModel` | Cycle the current model |
-| `:PiSelectModel` | Pick from configured models, or all models if none are configured |
-| `:PiSelectModelAll` | Pick from all available models |
-| `:PiSendMention` | Mention the current file; in visual mode or with a range, mention the selection lines |
-| `:PiAttachImage {path}` | Attach an image file to the prompt |
-| `:PiPasteImage` | Attach an image from the clipboard |
-| `:PiCompact [instructions]` | Ask π to compact the current conversation context |
-| `:PiToggleAutoCompaction` | Toggle automatic context compaction (statusline shows the auto-compaction icon while on) |
-| `:PiSessionName [name]` | Set or show the session display name |
-| `:PiToggleDebug` | Toggle RPC debug logging |
-
-Every command also has a Lua API counterpart — see [doc/api.md](doc/api.md).
+The repository includes Plenary unit tests and a hermetic headless boot check. `make` is used by project documentation when available; direct Neovim commands are documented in `.agents/skills/develop/` for environments without `make`.
 
 ## Documentation
 
-Detailed guides live in [`doc/`](doc/):
+- [Usage](doc/usage.md): chat, prompt, shell worksheet, completion, attachments, statusline, rendering, and navigation
+- [Sessions](doc/sessions.md): workspaces, session ownership, resume, tree navigation, and compaction
+- [Diff review](doc/diff-review.md): review workflow, notes, and permission extensions
+- [Configuration](doc/configuration.md): complete annotated defaults and project trust
+- [Keymaps](doc/keymaps.md): key specifications, stable filetypes, and setup examples
+- [API](doc/api.md): public Lua API
+- [Extensions](doc/extensions.md): extension UI and custom RPC blocks
+- [Highlight groups](doc/highlight-groups.md): all plugin highlight groups
+- [Troubleshooting](doc/troubleshooting.md): healthcheck, RPC logs, and lifecycle diagnosis
 
-| Doc | What's inside |
-| --- | --- |
-| [doc/usage.md](doc/usage.md) | Chat & layouts, prompt (submit/queue/abort), persistent command modes (`!` / `!!`), prompt history & drafts, `@mentions`, slash commands, completion, attachments, zen mode, statusline, navigation, quickfix, tool blocks, models, thinking, markdown rendering, buffer reload, startup block |
-| [doc/sessions.md](doc/sessions.md) | Tab-backed workspaces, buffer-owned sessions, storage & cwd scoping, continue/resume, session tree (`:PiTree`), sessions overview (`:PiSessions`), compaction |
-| [doc/diff-review.md](doc/diff-review.md) | Two-way diff review of agent edits, review notes, permission-extension protocol reference, session diff review (`:PiDiff`) |
-| [doc/attention.md](doc/attention.md) | Attention queue, dialogs, notifications, queue inspection API |
-| [doc/extensions.md](doc/extensions.md) | Extension UI routing, startup announcements, `on_widget` custom blocks, adapting non-upstream RPC backends |
-| [doc/configuration.md](doc/configuration.md) | Full annotated defaults + project trust |
-| [doc/keymaps.md](doc/keymaps.md) | Key specs, stable filetypes, example setup |
-| [doc/api.md](doc/api.md) | Lua API reference |
-| [doc/highlight-groups.md](doc/highlight-groups.md) | All `Pi*` highlight groups |
-| [doc/troubleshooting.md](doc/troubleshooting.md) | `:checkhealth pi`, RPC debug logging, process lifecycle, triage checklist |
+## Relationship To pi.nvim
 
-## Origin
+This project started from `pi.nvim` and keeps its compatible Lua namespace and command family. It is independently maintained and focuses on editor-native workspaces, multiple live sessions, reviewed agent edits, and persistent local shell workflows.
 
-`pi2.nvim` is a fork of [`alex35mil/pi.nvim`](https://github.com/alex35mil/pi.nvim), the original Neovim frontend for the [pi coding agent](https://pi.dev). All credit for the foundation — the RPC bridge, the chat layout, diff review, sessions, and extension handling — goes to the upstream project.
-
-This fork began as local experiments and grew into a substantially different feature set (listed below). Rather than keep that work on a long-lived fork, it now lives in its own repository so it can evolve and release independently, while still tracking upstream where it makes sense and crediting it as the origin.
-
-## Differences from upstream
-
-Everything below is present in `pi2.nvim` and **not** in upstream `alex35mil/pi.nvim` (which is currently frozen at the fork point). Each entry links to its full documentation.
-
-**Prompt & input**
-
-- [Dynamic `@mention` providers](doc/usage.md#dynamic-mentions) — `@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix` (plus custom `mention_providers`) attach live state to your message at send time.
-- [Persistent command modes (`!` / `!!`)](doc/usage.md#persistent-command-modes---) — `!` runs pi backend commands into chat/LLM context; `!!` opens a persistent local Neovim terminal outside LLM context.
-- [Readline-style prompt history](doc/usage.md#prompt-history) — `<C-p>` / `<C-n>` recall, persisted to disk.
-- [Unsent-draft persistence](doc/usage.md#draft-persistence) — the prompt text survives restarts.
-- [Clipboard image paste](doc/usage.md#attachments) — pasting into the prompt while the clipboard holds an image attaches it; the rest of the editor's paste is untouched.
-- [Image compression for attachments](doc/usage.md#image-compression) — downscale/re-encode before sending (sips / magick / ffmpeg).
-
-**Agent control**
-
-- [Double-`<Esc>` abort](doc/usage.md#aborting-with-double-esc) — a second `<Esc>` within a timeout aborts the running turn — and, since the same gesture stays live during an auto-retry, cancels a "Retrying…" backoff too — with a persistent statusline hint.
-
-**UI & rendering**
-
-- [Redesigned tool & thinking blocks](doc/usage.md#tool-blocks) — fold indicators + indentation, silent success, animated spinners, single-line thinking headers with rolling preview.
-- [Status line in the prompt](doc/usage.md#statusline) — busy spinner with elapsed time, context/cost/token usage, queue count, and abort hints pinned to the prompt window.
-- [`markview.nvim` engine](doc/usage.md#markdown-rendering) — the default renderer, with builtin and legacy render-markdown fallbacks.
-
-**Navigation & layout**
-
-- [Open file under cursor (`gf`)](doc/usage.md#open-file-under-cursor) — resolves bare paths, `@mention#L<line>`, and `path:line` from history lines.
-- [Search results in the quickfix list](doc/usage.md#quickfix) — `grep`/`find` results loaded for `:cnext` / `:cprev`.
-- [Left side panel](doc/usage.md#chat--layouts) — `layout.side.position` accepts `"left"`.
-
-**Sessions & editor integration**
-
-- [Sessions overview (`:PiSessions`)](doc/sessions.md#sessions-overview-pisessions) — a live, shared dashboard of every active session with animated status dots.
-- [Session tree navigation (`:PiTree`)](doc/sessions.md#session-tree-navigation-pitree) — jump back to any past conversation point, optionally summarizing the abandoned branch.
-- [Tab-backed workspaces](doc/sessions.md#workspaces) — each tab keeps one cwd, its own listed-buffer set, and its sessions; bufferline.nvim shows current workspace buffers plus native workspace tabs with session status.
-- [Auto-reload of open buffers](doc/usage.md#buffer-reload) — files modified by the agent reload in place; unsaved buffers are never touched.
-
-**Robustness fixes**
-
-- Thinking blocks render after inline tools (correct turn order); CJK / UTF-8 thinking-preview truncation no longer corrupts text; tool-block collapse/expand no longer corrupts the footer extmark; nerd-font icon codepoints corrected.
-- The streaming thinking header no longer flickers (the rolling preview is drawn as end-of-line virtual text instead of `inline`).
-- The busy spinner and abort hints live in the prompt statusline at a fixed position that never scrolls away.
-
-**Developer infrastructure**
-
-- A hermetic plenary test suite (`make test`) plus a current-checkout headless boot check with stubbed RPC (`make smoke`), and an agent "develop" skill documenting the test stack and Neovim-Lua gotchas.
+It is not an official successor or replacement for `pi.nvim`. Upstream changes are reviewed selectively rather than merged blindly. Credit for the original foundation remains with the upstream project and its authors.
 
 ## License
 

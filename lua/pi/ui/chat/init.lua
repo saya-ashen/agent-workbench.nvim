@@ -35,8 +35,9 @@
 ---@field _bash_req_id string?
 ---@field _bash_req_counter integer
 ---@field _cwd string
----@field _terminal_buf integer?
----@field _terminal_job integer?
+---@field _worksheet pi.ShellWorksheet
+---@field _compose_keymaps table[]?
+---@field _worksheet_overridden_keymaps table[]?
 local Chat = {}
 Chat.__index = Chat
 
@@ -51,6 +52,7 @@ local Prompt = require("pi.ui.chat.prompt")
 local Attachments = require("pi.ui.chat.attachments")
 local Mentions = require("pi.ui.chat.mentions")
 local Zen = require("pi.ui.chat.zen")
+local Worksheet = require("pi.ui.chat.terminal.worksheet")
 local PromptHistory = require("pi.prompt_history")
 
 ---@class pi.CompactionQueuedMessage
@@ -102,8 +104,9 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._bash_running = false
     self._bash_req_id = nil
     self._bash_req_counter = 0
-    self._terminal_buf = nil
-    self._terminal_job = nil
+    self._worksheet = Worksheet.new(self._cwd)
+    self._compose_keymaps = nil
+    self._worksheet_overridden_keymaps = nil
     self._layout:set_command_mode(self._prompt:command_mode())
     self._prompt:set_on_command_mode_change(function(command_mode)
         self._layout:set_command_mode(command_mode)
@@ -179,6 +182,11 @@ function Chat:_set_keymaps()
                     return
                 end
                 if self._prompt:is_request_mode() then
+                    vim.cmd("stopinsert")
+                    return
+                end
+                if self._prompt:is_terminal_display() then
+                    self._prompt._resume_insert = nil
                     vim.cmd("stopinsert")
                     return
                 end
@@ -292,6 +300,28 @@ function Chat:_set_keymaps()
     vim.keymap.set({ "i", "n" }, "<C-g>t", function()
         self:focus_terminal()
     end, { buffer = pbuf, desc = "Focus π local terminal" })
+
+    vim.keymap.set({ "i", "n" }, "<C-g>p", function()
+        if self._prompt:is_terminal_display() then
+            self:leave_terminal()
+        end
+    end, { buffer = pbuf, desc = "Return to π compose prompt" })
+
+    vim.keymap.set({ "i", "n" }, "<C-g>c", function()
+        if self._prompt:is_terminal_display() then
+            self._worksheet:interrupt()
+        end
+    end, { buffer = pbuf, desc = "Interrupt π shell command" })
+
+    vim.keymap.set("n", "q", function()
+        if not self._prompt:is_terminal_display() then
+            return "q"
+        end
+        vim.schedule(function()
+            self:leave_terminal()
+        end)
+        return ""
+    end, { buffer = pbuf, expr = true, desc = "Return to π compose prompt" })
 
     -- Prompt history recall (readline-style). <C-p>/<C-n> are the canonical
     -- readline keys and never conflict with multi-line cursor movement.
@@ -428,6 +458,215 @@ function Chat:_set_keymaps()
     end
 end
 
+local compose_map_descriptions = {
+    ["Cancel π request"] = true,
+    ["Double-<Esc> aborts π"] = true,
+    ["Focus π local terminal"] = true,
+    ["Interrupt π shell command"] = true,
+    ["Leave insert (double-<Esc> aborts π)"] = true,
+    ["Move π request selection down"] = true,
+    ["Move π request selection up"] = true,
+    ["New line"] = true,
+    ["Return to π compose prompt"] = true,
+    ["Submit π follow-up"] = true,
+    ["Submit π prompt or request"] = true,
+    ["Toggle π zen mode"] = true,
+    ["π history: next"] = true,
+    ["π history: next (bottom line)"] = true,
+    ["π history: previous"] = true,
+    ["π history: previous (top line)"] = true,
+}
+
+local function is_compose_map(map)
+    return compose_map_descriptions[map.desc or ""] == true
+end
+
+local function buffer_map(buf, mode, lhs)
+    local map = vim.api.nvim_buf_call(buf, function()
+        return vim.fn.maparg(lhs, mode, false, true)
+    end)
+    return map.buffer == 1 and map or nil
+end
+
+local function delete_owned_map(buf, mode, lhs, desc)
+    local map = buffer_map(buf, mode, lhs)
+    if map and map.desc == desc then
+        pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+    end
+end
+
+local function restore_map(buf, map)
+    local rhs = map.callback or map.rhs
+    if not rhs then
+        return
+    end
+    vim.keymap.set(map._mode, map.lhs, rhs, {
+        buffer = buf,
+        desc = map.desc,
+        expr = map.expr == 1,
+        nowait = map.nowait == 1,
+        remap = map.noremap == 0,
+        replace_keycodes = map.replace_keycodes == 1,
+        silent = map.silent == 1,
+    })
+end
+
+function Chat:_set_worksheet_keymaps()
+    if self._compose_keymaps then
+        return
+    end
+    local buf = self:prompt_buf()
+    self._compose_keymaps = {}
+    for _, mode in ipairs({ "n", "i" }) do
+        for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
+            if is_compose_map(map) then
+                map._mode = mode
+                self._compose_keymaps[#self._compose_keymaps + 1] = map
+                pcall(vim.keymap.del, mode, map.lhs, { buffer = buf })
+            end
+        end
+    end
+    self._worksheet_overridden_keymaps = {}
+    local overridden = {
+        { "n", "<CR>" },
+        { "i", "<CR>" },
+        { "i", "<S-CR>" },
+        { "n", "q" },
+        { "n", "<C-d>" },
+        { "i", "<C-d>" },
+        { "n", "<C-c>" },
+        { "n", "<C-g>p" },
+        { "i", "<C-g>p" },
+        { "n", "<C-g>c" },
+        { "i", "<C-g>c" },
+        { "n", "<C-g>t" },
+        { "i", "<C-g>t" },
+    }
+    for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "c", "C" }) do
+        overridden[#overridden + 1] = { "n", key }
+    end
+    if not vim.b[buf].pi_shell_blink_completion then
+        overridden[#overridden + 1] = { "i", "<Tab>" }
+        overridden[#overridden + 1] = { "i", "<S-Tab>" }
+    end
+    for _, spec in ipairs(overridden) do
+        local map = buffer_map(buf, spec[1], spec[2])
+        if map then
+            map._mode = spec[1]
+            self._worksheet_overridden_keymaps[#self._worksheet_overridden_keymaps + 1] = map
+            pcall(vim.keymap.del, spec[1], spec[2], { buffer = buf })
+        end
+    end
+    vim.keymap.set({ "n", "i" }, "<CR>", function()
+        if not self._worksheet:cursor_in_input() then
+            return "<CR>"
+        end
+        vim.schedule(function()
+            local ok, err = self._worksheet:execute_current()
+            if not ok and err ~= "shell command is empty" then
+                Notify.warn(err)
+            end
+        end)
+        return ""
+    end, { buffer = buf, desc = "Run π shell cell", expr = true })
+    vim.keymap.set("i", "<S-CR>", function()
+        return "<CR>"
+    end, { buffer = buf, desc = "Insert newline in π shell cell", expr = true })
+    for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "c", "C" }) do
+        local native_key = key
+        vim.keymap.set("n", native_key, function()
+            if self._worksheet:cursor_in_input() then
+                return native_key
+            end
+            vim.schedule(function()
+                self._worksheet:focus_input()
+            end)
+            return ""
+        end, { buffer = buf, desc = "Edit current π shell input", expr = true })
+    end
+    if not vim.b[buf].pi_shell_blink_completion then
+        vim.keymap.set("i", "<Tab>", function()
+            if vim.fn.pumvisible() == 1 then
+                return vim.keycode("<C-n>")
+            end
+            self._worksheet:complete()
+            return ""
+        end, { buffer = buf, desc = "Select next π shell completion", expr = true })
+        vim.keymap.set("i", "<S-Tab>", function()
+            if vim.fn.pumvisible() == 1 then
+                return vim.keycode("<C-p>")
+            end
+            self._worksheet:complete()
+            return ""
+        end, { buffer = buf, desc = "Select previous π shell completion", expr = true })
+    end
+    vim.keymap.set("n", "q", function()
+        self:leave_terminal()
+    end, { buffer = buf, desc = "Return to π compose prompt from worksheet" })
+    vim.keymap.set({ "n", "i" }, "<C-d>", function()
+        if not self._worksheet:cursor_in_input() or not self._worksheet:input_empty() then
+            return "<C-d>"
+        end
+        vim.schedule(function()
+            self:leave_terminal()
+        end)
+        return ""
+    end, { buffer = buf, desc = "Return from empty π shell input", expr = true })
+    vim.keymap.set("n", "<C-c>", function()
+        if not self._worksheet:running() then
+            return "<C-c>"
+        end
+        vim.schedule(function()
+            self._worksheet:interrupt()
+        end)
+        return ""
+    end, { buffer = buf, desc = "Interrupt running π shell command", expr = true })
+    vim.keymap.set({ "n", "i" }, "<C-g>p", function()
+        self:leave_terminal()
+    end, { buffer = buf, desc = "Return to π compose prompt from worksheet" })
+    vim.keymap.set({ "n", "i" }, "<C-g>c", function()
+        self._worksheet:interrupt()
+    end, { buffer = buf, desc = "Interrupt π shell command" })
+    vim.keymap.set({ "n", "i" }, "<C-g>t", function()
+        self:focus_terminal()
+    end, { buffer = buf, desc = "Focus π shell worksheet" })
+end
+
+function Chat:_restore_compose_keymaps()
+    local maps = self._compose_keymaps
+    if not maps then
+        return
+    end
+    local buf = self:prompt_buf()
+    for _, mode in ipairs({ "n", "i" }) do
+        delete_owned_map(buf, mode, "<CR>", "Run π shell cell")
+    end
+    delete_owned_map(buf, "i", "<S-CR>", "Insert newline in π shell cell")
+    for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "c", "C" }) do
+        delete_owned_map(buf, "n", key, "Edit current π shell input")
+    end
+    delete_owned_map(buf, "i", "<Tab>", "Select next π shell completion")
+    delete_owned_map(buf, "i", "<S-Tab>", "Select previous π shell completion")
+    delete_owned_map(buf, "n", "q", "Return to π compose prompt from worksheet")
+    for _, mode in ipairs({ "n", "i" }) do
+        delete_owned_map(buf, mode, "<C-d>", "Return from empty π shell input")
+    end
+    delete_owned_map(buf, "n", "<C-c>", "Interrupt running π shell command")
+    for _, mode in ipairs({ "n", "i" }) do
+        delete_owned_map(buf, mode, "<C-g>p", "Return to π compose prompt from worksheet")
+        delete_owned_map(buf, mode, "<C-g>c", "Interrupt π shell command")
+        delete_owned_map(buf, mode, "<C-g>t", "Focus π shell worksheet")
+    end
+    for _, map in ipairs(maps) do
+        restore_map(buf, map)
+    end
+    for _, map in ipairs(self._worksheet_overridden_keymaps or {}) do
+        restore_map(buf, map)
+    end
+    self._compose_keymaps = nil
+    self._worksheet_overridden_keymaps = nil
+end
+
 ---@class pi.ChatShowOpts
 ---@field loading? boolean Show "Loading session…" placeholder
 
@@ -437,6 +676,9 @@ function Chat:show(opts)
         -- already shown
         self:refresh_prompt_attention()
         return
+    end
+    if self._prompt:is_terminal_display() then
+        self._prompt._resume_insert = "bol"
     end
     self:_set_keymaps()
     if opts and opts.loading then
@@ -450,7 +692,11 @@ function Chat:show(opts)
         self._history:show_loading_startup()
     end
     self:refresh_prompt_attention()
-    self._prompt:focus(nil, "normal")
+    if self._prompt:is_terminal_display() then
+        self:focus_terminal()
+    else
+        self._prompt:focus(nil, "normal")
+    end
 end
 
 --- Show a loading placeholder on the empty history buffer.
@@ -468,33 +714,44 @@ function Chat:hide()
     if self._zen:is_active() then
         self._zen:exit()
     end
+    if self._prompt:is_terminal_display() then
+        self._worksheet:hide()
+    end
+    self:_detach_terminal_view()
     self._layout:hide()
 end
 
 function Chat:destroy()
-    local job = self._terminal_job
-    self._terminal_job = nil
-    if job and vim.fn.jobwait({ job }, 0)[1] == -1 then
-        pcall(vim.fn.jobstop, job)
-    end
-    local buf = self._terminal_buf
-    self._terminal_buf = nil
-    if buf and vim.api.nvim_buf_is_valid(buf) then
-        pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
+    self._worksheet:stop()
 end
 
 --- Handle editor resize. Re-evaluates layout config and updates geometry.
 function Chat:on_resize()
     self._layout:on_resize()
+    if self._prompt:is_terminal_display() then
+        self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+    end
     self:refresh_prompt_attention()
 end
 
 ---@param cb? fun()
 function Chat:toggle_layout(cb)
     local was_insert = vim.api.nvim_get_mode().mode == "i"
-    self._prompt._resume_insert = nil
+    local worksheet = self._prompt:is_terminal_display()
+    self._prompt._resume_insert = worksheet and "bol" or nil
+    self:_detach_terminal_view()
+    if worksheet then
+        self._worksheet:hide()
+    end
     self._layout:toggle()
+    if worksheet then
+        self:refresh_prompt_attention()
+        self:focus_terminal()
+        if cb then
+            cb()
+        end
+        return
+    end
     self:refresh_prompt_attention()
 
     -- Determine how to re-enter insert mode based on the normal-mode
@@ -522,7 +779,15 @@ end
 
 ---@param mode pi.LayoutMode
 function Chat:set_layout(mode)
+    local worksheet = self._prompt:is_terminal_display()
+    self:_detach_terminal_view()
+    if worksheet then
+        self._worksheet:hide()
+    end
     self._layout:set_mode(mode)
+    if worksheet then
+        self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+    end
     self:refresh_prompt_attention()
 end
 
@@ -551,9 +816,20 @@ function Chat:takeover_view(other)
     then
         self._history:show_loading_startup()
     end
+    other:_detach_terminal_view()
+    if other._prompt:is_terminal_display() then
+        other._worksheet:hide()
+    end
     other._layout:set_content_buffer(nil)
+    self:_detach_terminal_view()
+    if self._prompt:is_terminal_display() then
+        self._worksheet:hide()
+    end
     self._layout:takeover(other._layout)
     self:_show_command_mode(self._prompt:command_mode())
+    if self._prompt:is_terminal_display() then
+        self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+    end
     self:_set_keymaps()
     self:refresh_prompt_attention()
 end
@@ -562,6 +838,10 @@ end
 ---@param buf integer
 function Chat:detach_for_buffer(win, buf)
     self._layout:detach_for_buffer(win, buf)
+    if self._prompt:is_terminal_display() and not self._layout:prompt_win() then
+        self._worksheet:hide()
+        self:_detach_terminal_view()
+    end
 end
 
 ---@param tab pi.TabId
@@ -626,7 +906,6 @@ function Chat:owns_buffer(buf)
     return buf == self:history_buf()
         or buf == self:prompt_buf()
         or buf == self:attachments_buf()
-        or (self._terminal_buf ~= nil and buf == self._terminal_buf)
 end
 
 ---@return "history"|"prompt"|"attachments"|nil
@@ -685,9 +964,27 @@ function Chat:present_prompt_request(request)
     if not self:is_visible() then
         self:show()
     end
+    local resume_terminal = self._prompt:is_terminal_display()
+    if resume_terminal then
+        self._worksheet:hide()
+        self:_restore_compose_keymaps()
+        local callback = request.callback
+        request.callback = function(value, expired)
+            if self:is_visible() and vim.api.nvim_get_current_tabpage() == self._tab then
+                self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+                self:_set_worksheet_keymaps()
+                self._prompt:focus(nil, "normal")
+            end
+            callback(value, expired)
+        end
+    end
     local opened = self._prompt:set_request(request)
     if opened then
+        self._layout:on_resize()
         self._prompt:focus()
+    elseif resume_terminal then
+        self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+        self:_set_worksheet_keymaps()
     end
     return opened
 end
@@ -761,7 +1058,7 @@ end
 
 function Chat:toggle()
     if self._layout:is_visible() then
-        self._layout:hide()
+        self:hide()
     else
         self:ensure_shown_and_focus_prompt()
     end
@@ -1169,9 +1466,7 @@ function Chat:_send_message(queue_type)
     local prefixed = text:match("^%s*(.*)$") or text
     if prefixed:sub(1, 2) == "!!" then
         local command = vim.trim(prefixed:sub(3))
-        if command ~= "" then
-            self:_send_terminal(text, command)
-        end
+        self:_enter_terminal(command ~= "" and command or nil)
         return
     end
 
@@ -1287,103 +1582,68 @@ function Chat:_send_bash(raw_text, command)
     end
 end
 
----@return boolean
-function Chat:_terminal_alive()
-    return self._terminal_job ~= nil and vim.fn.jobwait({ self._terminal_job }, 0)[1] == -1
-end
-
----@return boolean
-function Chat:_ensure_terminal()
-    if self:_terminal_alive() and self._terminal_buf and vim.api.nvim_buf_is_valid(self._terminal_buf) then
-        return true
-    end
-    if self._terminal_buf and vim.api.nvim_buf_is_valid(self._terminal_buf) then
-        pcall(vim.api.nvim_buf_delete, self._terminal_buf, { force = true })
-    end
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[buf].bufhidden = "hide"
-    vim.api.nvim_buf_set_name(buf, ("π local terminal | %s"):format(self._session_id))
-    local job
-    local ok, err = pcall(function()
-        job = vim.api.nvim_buf_call(buf, function()
-            return vim.fn.termopen(vim.o.shell, {
-                cwd = self._cwd,
-                on_exit = function()
-                    vim.schedule(function()
-                        if self._terminal_job == job then
-                            self._terminal_job = nil
-                        end
-                    end)
-                end,
-            })
-        end)
-    end)
-    if not ok or not job or job <= 0 then
-        pcall(vim.api.nvim_buf_delete, buf, { force = true })
-        Notify.error("Failed to start local terminal: " .. tostring(err or job))
-        return false
-    end
-    self._terminal_buf = buf
-    self._terminal_job = job
-    vim.keymap.set("n", "q", function()
-        self:focus_prompt()
-    end, { buffer = buf, desc = "Return to π prompt" })
-    if self._prompt:command_mode() == "terminal" then
-        self._layout:set_content_buffer(buf, "local terminal · not in LLM context")
-    end
-    return true
-end
+function Chat:_detach_terminal_view() end
 
 ---@param mode pi.PromptCommandMode
 function Chat:_show_command_mode(mode)
-    if mode == "terminal" then
-        if self:_ensure_terminal() then
-            self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
-        end
+    if self._prompt:is_terminal_display() then
         return
     end
-    self._layout:set_content_buffer(nil)
+    if mode ~= "terminal" then
+        self._layout:set_content_buffer(nil)
+    end
 end
 
----@param raw_text string
----@param command string
-function Chat:_send_terminal(raw_text, command)
+---@param command? string
+function Chat:_enter_terminal(command)
     if self._attachments:count() > 0 then
-        Notify.warn("Attachments cannot be sent to local terminal")
+        Notify.warn("Attachments cannot be sent to the shell worksheet")
         return
     end
-    if not self:_ensure_terminal() then
+    if self._zen:is_active() then
+        self._zen:exit()
+    end
+    if not self._prompt:is_terminal_display() then
+        self._prompt:enter_terminal("")
+    end
+    local win = self._layout:prompt_win()
+    self._worksheet:show(self:prompt_buf(), win)
+    self:_set_worksheet_keymaps()
+    if command then
+        self._worksheet:set_input(command)
+        local ok, err = self._worksheet:execute_current()
+        if not ok then
+            Notify.error("Failed to run shell command: " .. tostring(err))
+        end
+    end
+end
+
+function Chat:leave_terminal()
+    self._worksheet:hide()
+    self:_restore_compose_keymaps()
+    self:_detach_terminal_view()
+    self._layout:set_content_buffer(nil)
+    if not self._prompt:leave_terminal() then
         return
     end
-    local hist_store = self:_history_store()
-    if hist_store then
-        hist_store:add(raw_text)
-    end
-    local ok, err = pcall(vim.api.nvim_chan_send, self._terminal_job, command .. "\n")
-    if not ok then
-        self._terminal_job = nil
-        Notify.error("Failed to send local terminal command: " .. tostring(err))
-        return
-    end
-    self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
-    self._prompt:set_text("!!")
+    self._layout:on_resize()
+    self:focus_prompt(nil, true)
 end
 
 function Chat:focus_terminal()
-    if self._prompt:command_mode() ~= "terminal" or not self:_ensure_terminal() then
-        Notify.warn("Enter !! local terminal mode first")
-        return
-    end
     if not self:is_visible() then
         self:show()
     end
-    self._layout:set_content_buffer(self._terminal_buf, "local terminal · not in LLM context")
-    local win = self._layout:history_win()
-    if not win then
+    if self._prompt:is_terminal_display() then
+        self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+        self:_set_worksheet_keymaps()
+        self._prompt:focus(nil, "normal")
         return
     end
-    vim.api.nvim_set_current_win(win)
-    vim.cmd("startinsert")
+    self._prompt:enter_terminal(nil, true)
+    self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+    self:_set_worksheet_keymaps()
+    self._prompt:focus(nil, "normal")
 end
 
 --- Complete the bash block for req_id from the RPC response.

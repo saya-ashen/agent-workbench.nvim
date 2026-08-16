@@ -45,6 +45,18 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiBashHeader` | Header row of a direct bash (`!`) block |
 | `PiBashOutput` | Output body of a direct bash block |
 
+## Shell worksheet
+
+| Group | Role |
+| --- | --- |
+| `PiShellPrompt` | Virtual `❯` marker on current, running, and completed worksheet command cells |
+| `PiShellRunning` | Running status beside the active command |
+| `PiShellSuccess` | Successful exit status and duration |
+| `PiShellFailure` | Failed exit status and duration |
+| `PiShellPath` | Validated file paths without a devicon-specific highlight |
+| `PiShellUrl` | URLs in completed command output |
+| `PiShellDiffHunk` | Unified-diff hunk headers in completed command output |
+
 ## Tool blocks
 
 | Group | Role |
