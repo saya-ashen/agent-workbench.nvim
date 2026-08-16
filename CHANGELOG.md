@@ -2,6 +2,7 @@
 
 ## 2026-08-16
 
+- **FIXED:** `scripts/nvim-dev` now starts through `require("agent-workbench")`, avoiding the deprecated `require("pi")` startup warning and its `Press any key to continue` prompt.
 - **FIXED:** Shell Worksheet now registers its Blink Fish completion provider through `agent-workbench.completion.shell`; the stale pre-rename `pi.completion.shell` path caused `module not found` errors from Blink cursor autocommands.
 
 - **ADDED:** typing `/model` now opens model argument completion from the current RPC session, matching pi's TUI behavior. Available models are fetched once per live session, filtered locally as input changes, shown with model ID and provider, and inserted as canonical `provider/model-id` through built-in omnifunc or the optional Blink source.

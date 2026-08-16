@@ -5,5 +5,5 @@ repo=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 exec nvim \
     --cmd "set runtimepath^=${repo}" \
     --cmd "set packpath^=${repo}" \
-    --cmd "lua require('pi').setup()" \
+    --cmd "lua require('agent-workbench').setup()" \
     "$@"
