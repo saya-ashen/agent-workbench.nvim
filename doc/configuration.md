@@ -359,9 +359,9 @@ Notes on a few fields:
 
 ## Project trust
 
-`pi2.nvim` runs pi in RPC mode and does not currently implement the TUI's interactive project trust prompt or save trust decisions. It uses pi's non-interactive defaults, which means project-local settings, resources, packages, extensions, and project `.agents/skills` are not loaded.
+`Agent Workbench` runs pi in RPC mode and does not currently implement the TUI's interactive project trust prompt or save trust decisions. It uses pi's non-interactive defaults, which means project-local settings, resources, packages, extensions, and project `.agents/skills` are not loaded.
 
-To trust project-local pi files when using `pi2.nvim`, either pass pi's trust flag through `cli.args`:
+To trust project-local pi files when using `Agent Workbench`, either pass pi's trust flag through `cli.args`:
 
 ```lua
 require("pi").setup({
@@ -379,4 +379,4 @@ or set the global pi default in `~/.pi/agent/settings.json`:
 }
 ```
 
-If you need interactive trust handling in `pi2.nvim`, please open an issue.
+If you need interactive trust handling in `Agent Workbench`, please open an issue.

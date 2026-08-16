@@ -1,10 +1,10 @@
 # Attention & dialogs
 
-Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the [diff review](diff-review.md) are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. pi2.nvim calls these **attention requests**. Selects and confirms use a session-local prompt mode; other request types share the existing attention queue and dialog surfaces.
+Extensions can ask the user for input mid-turn — selects, confirms, free-form text, multi-line editors, and the [diff review](diff-review.md) are all different flavors of the same thing under the hood: an `extension_ui_request` that blocks the agent until the user responds. Agent Workbench calls these **attention requests**. Selects and confirms use a session-local prompt mode; other request types share the existing attention queue and dialog surfaces.
 
 ## Immediate vs queued
 
-When a request arrives, pi2.nvim decides between showing it immediately and queueing it:
+When a request arrives, Agent Workbench decides between showing it immediately and queueing it:
 
 - **Immediate** — if the current tab's π prompt is focused and no request is already active, the request is dispatched right away. Selects and confirms replace the prompt's visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
 - **Queued** — otherwise (you're editing another file, you're in a different tab, or that session already has an active request), the request is added to a per-session FIFO queue, an attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
@@ -54,7 +54,7 @@ pi.has_attention()           -- boolean shortcut for the current tab
 pi.attention_state()         -- full state snapshot
 ```
 
-pi2.nvim also fires a `User` autocmd when a new request is added to the queue:
+Agent Workbench also fires a `User` autocmd when a new request is added to the queue:
 
 ```lua
 vim.api.nvim_create_autocmd("User", {

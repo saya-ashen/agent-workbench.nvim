@@ -1,10 +1,10 @@
 # Sessions
 
-π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and pi2.nvim gives you a few ways to navigate between them.
+π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and Agent Workbench gives you a few ways to navigate between them.
 
 ## Buffer-owned sessions
 
-pi2.nvim binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and `pi --mode rpc` subprocess.
+Agent Workbench binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and `pi --mode rpc` subprocess.
 
 Use normal buffer commands to switch sessions:
 
@@ -20,13 +20,13 @@ Entering a session History buffer switches the active chat view in the current t
 
 ## Workspaces
 
-Each Neovim tab acts as one workspace. On setup, pi2.nvim fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:PiNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. If that workspace has an idle π session, pi2.nvim starts a fresh session whose RPC process, tools, resources, and persistence all use the new cwd, hands its visible History and prompt windows to the replacement, then stops the previous session and deletes its stale History buffer. A streaming, compacting, retrying, or direct-bash session blocks the change and restores its original cwd; wait or abort first. Files and later π sessions use the workspace cwd too. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:PiWorkspaces` opens a searchable picker.
+Each Neovim tab acts as one workspace. On setup, Agent Workbench fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:PiNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. If that workspace has an idle π session, Agent Workbench starts a fresh session whose RPC process, tools, resources, and persistence all use the new cwd, hands its visible History and prompt windows to the replacement, then stops the previous session and deletes its stale History buffer. A streaming, compacting, retrying, or direct-bash session blocks the change and restores its original cwd; wait or abort first. Files and later π sessions use the workspace cwd too. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:PiWorkspaces` opens a searchable picker.
 
-When `bufferline.nvim` owns the tabline, pi2.nvim appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs show the short cwd basename by default, followed by session count and status; visible numeric indices are hidden while native click targets and `gt` / `gT` navigation remain active. Configure `workspace_bar.label = "path"` for full paths, `show_index = true` for visible indices, or pass a label function receiving the workspace row. While this integration is active, pi2.nvim disables bufferline's redundant native numeric tab indicators and restores their prior setting on reset. Workspace tabs preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, pi2.nvim installs its built-in workspace tabline temporarily and yields ownership if bufferline loads later.
+When `bufferline.nvim` owns the tabline, Agent Workbench appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs show the short cwd basename by default, followed by session count and status; visible numeric indices are hidden while native click targets and `gt` / `gT` navigation remain active. Configure `workspace_bar.label = "path"` for full paths, `show_index = true` for visible indices, or pass a label function receiving the workspace row. While this integration is active, Agent Workbench disables bufferline's redundant native numeric tab indicators and restores their prior setting on reset. Workspace tabs preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, Agent Workbench installs its built-in workspace tabline temporarily and yields ownership if bufferline loads later.
 
 `:PiWorkspaceSidebar` toggles a collapsible workspace explorer (right side, 38 columns by default). Its compact tree-style rows show a shortened `~/...` cwd, then list that workspace's session History buffers and ordinary listed buffers together. Session rows show a backend title (falling back to `session <id>`), a state-specific icon, and a right-aligned `running`, `compacting`, `attention`, `idle`, or `stopped` state. Ordinary buffers show their basename, filetype icon and color from `nvim-web-devicons` when available, and a `modified` marker when changed; without devicons they use a generic file icon. On workspace rows, both `h` and `l` toggle expansion. On session rows, `h` collapses the parent workspace and `l` activates the session, focusing the prompt with History scrolled to latest output on first entry or restoring History at its last moved cursor afterward; on buffer rows, `<CR>` / `l` switches to the buffer. `e` / `<Tab>` also toggles workspace rows. `<CR>` switches the workspace or opens its selected item, `d` deletes an ordinary buffer directly or confirms before stopping a session and deleting its History buffer, `a` creates a session in the selected workspace, `A` opens the new-workspace path input, `o` switches and closes the sidebar, `R` refreshes workspaces and buffers, `?` toggles key help, and `q` closes. The sidebar is a native scratch buffer and split; it does not require Snacks or Neo-tree. Configure `workspace_sidebar.position` (`"left"` or `"right"`) and `workspace_sidebar.width`.
 
-Buffers are tracked by workspace ownership. On tab switches, pi2.nvim temporarily lists only buffers owned by the current workspace, keeping bufferline, `:bnext`, and `:bprevious` scoped to that workspace without deleting hidden buffers. The workspace sidebar still groups tracked buffers from every workspace and keeps session History buffers with their creating workspace. A normal buffer can belong to multiple workspaces when entered there. Entering a session History buffer directly restores its last moved cursor and expanded/collapsed block folds, or opens at latest output when no cursor was recorded. `:PiMoveBuffer {tab-number}` moves the current ordinary buffer to another workspace; π History buffers cannot be moved. Closing a workspace removes its membership only; it never deletes buffers or stops sessions.
+Buffers are tracked by workspace ownership. On tab switches, Agent Workbench temporarily lists only buffers owned by the current workspace, keeping bufferline, `:bnext`, and `:bprevious` scoped to that workspace without deleting hidden buffers. The workspace sidebar still groups tracked buffers from every workspace and keeps session History buffers with their creating workspace. A normal buffer can belong to multiple workspaces when entered there. Entering a session History buffer directly restores its last moved cursor and expanded/collapsed block folds, or opens at latest output when no cursor was recorded. `:PiMoveBuffer {tab-number}` moves the current ordinary buffer to another workspace; π History buffers cannot be moved. Closing a workspace removes its membership only; it never deletes buffers or stops sessions.
 
 ```lua
 require("pi").setup({
@@ -50,7 +50,7 @@ require("pi").setup({
 
 ## Session history as a buffer
 
-Sessions are loaded in two phases: pi2.nvim first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. Prompt submissions stay blocked, with draft text preserved, until RPC `switch_session` and `get_messages` complete so preview text cannot be sent to the previous backend session. An identical authoritative response keeps the preview in place; only changed state triggers a rebuild. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view. Unsupported or damaged files fall back to RPC-only loading.
+Sessions are loaded in two phases: Agent Workbench first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. Prompt submissions stay blocked, with draft text preserved, until RPC `switch_session` and `get_messages` complete so preview text cannot be sent to the previous backend session. An identical authoritative response keeps the preview in place; only changed state triggers a rebuild. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view. Unsupported or damaged files fall back to RPC-only loading.
 
 The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 
@@ -74,7 +74,7 @@ where `<agent_dir>` is resolved in this order:
 2. `$PI_CODING_AGENT_DIR` environment variable
 3. `~/.pi/agent` (default)
 
-Crucially, sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when pi2.nvim is running from the same directory. This matches how you'd actually want it: you don't want to accidentally resume an unrelated project's conversation just because you opened a chat in a new tab.
+Crucially, sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when Agent Workbench is running from the same directory. This matches how you'd actually want it: you don't want to accidentally resume an unrelated project's conversation just because you opened a chat in a new tab.
 
 ## Starting, continuing, resuming
 
@@ -106,7 +106,7 @@ A pi session is not a linear log but a **tree** of entries: going back to an ear
 
 Navigation is refused while the agent is streaming. Summarizing requires a selected model.
 
-How it works: the RPC protocol has no `navigate_tree` command, so pi2.nvim bundles a tiny pi extension (`extensions/tree.ts`) and injects it into every RPC process via `--extension`. It registers a `/tree` command whose handler calls pi's `ctx.navigateTree()`; extension commands are awaited end-to-end over RPC, so the chat rebuilds exactly when navigation (and any summarization) completes.
+How it works: the RPC protocol has no `navigate_tree` command, so Agent Workbench bundles a tiny pi extension (`extensions/tree.ts`) and injects it into every RPC process via `--extension`. It registers a `/tree` command whose handler calls pi's `ctx.navigateTree()`; extension commands are awaited end-to-end over RPC, so the chat rebuilds exactly when navigation (and any summarization) completes.
 
 ```lua
 require("pi").setup({
@@ -160,4 +160,4 @@ Long sessions eventually run into the model's context window limit. pi delegates
 
 Compaction can't run while the agent is streaming — wait for the current turn to finish (or abort it) first. Message submits during compaction are queued and sent after compaction finishes.
 
-After successful compaction, pi2.nvim renders a collapsed summary block in chat history. Focus the block and press `<Tab>` to expand the backend-generated summary.
+After successful compaction, Agent Workbench renders a collapsed summary block in chat history. Focus the block and press `<Tab>` to expand the backend-generated summary.

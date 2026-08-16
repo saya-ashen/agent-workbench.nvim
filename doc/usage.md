@@ -1,6 +1,6 @@
 # Usage
 
-This page walks through how `pi2.nvim` actually works in practice. Each subsection is independent — jump straight to what you need.
+This page walks through how `Agent Workbench` actually works in practice. Each subsection is independent — jump straight to what you need.
 
 - [Chat & layouts](#chat--layouts)
 - [Prompt](#prompt)
@@ -252,16 +252,16 @@ Output is trimmed and capped at 256 KB per provider (larger payloads are truncat
 
 ## Slash commands
 
-Slash commands come from pi2.nvim's local controls and the **pi backend**. Local controls mirror pi's TUI commands: `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort`. Backend commands cover three sources:
+Slash commands come from Agent Workbench's local controls and the **pi backend**. Local controls mirror pi's TUI commands: `/new`, `/resume`, `/model`, `/thinking`, `/compact`, `/name`, `/session`, and `/abort`. Backend commands cover three sources:
 
-- **Local controls** — handled directly by pi2.nvim and mapped to existing APIs.
+- **Local controls** — handled directly by Agent Workbench and mapped to existing APIs.
 - **Extension commands** — registered by pi extensions (e.g. `/permission-toggle-auto-accept`).
 - **Prompt templates** — reusable prompt snippets, expanded server-side before being sent to the LLM.
 - **Skills** — invoked as `/skill:name`, also expanded server-side.
 
-pi2.nvim fetches backend command list from running session over RPC and merges it with local controls. Backend set refreshes periodically, so extension/template/skill commands depend on current session.
+Agent Workbench fetches backend command list from running session over RPC and merges it with local controls. Backend set refreshes periodically, so extension/template/skill commands depend on current session.
 
-A local command with arguments uses them when pi2.nvim supports direct execution. Unsupported arguments are ignored while command still runs locally; built-in command names are never forwarded to backend as prompts.
+A local command with arguments uses them when Agent Workbench supports direct execution. Unsupported arguments are ignored while command still runs locally; built-in command names are never forwarded to backend as prompts.
 
 To invoke a backend command, type it on the **first line** of the prompt:
 
@@ -275,7 +275,7 @@ Arguments, if the command takes any, follow on the same line:
 /some-command arg1 arg2
 ```
 
-Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not a pi2.nvim restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
+Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not an Agent Workbench restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
 
 One command is handled locally instead of being sent: a bare `/tree` opens the [session tree navigator](sessions.md#session-tree-navigation-pitree) (`:PiTree`), mirroring the TUI's built-in `/tree`.
 
@@ -323,7 +323,7 @@ It will:
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.
 
-**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), pi2.nvim ships a source at `pi.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
+**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `pi.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
 
 ```lua
 require("blink.cmp").setup({
@@ -567,7 +567,7 @@ The command is a silent no-op without an active session. `q`/`<Esc>`/`<CR>` clos
 
 ## Navigation
 
-Moving between π panels and scrolling the history without leaving the prompt are some of the most common things you do during a session, so they're worth setting up properly. As with the rest of [Keymaps](keymaps.md), pi2.nvim doesn't bind these by default — it just exposes the API and lets you wire it into the navigation conventions you already use.
+Moving between π panels and scrolling the history without leaving the prompt are some of the most common things you do during a session, so they're worth setting up properly. As with the rest of [Keymaps](keymaps.md), Agent Workbench doesn't bind these by default — it just exposes the API and lets you wire it into the navigation conventions you already use.
 
 ### Focus
 
@@ -639,7 +639,7 @@ require("pi").setup({
 
 ## Tool blocks
 
-When the agent invokes a tool, pi2.nvim renders the call inline in the chat history as a **tool block**. Each block stores the tool name, its input summary, and its output. Full-block tools start folded so long tool-heavy turns stay compact; complete output remains in the history buffer and can be opened on demand. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
+When the agent invokes a tool, Agent Workbench renders the call inline in the chat history as a **tool block**. Each block stores the tool name, its input summary, and its output. Full-block tools start folded so long tool-heavy turns stay compact; complete output remains in the history buffer and can be opened on demand. Blocks use a fold indicator (`▾`/`▸`) and indentation instead of box-drawing borders — chrome stays out of the way.
 
 ```
 ▾ 󰻂 bash
@@ -656,7 +656,7 @@ Successful tool calls end silently (a blank breathing line); only errors print a
 Tools come in two rendering styles:
 
 - **Inline tools** render as a single line. `read` is the canonical example — it shows `read path/to/file (42 lines)` and stays on one line even when the file is huge, because inlining the content would just be noise. Consecutive inline tool calls are grouped without blank lines between them.
-- **Full-block tools** get the multi-line indented block shown above. `bash`, `edit`, `write`, the four [pi-web-access](https://github.com/nicobailon/pi-web-access) tools (`web_search`, `fetch_content`, `source_check`, `get_search_content`), and any tool pi2.nvim doesn't have a dedicated renderer for fall into this category.
+- **Full-block tools** get the multi-line indented block shown above. `bash`, `edit`, `write`, the four [pi-web-access](https://github.com/nicobailon/pi-web-access) tools (`web_search`, `fetch_content`, `source_check`, `get_search_content`), and any tool Agent Workbench doesn't have a dedicated renderer for fall into this category.
 
 ### Auto-collapse and `<Tab>`
 
@@ -685,7 +685,7 @@ Built-in thresholds:
 
 ### Status resolution
 
-pi2.nvim picks the tool's display status from the `isError` flag plus any status prefix embedded in the result text by an extension:
+Agent Workbench picks the tool's display status from the `isError` flag plus any status prefix embedded in the result text by an extension:
 
 | Prefix in result | Display status |
 | --- | --- |
@@ -695,7 +695,7 @@ pi2.nvim picks the tool's display status from the `isError` flag plus any status
 | `[aborted]` | `aborted` (turn was aborted while the tool was in flight) |
 | _none_ (and `isError=true`) | `error` |
 
-The prefix is stripped from the displayed text before the block is rendered, so your users never see the raw `[accepted]` / `[rejected]` markers — just the tool block in the corresponding state. This is how the permission extension in [Diff review](diff-review.md) communicates "accepted but already applied elsewhere" back to pi2.nvim without looking like an error.
+The prefix is stripped from the displayed text before the block is rendered, so your users never see the raw `[accepted]` / `[rejected]` markers — just the tool block in the corresponding state. This is how the permission extension in [Diff review](diff-review.md) communicates "accepted but already applied elsewhere" back to Agent Workbench without looking like an error.
 
 ### Customization
 
@@ -704,11 +704,11 @@ The prefix is stripped from the displayed text before the block is rendered, so 
 
 ## Models
 
-π can talk to any model your local pi installation has access to — Claude, GPT, Gemini, Groq, OpenRouter, DeepSeek, locally-hosted models, and whatever else you've configured in your pi backend. pi2.nvim doesn't manage credentials or provider wiring; all of that lives in pi itself. What pi2.nvim _does_ give you is a way to shape the set of models you see, cycle through them quickly, and switch mid-session without restarting the chat.
+π can talk to any model your local pi installation has access to — Claude, GPT, Gemini, Groq, OpenRouter, DeepSeek, locally-hosted models, and whatever else you've configured in your pi backend. Agent Workbench doesn't manage credentials or provider wiring; all of that lives in pi itself. What Agent Workbench _does_ give you is a way to shape the set of models you see, cycle through them quickly, and switch mid-session without restarting the chat.
 
 ### The `models` list
 
-The top-level `models` option in `setup()` is an optional **preferred list** of model entries. When set, it curates the subset used by the cycle and select commands below. When unset, pi2.nvim falls back to whatever the backend has available.
+The top-level `models` option in `setup()` is an optional **preferred list** of model entries. When set, it curates the subset used by the cycle and select commands below. When unset, Agent Workbench falls back to whatever the backend has available.
 
 Each entry is one of:
 
@@ -761,11 +761,11 @@ Typical setup binds the three operations in the prompt buffer: a fast cycle key,
 
 ## Thinking
 
-Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, OpenAI codex, etc.) emit **thinking blocks** alongside their normal output — an internal monologue the model uses to work through a problem before producing a final answer. pi2.nvim renders these inline in the chat history with a distinct `labels.thinking` marker.
+Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, OpenAI codex, etc.) emit **thinking blocks** alongside their normal output — an internal monologue the model uses to work through a problem before producing a final answer. Agent Workbench renders these inline in the chat history with a distinct `labels.thinking` marker.
 
 ### Visibility
 
-Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so you may want to hide them. pi2.nvim shows them by default; you can flip the default and toggle visibility on demand:
+Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so you may want to hide them. Agent Workbench shows them by default; you can flip the default and toggle visibility on demand:
 
 - **Default**: `show_thinking` (bool in `setup()`) — `true` by default.
 - **Toggle**: `:PiToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
@@ -778,7 +778,7 @@ When visible, each thinking block renders as a **single header line** with an in
 
 ### Thinking levels
 
-Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. pi2.nvim exposes the backend's thinking levels (commonly these six):
+Beyond visibility, reasoning-capable models let you pick _how much_ the model thinks. Agent Workbench exposes the backend's thinking levels (commonly these six):
 
 ```
 off | minimal | low | medium | high | xhigh
@@ -816,7 +816,7 @@ Notes:
 
 ## Buffer reload
 
-When pi's `edit` or `write` tool modifies a file that is currently open in a Neovim buffer, pi2.nvim can automatically reload that buffer so you always see the latest content without a manual `:edit!`.
+When pi's `edit` or `write` tool modifies a file that is currently open in a Neovim buffer, Agent Workbench can automatically reload that buffer so you always see the latest content without a manual `:edit!`.
 
 The behavior is controlled by `reload.mode`:
 
@@ -834,11 +834,11 @@ require("pi").setup({
 })
 ```
 
-A buffer is considered _modified_ when `vim.bo[buf].modified` is true (i.e. the user has unsaved changes). pi2.nvim never overwrites unsaved work — modified buffers are always skipped regardless of mode. Paths are canonicalized (symlinks resolved) before matching, so a file reported through a symlinked path still hits the right buffer.
+A buffer is considered _modified_ when `vim.bo[buf].modified` is true (i.e. the user has unsaved changes). Agent Workbench never overwrites unsaved work — modified buffers are always skipped regardless of mode. Paths are canonicalized (symlinks resolved) before matching, so a file reported through a symlinked path still hits the right buffer.
 
 ## Startup block
 
-At the top of every π chat history, pi2.nvim renders a **startup block** — a summary of what the agent has available in the current session. It lives just above the first message and is always in the history buffer.
+At the top of every π chat history, Agent Workbench renders a **startup block** — a summary of what the agent has available in the current session. It lives just above the first message and is always in the history buffer.
 
 By default the block starts collapsed with a compact summary. Set `expand_startup_details = true` to start with full details, and toggle it at any time with either:
 
@@ -847,7 +847,7 @@ By default the block starts collapsed with a compact summary. Set `expand_startu
 
 ### What's in it
 
-pi2.nvim pulls the startup content from the backend's `get_commands` RPC response and groups it into up to three built-in sections:
+Agent Workbench pulls the startup content from the backend's `get_commands` RPC response and groups it into up to three built-in sections:
 
 - **`[Skills]`** — skill commands (`skill:name`) loaded for this session, with their location (`[user]` / `[project]` / `[path]`) and source path.
 - **`[Prompts]`** — prompt templates (`/name`) loaded for this session, with location and path.
@@ -856,4 +856,4 @@ pi2.nvim pulls the startup content from the backend's `get_commands` RPC respons
 Sections only appear when they have at least one entry, so a bare session with no skills or extensions just shows whatever exists.
 
 > [!WARNING]
-> The startup block is currently **incomplete**, and this is an upstream pi limitation rather than something pi2.nvim can fix on its own. The RPC interface only exposes a subset of what the session actually has loaded — for example, loaded extensions that don't register any `/commands` are not surfaced here (even though they're running and active), and memory files (`AGENTS.md`, etc.) aren't reported at all. Treat the block as a useful-but-partial snapshot until the upstream protocol catches up. Until then, the most reliable way for an extension to advertise itself is via [extension startup announcements](extensions.md#extension-startup-announcements) — sending a `:startup` widget with whatever state it wants the user to see.
+> The startup block is currently **incomplete**, and this is an upstream pi limitation rather than something Agent Workbench can fix on its own. The RPC interface only exposes a subset of what the session actually has loaded — for example, loaded extensions that don't register any `/commands` are not surfaced here (even though they're running and active), and memory files (`AGENTS.md`, etc.) aren't reported at all. Treat the block as a useful-but-partial snapshot until the upstream protocol catches up. Until then, the most reliable way for an extension to advertise itself is via [extension startup announcements](extensions.md#extension-startup-announcements) — sending a `:startup` widget with whatever state it wants the user to see.

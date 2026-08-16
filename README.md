@@ -160,7 +160,7 @@ Run `:checkhealth pi` after installation.
 
 ```lua
 {
-    "zgs225/pi2.nvim",
+    "saya-ashen/agent-workbench.nvim",
     dependencies = {
         "OXY2DEV/markview.nvim",
         "HakonHarnes/img-clip.nvim", -- optional: :PiPasteImage
@@ -173,7 +173,7 @@ Run `:checkhealth pi` after installation.
 
 ```lua
 vim.pack.add({
-    "https://github.com/zgs225/pi2.nvim",
+    "https://github.com/saya-ashen/agent-workbench.nvim",
     "https://github.com/OXY2DEV/markview.nvim",
 })
 

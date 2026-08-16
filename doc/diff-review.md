@@ -1,11 +1,11 @@
 # Diff review
 
-When an `edit` or `write` tool is about to run, pi2.nvim can intercept it and open a two-way diff in a new tab so you can inspect, tweak, and accept or reject the change _before_ it lands on disk. This is the main review surface for agent-driven refactoring.
+When an `edit` or `write` tool is about to run, Agent Workbench can intercept it and open a two-way diff in a new tab so you can inspect, tweak, and accept or reject the change _before_ it lands on disk. This is the main review surface for agent-driven refactoring.
 
 Once the diff is open:
 
 - **Left pane** — the current file content, opened read-only.
-- **Right pane** — the content the agent is proposing. You can modify the _right_ pane before accepting — anything you change there becomes the new content and pi2.nvim will write your edited version instead of the agent's original proposal.
+- **Right pane** — the content the agent is proposing. You can modify the _right_ pane before accepting — anything you change there becomes the new content and Agent Workbench will write your edited version instead of the agent's original proposal.
 - **Accept** with `<Leader>da` (default) — or just `:w` the right pane. If disk write or close fails, review stays open and no acceptance response is sent.
 - **Reject** with `<Leader>dr`.
 - **Add/edit a review note** on the current line with `<Leader>dn`, or select multiple lines with `V` first to attach one note to the selected range. In the note dialog, `<CR>` submits and `<S-CR>` inserts a newline. Notes are review metadata: they show below the last target line as wrapped virtual text with a vertical border, plus a configurable sign/icon on the first line. Range notes use small dots on following lines. Multiple note blocks ending on the same line are separated by a horizontal separator. They are not inserted into the file. Set `diff.icons.note = false` to omit gutter signs. Submitting an empty note deletes it.
@@ -47,22 +47,22 @@ Unlike the pre-execution review, `:PiDiff` needs no permission extension: it onl
 
 ## You need a permission extension
 
-Here's the part to understand before the rest of this section makes sense: **pi itself has no built-in permission system**. The agent dispatches tools whenever it decides to, and by default nothing stands between it and your files. pi2.nvim's diff review _only_ triggers when an extension intercepts `edit`/`write` tool calls and routes them through a specially-formatted `ctx.ui.select` request.
+Here's the part to understand before the rest of this section makes sense: **pi itself has no built-in permission system**. The agent dispatches tools whenever it decides to, and by default nothing stands between it and your files. Agent Workbench's diff review _only_ triggers when an extension intercepts `edit`/`write` tool calls and routes them through a specially-formatted `ctx.ui.select` request.
 
 In other words, **without a permission extension, there is no diff review**. The agent will apply edits directly, and you'll see them in the chat history as completed tool calls, not as reviewable diffs.
 
 If you want a drop-in, fully-featured solution, use my reference implementation: [**alex35mil/agentic-af/extensions/permission**](https://github.com/alex35mil/agentic-af/tree/main/extensions/permission). It is very similar to Claude Code's allow / ask / deny model with glob rules, per-tool argument matching, skill-derived allowances, bash argument splitting and redirection safety, and an auto-accept toggle.
 
-If you'd rather roll your own, or just want to understand the protocol, here's a minimal pi extension that intercepts `edit` and `write` tool calls, routes them through pi2.nvim's diff review UI, and handles all response variants.
+If you'd rather roll your own, or just want to understand the protocol, here's a minimal pi extension that intercepts `edit` and `write` tool calls, routes them through Agent Workbench's diff review UI, and handles all response variants.
 
 <details>
 <summary><strong>Minimal example</strong> — click to expand</summary>
 
 ```ts
 /**
- * Minimal diff-review permission extension for pi + pi2.nvim.
+ * Minimal diff-review permission extension for pi + Agent Workbench.
  * Intercepts every `edit` and `write` tool call and routes it through
- * pi2.nvim's diff review UI via ctx.ui.select.
+ * Agent Workbench's diff review UI via ctx.ui.select.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 
@@ -104,7 +104,7 @@ export default function (pi: ExtensionAPI) {
         const path = (event.input as { path?: string }).path
         if (!path) return undefined
 
-        // Build the payload pi2.nvim recognizes as a diff review request.
+        // Build the payload Agent Workbench recognizes as a diff review request.
         const title = JSON.stringify({
             prompt: `${event.toolName}: ${path}`,
             toolName: event.toolName,
@@ -117,12 +117,12 @@ export default function (pi: ExtensionAPI) {
             return undefined
         }
 
-        // pi2.nvim path: structured JSON response.
+        // Agent Workbench path: structured JSON response.
         if (choice?.startsWith("{")) {
             const parsed = JSON.parse(choice)
 
             if (parsed.result === "Accepted") {
-                // pi2.nvim already wrote the file — block the tool so
+                // Agent Workbench already wrote the file — block the tool so
                 // pi's dispatcher doesn't double-write.
                 approvedToolCalls.add(event.toolCallId)
                 return {
@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
             }
 
             if (parsed.result === "AcceptModified") {
-                // pi2.nvim wrote a user-modified version of the file.
+                // Agent Workbench wrote a user-modified version of the file.
                 approvedToolCalls.add(event.toolCallId)
                 return {
                     block: true,
@@ -182,7 +182,7 @@ Drop that file into your pi extensions directory (usually `~/.pi/agent/extension
 
 ## Protocol reference
 
-pi2.nvim routes an extension `select` request to the diff review UI if and only if:
+Agent Workbench routes an extension `select` request to the diff review UI if and only if:
 
 1. The request method is `select`, and
 2. The `title` field is a JSON string that decodes to an object with `toolName === "edit"` or `"write"`.
@@ -208,9 +208,9 @@ For `write`, replace `edits` with `"content": "<full file text>"`.
 
 | Value | Meaning | Extension should… |
 | --- | --- | --- |
-| `"Accept"` | Only returned by the pi TUI, not by pi2.nvim. | Return `undefined` and let the tool run normally. |
-| `'{"result":"Accepted","notes":[...]}'` | User accepted. pi2.nvim already wrote the file. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }` so pi doesn't double-write. Include notes in `reason` when present. |
-| `'{"result":"AcceptModified","content":"...","notes":[...]}'` | User edited the proposal, then accepted. pi2.nvim already wrote the modified version. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }`, ideally including the modified content so the agent sees the final state. Include notes when present. |
+| `"Accept"` | Only returned by the pi TUI, not by Agent Workbench. | Return `undefined` and let the tool run normally. |
+| `'{"result":"Accepted","notes":[...]}'` | User accepted. Agent Workbench already wrote the file. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }` so pi doesn't double-write. Include notes in `reason` when present. |
+| `'{"result":"AcceptModified","content":"...","notes":[...]}'` | User edited the proposal, then accepted. Agent Workbench already wrote the modified version. `notes` is omitted when empty. | Return `{ block: true, reason: "[accepted] ..." }`, ideally including the modified content so the agent sees the final state. Include notes when present. |
 | `'{"result":"Rejected","notes":[...]}'` | User rejected with review notes. File unchanged. | Return `{ block: true, reason: "[rejected] ..." }` with the notes. Do **not** call `ctx.abort()` if you want the agent to continue and address the notes. |
 | Anything else (`"Reject"`, `undefined`, cancellation) | User rejected without notes. | Return `{ block: true, reason: "[rejected] ..." }`; call `ctx.abort()` if rejection should stop the turn. |
 
@@ -242,8 +242,8 @@ For `AcceptModified` specifically, it's important to surface the final content b
 
 This gives the agent three things in one message: confirmation that the edit landed, an explicit note that the user changed it, and the new authoritative content so the next turn starts from the right file state.
 
-The `[accepted]` and `[rejected]` prefixes in the `reason` string are parsed by pi2.nvim and used to pick the tool-call display status (completed vs rejected) in the chat history — see [Tool blocks → Status resolution](usage.md#status-resolution).
+The `[accepted]` and `[rejected]` prefixes in the `reason` string are parsed by Agent Workbench and used to pick the tool-call display status (completed vs rejected) in the chat history — see [Tool blocks → Status resolution](usage.md#status-resolution).
 
-Because pi2.nvim writes the file _itself_ for `Accepted` and `AcceptModified`, the extension **must** return `{ block: true }` in those cases. If it doesn't, pi's tool dispatcher will run the original `edit`/`write` on top of pi2.nvim's version and you'll end up with a double-apply.
+Because Agent Workbench writes the file _itself_ for `Accepted` and `AcceptModified`, the extension **must** return `{ block: true }` in those cases. If it doesn't, pi's tool dispatcher will run the original `edit`/`write` on top of Agent Workbench's version and you'll end up with a double-apply.
 
 Blocked tool results come back to the agent with `isError: true`. For approved-but-blocked calls, flip that back in a `message_end` handler (as the minimal example does) so the LLM doesn't treat an accepted edit as a failure on the next turn.

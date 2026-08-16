@@ -146,7 +146,7 @@ M.check = function()
             vim.health.ok("bundled tree extension found (`:PiTree`)")
         else
             vim.health.warn("bundled tree extension not found at " .. tree_path, {
-                "Reinstall pi2.nvim or set `tree = { enabled = false }` to disable :PiTree",
+                "Reinstall Agent Workbench or set `tree = { enabled = false }` to disable :PiTree",
             })
         end
     end
