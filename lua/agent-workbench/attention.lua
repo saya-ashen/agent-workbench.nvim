@@ -273,6 +273,38 @@ local function remaining_timeout_ms(expires_at)
     return expires_at - now_ms()
 end
 
+---@param options any
+---@param details any
+---@return (string|agent_workbench.PromptOption)[]
+local function select_options(options, details)
+    if type(options) ~= "table" then
+        return {}
+    end
+
+    local result = {}
+    for index, option in ipairs(options) do
+        local detail = type(details) == "table" and details[index] or nil
+        if type(option) == "string" and type(detail) == "table" and type(detail.label) == "string" then
+            result[#result + 1] = {
+                label = detail.label,
+                description = type(detail.description) == "string" and detail.description or nil,
+                preview = type(detail.preview) == "string" and detail.preview or nil,
+                value = type(detail.value) == "string" and detail.value or option,
+            }
+        elseif type(option) == "string" then
+            result[#result + 1] = option
+        elseif type(option) == "table" and type(option.label) == "string" then
+            result[#result + 1] = {
+                label = option.label,
+                description = type(option.description) == "string" and option.description or nil,
+                preview = type(option.preview) == "string" and option.preview or nil,
+                value = type(option.value) == "string" and option.value or option.label,
+            }
+        end
+    end
+    return result
+end
+
 ---@param session agent_workbench.Session
 ---@param msg agent_workbench.RpcEvent
 ---@return agent_workbench.AttentionEntry?
@@ -320,7 +352,7 @@ local function build_entry(session, msg)
                     id = id,
                     kind = "select",
                     title = msg.title or "Select",
-                    options = msg.options or {},
+                    options = select_options(msg.options, msg.optionDetails),
                     selected = 1,
                     timeout = timeout,
                     callback = function(choice, expired)
@@ -525,11 +557,7 @@ function M.present(session, msg)
     end
 
     local prompt_request = entry.kind == "select" or entry.kind == "confirm"
-    if
-        session.chat:has_prompt_focus()
-        and not session.chat:has_prompt_request()
-        and (prompt_request or not session.chat:has_draft())
-    then
+    if not session.chat:has_prompt_request() and (prompt_request or not session.chat:has_draft()) then
         if entry.open() then
             return true
         end

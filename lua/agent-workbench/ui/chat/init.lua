@@ -564,7 +564,7 @@ function Chat:_set_worksheet_keymaps()
             end
         end)
         return ""
-    end, { buffer = buf, desc = "Run π shell cell", expr = true })
+    end, { buffer = buf, desc = "Run π shell cell or send stdin", expr = true })
     vim.keymap.set("i", "<S-CR>", function()
         return "<CR>"
     end, { buffer = buf, desc = "Insert newline in π shell cell", expr = true })
@@ -635,7 +635,7 @@ function Chat:_restore_compose_keymaps()
     end
     local buf = self:prompt_buf()
     for _, mode in ipairs({ "n", "i" }) do
-        delete_owned_map(buf, mode, "<CR>", "Run π shell cell")
+        delete_owned_map(buf, mode, "<CR>", "Run π shell cell or send stdin")
     end
     delete_owned_map(buf, "i", "<S-CR>", "Insert newline in π shell cell")
     for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "c", "C" }) do
@@ -726,6 +726,7 @@ function Chat:on_resize()
     self._layout:on_resize()
     if self._prompt:is_terminal_display() then
         self._worksheet:show(self:prompt_buf(), self._layout:prompt_win())
+        self._worksheet:resize_tui()
     end
     self:refresh_prompt_attention()
 end

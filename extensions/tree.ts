@@ -1,5 +1,5 @@
 /**
- * pi.nvim tree navigation bridge.
+ * Agent Workbench tree navigation bridge.
  *
  * The RPC protocol exposes `get_tree` but no `navigate_tree` command, so
  * frontends cannot move the session leaf the way the TUI's /tree does.
@@ -14,26 +14,45 @@
  *   summary - navigate and summarize the abandoned branch
  *   custom  - navigate and summarize with the given custom instructions
  *
- * Loaded by pi.nvim via `--extension <plugin>/extensions/tree.ts`; disable
- * with `require("pi").setup({ tree = { enabled = false } })`.
+ * Loaded by Agent Workbench via `--extension <plugin>/extensions/tree.ts`; disable
+ * with `require("agent-workbench").setup({ tree = { enabled = false } })`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+type TreeContext = {
+	navigateTree?: (
+		entryId: string,
+		options: { summarize: boolean; customInstructions?: string },
+	) => Promise<{ cancelled: boolean }>;
+	ui: { notify: (message: string, level: "info" | "warning" | "error") => void };
+};
+
+type ExtensionAPI = {
+	registerCommand: (
+		name: string,
+		command: {
+			description: string;
+			handler: (args: string, ctx: TreeContext) => Promise<void>;
+		},
+	) => void;
+};
 
 export default function treeBridge(pi: ExtensionAPI) {
 	pi.registerCommand("tree", {
-		description: "Navigate to a point in the session tree (backend for pi.nvim :PiTree)",
+		description:
+			"Navigate to a point in the session tree (backend for Agent Workbench :AgentWorkbenchTree)",
 		handler: async (args, ctx) => {
 			if (typeof ctx.navigateTree !== "function") {
 				throw new Error(
 					"ctx.navigateTree is unavailable: this pi version does not support tree navigation. " +
-						"Upgrade pi or disable the feature: require('pi').setup({ tree = { enabled = false } })",
+						"Upgrade pi or disable the feature: require('agent-workbench').setup({ tree = { enabled = false } })",
 				);
 			}
 
 			const trimmed = args.trim();
 			if (trimmed === "") {
-				throw new Error("usage: /tree <entryId> [none|summary|custom] [custom instructions...]");
+				throw new Error(
+					"usage: /tree <entryId> [none|summary|custom] [custom instructions...]",
+				);
 			}
 
 			const firstSpace = trimmed.indexOf(" ");
@@ -50,10 +69,15 @@ export default function treeBridge(pi: ExtensionAPI) {
 				summarize = true;
 				customInstructions = rest === "custom" ? "" : rest.slice("custom ".length);
 			} else {
-				throw new Error(`unknown tree mode "${rest}" (expected none|summary|custom)`);
+				throw new Error(
+					`unknown tree mode "${rest}" (expected none|summary|custom)`,
+				);
 			}
 
-			const result = await ctx.navigateTree(entryId, { summarize, customInstructions });
+			const result = await ctx.navigateTree(entryId, {
+				summarize,
+				customInstructions,
+			});
 			if (result.cancelled) {
 				ctx.ui.notify("Tree navigation was cancelled by an extension", "info");
 			}

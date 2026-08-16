@@ -102,4 +102,34 @@ describe("cross-tab attention", function()
         assert.is_true(Attention.open_next())
         assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
     end)
+
+    it("maps structured select metadata without parsing the title", function()
+        local owner = session(start_tab)
+        local request
+        owner.chat.has_draft = function()
+            return false
+        end
+        owner.chat.present_prompt_request = function(_, value)
+            request = value
+            return true
+        end
+
+        assert.is_true(Attention.present(owner, {
+            type = "extension_ui_request",
+            id = "structured",
+            method = "select",
+            title = "Choose",
+            options = { "1. A — a", "2. B — b" },
+            optionDetails = {
+                { label = "1. A", description = "a", preview = "Preview A", value = "1. A — a" },
+                { label = "2. B", description = "b", preview = "Preview B", value = "2. B — b" },
+            },
+        }))
+
+        assert.are.equal("Choose", request.title)
+        assert.are.same({
+            { label = "1. A", description = "a", preview = "Preview A", value = "1. A — a" },
+            { label = "2. B", description = "b", preview = "Preview B", value = "2. B — b" },
+        }, request.options)
+    end)
 end)

@@ -68,6 +68,10 @@ local function fake_session(completion_output)
             self.command = command
             return true
         end,
+        send_input = function(self, input)
+            self.input = input
+            return true
+        end,
         complete = function(self, commandline, callback)
             self.completion_commandline = commandline
             callback(completion_output or "")
@@ -179,7 +183,7 @@ describe("shell worksheet", function()
         worksheet:set_input("echo from-insert-enter")
 
         local enter = assert(find_map(chat:prompt_buf(), "i", "<CR>"))
-        assert.are.equal("Run π shell cell", enter.desc)
+        assert.are.equal("Run π shell cell or send stdin", enter.desc)
         enter.callback()
         assert.is_true(vim.wait(1000, function()
             return session.command ~= nil
@@ -189,6 +193,112 @@ describe("shell worksheet", function()
 
         worksheet:_finish(0, 1)
         assert.is_true(wait_finished(chat))
+        delete_chat(chat)
+    end)
+
+    it("sends current input to a running foreground command", function()
+        local chat = new_chat()
+        enter_worksheet(chat)
+        local worksheet = chat._worksheet
+        local session = fake_session()
+        worksheet._session = session
+        worksheet:set_input("interactive command")
+        assert.is_true(worksheet:execute_current())
+
+        worksheet:set_input("next input")
+        assert.is_true(worksheet:execute_current())
+        assert.are.equal("next input", session.input)
+        assert.are.equal("  ", vim.api.nvim_get_current_line())
+
+        assert.is_true(worksheet:execute_current())
+        assert.are.equal("", session.input)
+
+        worksheet:_finish(0, 1)
+        assert.is_true(wait_finished(chat))
+        delete_chat(chat)
+    end)
+
+    it("feeds line input to a real Fish foreground command", function()
+        if vim.fn.executable("fish") ~= 1 then
+            return
+        end
+        local chat = new_chat()
+        enter_worksheet(chat)
+        local worksheet = chat._worksheet
+        worksheet:set_input("read --prompt-str 'value> ' value; printf '__PI_STDIN__%s\\n' $value")
+        assert.is_true(worksheet:execute_current())
+        assert.is_true(vim.wait(5000, function()
+            local frame = worksheet._session._frame
+            return frame ~= nil and frame:active()
+        end, 20))
+
+        worksheet:set_input("from-worksheet")
+        assert.is_true(worksheet:execute_current())
+        assert.is_true(wait_finished(chat))
+        assert.is_true(buffer_text(chat:prompt_buf()):find("__PI_STDIN__from-worksheet", 1, true) ~= nil)
+        delete_chat(chat)
+    end)
+
+    it("restores the worksheet when a nested alternate-screen program exits", function()
+        if vim.fn.executable("fish") ~= 1 then
+            return
+        end
+        local chat = new_chat()
+        enter_worksheet(chat)
+        local worksheet = chat._worksheet
+        worksheet:set_input(
+            "printf '\\e[?10'; printf '49h'; read -l tui; printf '\\e[?1049l'; read -l after; printf '__PI_AFTER_TUI__%s\\n' $after"
+        )
+        assert.is_true(worksheet:execute_current())
+        assert.is_true(vim.wait(5000, function()
+            return worksheet._tui_win ~= nil and vim.api.nvim_win_is_valid(worksheet._tui_win)
+        end, 20))
+
+        local tui_win = assert(worksheet._tui_win)
+        assert.are.equal(worksheet._session:terminal_buffer(), vim.api.nvim_win_get_buf(tui_win))
+        assert.are.equal("terminal", vim.bo[vim.api.nvim_win_get_buf(tui_win)].buftype)
+        assert.is_true(vim.api.nvim_win_call(tui_win, function()
+            return vim.fn.line("w$") == vim.fn.line("$")
+        end))
+        assert.is_true(worksheet._session:send_input("close-tui"))
+        assert.is_true(vim.wait(5000, function()
+            return worksheet._tui_win == nil
+        end, 20))
+        assert.is_false(vim.api.nvim_win_is_valid(tui_win))
+        assert.is_true(worksheet:running())
+        assert.are.equal(chat:prompt_win(), vim.api.nvim_get_current_win())
+
+        worksheet:set_input("continued")
+        assert.is_true(worksheet:execute_current())
+        assert.is_true(wait_finished(chat))
+        assert.is_true(buffer_text(chat:prompt_buf()):find("__PI_AFTER_TUI__continued", 1, true) ~= nil)
+        delete_chat(chat)
+    end)
+
+    it("interrupts an alternate-screen program when Normal q closes its float", function()
+        if vim.fn.executable("fish") ~= 1 then
+            return
+        end
+        local chat = new_chat()
+        enter_worksheet(chat)
+        local worksheet = chat._worksheet
+        worksheet:set_input("printf '\\e[?1049h'; sleep 30")
+        assert.is_true(worksheet:execute_current())
+        assert.is_true(vim.wait(5000, function()
+            return worksheet._tui_win ~= nil and vim.api.nvim_win_is_valid(worksheet._tui_win)
+        end, 20))
+
+        local tui_win = assert(worksheet._tui_win)
+        local terminal_buf = assert(worksheet._session:terminal_buffer())
+        local quit = assert(find_map(terminal_buf, "n", "q"))
+        assert.are.equal("Exit interactive π shell command", quit.desc)
+        vim.wait(100)
+        quit.callback()
+
+        assert.is_false(vim.api.nvim_win_is_valid(tui_win))
+        assert.is_true(wait_finished(chat))
+        run_cell(chat, "printf '__PI_AFTER_QUIT__\\n'")
+        assert.is_true(buffer_text(chat:prompt_buf()):find("__PI_AFTER_QUIT__", 1, true) ~= nil)
         delete_chat(chat)
     end)
 
@@ -385,7 +495,7 @@ describe("shell worksheet", function()
             assert.is_nil(find_map(buf, "n", lhs), lhs .. " must not be buffer-local in worksheet Normal mode")
             assert.is_nil(find_map(buf, "i", lhs), lhs .. " must not be buffer-local in worksheet Insert mode")
         end
-        assert.are.equal("Run π shell cell", assert(find_map(buf, "i", "<CR>")).desc)
+        assert.are.equal("Run π shell cell or send stdin", assert(find_map(buf, "i", "<CR>")).desc)
         assert.are.equal("Insert newline in π shell cell", assert(find_map(buf, "i", "<S-CR>")).desc)
         assert.are.equal("Return from empty π shell input", assert(find_map(buf, "i", "<C-D>")).desc)
         assert.are.equal("Interrupt running π shell command", assert(find_map(buf, "n", "<C-C>")).desc)
@@ -393,7 +503,7 @@ describe("shell worksheet", function()
         assert.are.equal("Select previous π shell completion", assert(find_map(buf, "i", "<S-Tab>")).desc)
         assert.is_true(vim.b[buf].completion)
         assert.is_true(vim.b[buf].pi_prompt_completion)
-        assert.are.equal("Run π shell cell", assert(find_map(buf, "n", "<CR>")).desc)
+        assert.are.equal("Run π shell cell or send stdin", assert(find_map(buf, "n", "<CR>")).desc)
         assert.are.equal("Edit current π shell input", assert(find_map(buf, "n", "i")).desc)
         assert.are.equal("user π mapping", assert(find_map(buf, "n", "gZ")).desc)
         assert.are.equal("Return to π compose prompt from worksheet", assert(find_map(buf, "n", "q")).desc)
@@ -604,7 +714,7 @@ describe("shell worksheet", function()
         assert.is_true(text:find("before-request", 1, true) ~= nil)
         assert.is_true(text:find("after-request", 1, true) ~= nil)
         assert.are.equal("  next-draft", vim.api.nvim_get_current_line())
-        assert.are.equal("Run π shell cell", assert(find_map(chat:prompt_buf(), "n", "<CR>")).desc)
+        assert.are.equal("Run π shell cell or send stdin", assert(find_map(chat:prompt_buf(), "n", "<CR>")).desc)
         vim.api.nvim_buf_call(buf, function()
             vim.cmd("undo")
         end)

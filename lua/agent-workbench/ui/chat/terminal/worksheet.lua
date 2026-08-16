@@ -1,3 +1,4 @@
+local Config = require("agent-workbench.config")
 local Output = require("agent-workbench.ui.chat.terminal.output")
 local Completion = require("agent-workbench.ui.chat.terminal.shell.completion")
 local Session = require("agent-workbench.ui.chat.terminal.shell.session")
@@ -6,6 +7,7 @@ local marks_ns = vim.api.nvim_create_namespace("pi-shell-worksheet-marks")
 local prompt_ns = vim.api.nvim_create_namespace("pi-shell-worksheet-prompt")
 local PREVIEW_LINES = 8
 local INPUT_PREFIX = "  "
+local TUI_TITLE = " Shell · interactive "
 local worksheets = {}
 
 ---@class agent_workbench.ShellBlock
@@ -68,6 +70,8 @@ local worksheets = {}
 ---@field _output_dirty boolean
 ---@field _completion_generation integer
 ---@field _completion_cache table<string, string>
+---@field _tui_win integer?
+---@field _tui_return_win integer?
 ---@field _session agent_workbench.ShellSession
 ---@field completion_context fun(self: agent_workbench.ShellWorksheet, cursor: integer[]): agent_workbench.ShellCompletionContext?
 ---@field request_completion fun(self: agent_workbench.ShellWorksheet, commandline: string, current: string, callback: fun(output: string, parent_output?: string)): boolean, string?
@@ -131,10 +135,20 @@ function Worksheet.new(cwd)
     self._output_dirty = true
     self._completion_generation = 0
     self._completion_cache = {}
+    self._tui_win = nil
+    self._tui_return_win = nil
     self._session = Session.new({
         cwd = cwd,
         on_output = function(bytes)
             self:_append_output(bytes)
+        end,
+        on_tui_enter = function()
+            self:_show_tui()
+        end,
+        on_tui_leave = function()
+            if self:_close_tui() then
+                self:focus_input()
+            end
         end,
         on_end = function(status, duration_ms, shell_cwd)
             self:_finish(status, duration_ms, shell_cwd)
@@ -146,6 +160,87 @@ function Worksheet.new(cwd)
         end,
     })
     return self
+end
+
+---@return table
+local function tui_window_config()
+    local editor_height = math.max(1, vim.o.lines - vim.o.cmdheight - 1)
+    local max_width = math.max(1, vim.o.columns - 4)
+    local max_height = math.max(1, editor_height - 4)
+    local width = math.max(1, math.min(max_width, math.floor(vim.o.columns * 0.9)))
+    local height = math.max(1, math.min(max_height, math.floor(editor_height * 0.85)))
+    return {
+        relative = "editor",
+        row = math.max(0, math.floor((editor_height - height) / 2)),
+        col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+        width = width,
+        height = height,
+        style = "minimal",
+        border = Config.options.dialog.border,
+        title = TUI_TITLE,
+        title_pos = "center",
+        zindex = 60,
+    }
+end
+
+---@return boolean
+function Worksheet:_close_tui()
+    local win = self._tui_win
+    local focused = win ~= nil and vim.api.nvim_get_current_win() == win
+    if win and vim.api.nvim_win_is_valid(win) then
+        pcall(vim.api.nvim_win_close, win, true)
+    end
+    self._tui_win = nil
+    local return_win = self._tui_return_win
+    self._tui_return_win = nil
+    if focused and return_win and vim.api.nvim_win_is_valid(return_win) then
+        pcall(vim.api.nvim_set_current_win, return_win)
+    end
+    return focused
+end
+
+function Worksheet:_show_tui()
+    if not self._buf or not self._win or not vim.api.nvim_win_is_valid(self._win) then
+        return
+    end
+    if self._tui_win and vim.api.nvim_win_is_valid(self._tui_win) then
+        return
+    end
+    local terminal_buf = self._session:terminal_buffer()
+    if not terminal_buf then
+        return
+    end
+    self._tui_return_win = self._win
+    local ok, win = pcall(vim.api.nvim_open_win, terminal_buf, true, tui_window_config())
+    if not ok then
+        self._tui_return_win = nil
+        return
+    end
+    self._tui_win = win
+    vim.wo[win].number = false
+    vim.wo[win].relativenumber = false
+    vim.wo[win].signcolumn = "no"
+    vim.wo[win].wrap = false
+    vim.keymap.set("t", "<C-g>c", function()
+        self:interrupt()
+    end, { buffer = terminal_buf, desc = "Interrupt interactive π shell command" })
+    vim.keymap.set("t", "<C-g>p", function()
+        self:_close_tui()
+    end, { buffer = terminal_buf, desc = "Return to π shell worksheet" })
+    vim.keymap.set("n", "q", function()
+        self:interrupt()
+        self:_close_tui()
+    end, { buffer = terminal_buf, desc = "Exit interactive π shell command" })
+    vim.api.nvim_win_call(win, function()
+        vim.cmd("normal! Gzb")
+    end)
+    vim.cmd("startinsert")
+end
+
+function Worksheet:resize_tui()
+    if self._tui_win and vim.api.nvim_win_is_valid(self._tui_win) then
+        pcall(vim.api.nvim_win_set_config, self._tui_win, tui_window_config())
+    end
 end
 
 ---@return boolean
@@ -601,6 +696,7 @@ function Worksheet:show(buf, win)
 end
 
 function Worksheet:hide()
+    self:_close_tui()
     self._completion_generation = self._completion_generation + 1
     local buf, win = self._buf, self._win
     if self._protection_group then
@@ -674,6 +770,7 @@ end
 ---@param duration_ms integer
 ---@param cwd_after? string
 function Worksheet:_finalize(active, status, duration_ms, cwd_after)
+    local refocus_input = self:_close_tui()
     active.finishing = nil
     active.preview_pending = nil
     self:_sync()
@@ -692,6 +789,9 @@ function Worksheet:_finalize(active, status, duration_ms, cwd_after)
         return
     end
     self:_apply_result(active, output, status, duration_ms, cwd_after)
+    if refocus_input then
+        self:focus_input()
+    end
 end
 
 ---@param active agent_workbench.ShellBlock
@@ -937,12 +1037,44 @@ function Worksheet:complete()
     return self:_request_completion(true, self._completion_generation)
 end
 
+---@return string?, string?
+function Worksheet:_input()
+    local buf = self._buf
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        return nil, "shell worksheet is not visible"
+    end
+    self:_sync()
+    local lines = vim.list_slice(self._lines, self._current_start, #self._lines)
+    if (lines[1] or ""):sub(1, #INPUT_PREFIX) == INPUT_PREFIX then
+        lines[1] = lines[1]:sub(#INPUT_PREFIX + 1)
+    end
+    return table.concat(lines, "\n")
+end
+
+---@return boolean, string?
+function Worksheet:_send_input()
+    local input, err = self:_input()
+    if input == nil then
+        return false, err
+    end
+    local ok
+    ok, err = self._session:send_input(input)
+    if not ok then
+        return false, err
+    end
+    self:set_input("")
+    if self._win and vim.api.nvim_win_is_valid(self._win) then
+        pcall(vim.api.nvim_win_set_cursor, self._win, { self._current_start, #INPUT_PREFIX })
+    end
+    return true
+end
+
 ---@return boolean, string?
 function Worksheet:execute_current()
     self._completion_generation = self._completion_generation + 1
     self._completion_cache = {}
     if self._running then
-        return false, "shell command is already running"
+        return self:_send_input()
     end
     local buf = self._buf
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
@@ -1017,6 +1149,7 @@ function Worksheet:interrupt()
 end
 
 function Worksheet:stop()
+    self:_close_tui()
     self._completion_generation = self._completion_generation + 1
     if self._active then
         self:_close_capture(self._active)

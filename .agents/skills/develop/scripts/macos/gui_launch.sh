@@ -44,7 +44,8 @@ WSOCK_FILE=$RUN.WSOCK
 OLDPID=$(cat "$WTPID_FILE" 2>/dev/null)
 [ -n "$OLDPID" ] && kill "$OLDPID" 2>/dev/null
 if [ -S "$SOCK" ]; then
-  SPID=$(lsof -t "$SOCK" 2>/dev/null | head -1); [ -n "$SPID" ] && kill "$SPID" 2>/dev/null
+  SPID=$(lsof -t "$SOCK" 2>/dev/null | head -1)
+  [ -n "$SPID" ] && kill "$SPID" 2>/dev/null
 fi
 sleep 1.5
 rm -f "$SOCK" "$WTPID_FILE" "$WIN_FILE" "$PANE_FILE" "$WSOCK_FILE"
@@ -56,7 +57,7 @@ rm -f "$SOCK" "$WTPID_FILE" "$WIN_FILE" "$PANE_FILE" "$WSOCK_FILE"
 # config replaces the user's wezterm config for this instance (their
 # keybindings/fonts are irrelevant — nvim's UI is what is under test).
 WZLUA=$RUN.wezterm.lua
-cat > "$WZLUA" <<'LUA'
+cat >"$WZLUA" <<'LUA'
 local wezterm = require 'wezterm'
 local mux = wezterm.mux
 wezterm.on('gui-startup', function(cmd)
@@ -79,9 +80,13 @@ wezterm --config-file "$WZLUA" \
   -- nvim --listen "$SOCK" "$@" &
 
 # Wait for the RPC socket, then RPC readiness.
-for i in $(seq 1 60); do [ -S "$SOCK" ] && break; sleep 0.25; done
 for i in $(seq 1 60); do
-  nvim --server "$SOCK" --remote-expr '1' >/dev/null 2>&1 && break; sleep 0.25
+  [ -S "$SOCK" ] && break
+  sleep 0.25
+done
+for i in $(seq 1 60); do
+  nvim --server "$SOCK" --remote-expr '1' >/dev/null 2>&1 && break
+  sleep 0.25
 done
 
 # The test wezterm-gui is found by the SOCKET STRING in its own cmdline — on
@@ -90,7 +95,10 @@ done
 WTPID=""
 for i in $(seq 1 60); do
   WTPID=$(pgrep -f "wezterm-gui.*$SOCK" | head -1)
-  [ -n "$WTPID" ] && { echo "$WTPID" > "$WTPID_FILE"; break; }
+  [ -n "$WTPID" ] && {
+    echo "$WTPID" >"$WTPID_FILE"
+    break
+  }
   sleep 0.25
 done
 
@@ -98,11 +106,14 @@ done
 WSOCK=~/.local/share/wezterm/gui-sock-$WTPID
 PANE=""
 if [ -S "$WSOCK" ]; then
-  echo "$WSOCK" > "$WSOCK_FILE"
+  echo "$WSOCK" >"$WSOCK_FILE"
   for i in $(seq 1 40); do
-    PANE=$(WEZTERM_UNIX_SOCKET=$WSOCK wezterm cli list --format json 2>/dev/null \
-      | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['pane_id'])" 2>/dev/null)
-    [ -n "$PANE" ] && { echo "$PANE" > "$PANE_FILE"; break; }
+    PANE=$(WEZTERM_UNIX_SOCKET=$WSOCK wezterm cli list --format json 2>/dev/null |
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['pane_id'])" 2>/dev/null)
+    [ -n "$PANE" ] && {
+      echo "$PANE" >"$PANE_FILE"
+      break
+    }
     sleep 0.25
   done
 fi
@@ -113,7 +124,7 @@ fi
 # bridge metadata. Prints "<id> <area>" for every layer-0 window of the pid
 # over ALL windows (occluded/other-Space included); we take the largest.
 SWIFT=$RUN.winid.swift
-cat > "$SWIFT" <<'SW'
+cat >"$SWIFT" <<'SW'
 import CoreGraphics
 import Foundation
 guard CommandLine.arguments.count > 1, let pid = Int32(CommandLine.arguments[1]) else { exit(2) }
@@ -137,7 +148,7 @@ if [ -n "$WTPID" ]; then
   done
 fi
 if [ -n "$WIN" ]; then
-  echo "$WIN" > "$WIN_FILE"
+  echo "$WIN" >"$WIN_FILE"
 else
   echo "WARNING: no CGWindowID for wezterm-gui pid ${WTPID:-?}."
   echo "  Screen Recording is not granted to this terminal (G27): window lists hide"

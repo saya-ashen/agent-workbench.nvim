@@ -151,7 +151,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 ### G13 — First keypress only loads the plugin; toggle seems dead
 
-- **现象:** After the first `,ap`, `package.loaded["pi"]` is true but no chat buffers exist yet.
+- **现象:** After the first `,ap`, `package.loaded["agent-workbench"]` is true but no chat buffers exist yet.
 - **根因:** lazy loads the plugin spec on first key use; the mapped toggle may not have executed on that same press.
 - **修法:** In tests, `wait_for` the `pi-chat-prompt` buffer; to isolate "is the wiring broken vs. lazy timing", call `require("agent-workbench").show({layout="side"})` over RPC and see if buffers appear.
 
@@ -201,7 +201,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 - **现象:** Unit + headless + GUI automation are all green, the on-disk code is correct, yet the nvim the user (or you, mid-session) is actually using still behaves the old, broken way.
 - **根因:** lazy.nvim reads a plugin's Lua modules into `package.loaded` the first time they are `require`d, and **never** refreshes those tables from disk afterwards. pi is lazy-loaded on first use, so the first `,ap`/command snapshots the modules for the lifetime of that nvim process. If pi was already used in a running nvim before you landed the fix, that process is running the pre-fix code — re-running tests in *that* process will never show the fix. This is exactly how "all tests pass but the user still hits the bug" happens: the test instance is freshly launched (new code), the user's instance is long-lived (old code).
-- **修法:** After editing `lua/agent-workbench/**`, a **running nvim must be restarted** (or a brand-new nvim opened) to pick up the change. `:Lazy reload pi.nvim` is *not* reliable for this — it re-sources the plugin's start scripts but generally does **not** clear the `package.loaded["pi.*"]` cache, so `require` keeps returning the old tables. When verifying a fix, **always use a freshly launched instance** (`gui_launch.sh` does this); never validate against a session that already has pi loaded, or you will conclude "fixed" while the user's open instance is still old.
+- **修法:** After editing `lua/agent-workbench/**`, a **running nvim must be restarted** (or a brand-new nvim opened) to pick up the change. `:Lazy reload agent-workbench.nvim` is *not* reliable for this — it re-sources the plugin's start scripts but generally does **not** clear the `package.loaded["agent-workbench.*"]` cache, so `require` keeps returning the old tables. When verifying a fix, **always use a freshly launched instance** (`gui_launch.sh` does this); never validate against a session that already has Agent Workbench loaded, or you will conclude "fixed" while the user's open instance is still old.
 - **元教训:** When "tests green but user reports the bug", first ask *when the user's process loaded the module*. If the user is talking to you *through* pi, their pi modules were necessarily required before your fix existed — the bug they see is the snapshot, and the only cure on their side is a restart you cannot perform for them (it would kill the very session you are in).
 
 ### G22 — Whole-buffer API call on a per-event hot path stalls large sessions

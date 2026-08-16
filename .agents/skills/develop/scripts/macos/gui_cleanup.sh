@@ -21,7 +21,7 @@
 set -u
 RUN=${RUN:-/tmp/pi_dev_test}
 SOCK=${SOCK:-$RUN.sock}
-F=$SOCK   # the discriminator string
+F=$SOCK # the discriminator string
 
 WTPID=$(cat "$RUN.WTPID" 2>/dev/null)
 WTPIDS=$(pgrep -f "wezterm-gui.*$F" 2>/dev/null | tr '\n' ' ')
@@ -32,7 +32,8 @@ echo "test wezterm-gui: [${WTPID:-none} $WTPIDS]  test nvim: [$NVPIDS]"
 # its daemonized cmdline (see gui_launch.sh); nvim by the socket string.
 ALL="${WTPID:-} $WTPIDS $NVPIDS"
 if [ -n "$(echo "$ALL" | tr -d ' ')" ]; then
-  kill $ALL 2>/dev/null; sleep 2
+  kill $ALL 2>/dev/null
+  sleep 2
   SURV="$(pgrep -f "wezterm-gui.*$F" 2>/dev/null) $(pgrep -f "nvim.*$F" 2>/dev/null)"
   [ -n "$(echo "$SURV" | tr -d ' ')" ] && kill -9 $SURV 2>/dev/null
 fi

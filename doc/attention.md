@@ -6,8 +6,8 @@ Extensions can ask the user for input mid-turn — selects, confirms, free-form 
 
 When a request arrives, Agent Workbench decides between showing it immediately and queueing it:
 
-- **Immediate** — if the current tab's π prompt is focused and no request is already active, the request is dispatched right away. Selects and confirms replace the prompt's visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
-- **Queued** — otherwise (you're editing another file, you're in a different tab, or that session already has an active request), the request is added to a per-session FIFO queue, an attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
+- **Immediate** — if no request is already active, the request opens without requiring focus in the π prompt. Selects and confirms move focus to Prompt and replace its visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
+- **Queued** — when that session already has an active request, or when a free-form input/editor would take over a non-empty compose draft, the request is added to a per-session FIFO queue. An attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
 
 Queued requests can be opened on demand with:
 
@@ -71,7 +71,7 @@ The built-in `attention` statusline component already uses this state — see [S
 
 ## Prompt request mode
 
-Extension selects and confirms switch their owning session's `pi-chat-prompt` buffer from `compose` mode to `request` mode. Prompt title becomes `CHOOSE` or `CONFIRM`; question and options render read-only in that session's prompt window. This keeps parallel agents distinguishable and prevents `<Esc>` from accidentally cancelling a blocking request.
+Extension selects and confirms switch their owning session's `pi-chat-prompt` buffer from `compose` mode to `request` mode. Prompt title becomes `CHOOSE` or `CONFIRM`; question and options render read-only in that session's prompt window. New RPC peers send `optionDetails` beside the compatible string option list, preserving each option's label, description, preview, and value without encoding UI data in the title. Agent Workbench preserves the selected preview's original lines in a virtual right-hand pane aligned with the option list and updates that pane during navigation. Narrow prompt windows place the same multiline preview below the options instead of overlapping or flattening it. Embedded `--- N. ... preview ---` title blocks remain accepted only as compatibility input from older `ask_user_question` releases. Confirming an option returns its value or legacy option string, never its preview. This keeps parallel agents distinguishable and prevents `<Esc>` from accidentally cancelling a blocking request.
 
 | Key | Action |
 | --- | --- |

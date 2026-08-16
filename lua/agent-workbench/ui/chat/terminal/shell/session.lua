@@ -1,12 +1,17 @@
 local Framing = require("agent-workbench.ui.chat.terminal.shell.framing")
 
 local COMPLETION_OUTPUT_MAX = 256 * 1024
+local ALTERNATE_SCREEN_ENTER = { "\27[?1049h", "\27[?1047h", "\27[?47h" }
+local ALTERNATE_SCREEN_LEAVE = { "\27[?1049l", "\27[?1047l", "\27[?47l" }
+local ALTERNATE_SCREEN_TAIL = 7
 
 ---@class agent_workbench.ShellSessionOpts
 ---@field cwd string
 ---@field on_output fun(bytes: string)
 ---@field on_exit fun(code: integer)
 ---@field on_start? fun()
+---@field on_tui_enter? fun()
+---@field on_tui_leave? fun()
 ---@field on_end fun(status: integer, duration_ms: integer, cwd?: string)
 
 ---@class agent_workbench.ShellCompletionRequest
@@ -28,6 +33,8 @@ local COMPLETION_OUTPUT_MAX = 256 * 1024
 ---@field _started_at integer?
 ---@field _running boolean
 ---@field _stopping boolean
+---@field _tui_active boolean
+---@field _tui_tail string
 local Session = {}
 Session.__index = Session
 
@@ -47,6 +54,8 @@ function Session.new(opts)
         _started_at = nil,
         _running = false,
         _stopping = false,
+        _tui_active = false,
+        _tui_tail = "",
     }, Session)
 end
 
@@ -65,7 +74,7 @@ function Session:start()
         return false, "fish executable not found"
     end
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[buf].bufhidden = "wipe"
+    vim.bo[buf].bufhidden = "hide"
     vim.bo[buf].swapfile = false
     self._stopping = false
     local started, job = pcall(vim.api.nvim_buf_call, buf, function()
@@ -114,6 +123,14 @@ function Session:start()
     return true
 end
 
+---@return integer?
+function Session:terminal_buffer()
+    if self._buf and vim.api.nvim_buf_is_valid(self._buf) then
+        return self._buf
+    end
+    return nil
+end
+
 ---@param command string
 ---@return boolean, string?
 function Session:run(command)
@@ -129,6 +146,8 @@ function Session:run(command)
     self._pending = command
     self._started_at = vim.uv.now()
     self._running = true
+    self._tui_active = false
+    self._tui_tail = ""
     if self._opts.on_start then
         self._opts.on_start()
     end
@@ -210,6 +229,22 @@ function Session:complete(commandline, callback)
     return self:_send_completion(request)
 end
 
+---@param input string
+---@return boolean, string?
+function Session:send_input(input)
+    local frame = self._frame
+    if not self._job or not self._running then
+        return false, "shell command is not running"
+    end
+    if self._pending or not frame or not frame:active() then
+        return false, "shell command is starting"
+    end
+    if not pcall(vim.api.nvim_chan_send, self._job, input .. "\n") then
+        return false, "could not write input to shell command"
+    end
+    return true
+end
+
 function Session:interrupt()
     if not self._job or not self._running then
         return
@@ -222,6 +257,41 @@ function Session:interrupt()
         return
     end
     pcall(vim.api.nvim_chan_send, self._job, "\003")
+end
+
+---@param bytes string
+---@param sequences string[]
+---@return integer?, integer?
+local function find_sequence(bytes, sequences)
+    local earliest, length
+    for _, sequence in ipairs(sequences) do
+        local start = bytes:find(sequence, 1, true)
+        if start and (not earliest or start < earliest) then
+            earliest = start
+            length = #sequence
+        end
+    end
+    return earliest, length
+end
+
+---@param bytes string
+function Session:_detect_tui(bytes)
+    local sample = self._tui_tail .. bytes
+    while sample ~= "" do
+        local sequences = self._tui_active and ALTERNATE_SCREEN_LEAVE or ALTERNATE_SCREEN_ENTER
+        local start, length = find_sequence(sample, sequences)
+        if not start or not length then
+            self._tui_tail = sample:sub(-ALTERNATE_SCREEN_TAIL)
+            return
+        end
+        sample = sample:sub(start + length)
+        self._tui_active = not self._tui_active
+        local callback = self._tui_active and self._opts.on_tui_enter or self._opts.on_tui_leave
+        if callback then
+            callback()
+        end
+    end
+    self._tui_tail = ""
 end
 
 ---@param bytes string
@@ -272,10 +342,12 @@ function Session:_receive(bytes)
     if frame then
         for _, event in ipairs(frame:feed(bytes)) do
             if event.type == "output" then
+                self:_detect_tui(event.bytes)
                 self._opts.on_output(event.bytes)
             else
                 self._running = false
                 self._frame = nil
+                self._tui_tail = ""
                 self._opts.on_end(
                     event.status,
                     math.max(0, vim.uv.now() - (self._started_at or vim.uv.now())),
@@ -301,6 +373,8 @@ function Session:stop()
     self._completion = nil
     self._ready_marker = nil
     self._ready_bytes = ""
+    self._tui_active = false
+    self._tui_tail = ""
     if self._buf and vim.api.nvim_buf_is_valid(self._buf) then
         pcall(vim.api.nvim_buf_delete, self._buf, { force = true })
     end

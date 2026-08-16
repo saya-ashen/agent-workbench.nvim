@@ -49,7 +49,7 @@ require("agent-workbench").setup({
     -- Chat panels
     panels = {
         history = { title = "π" },
-        prompt = { title = "prompt", bash_title = "bash" }, -- `!!` uses built-in "terminal" title
+        prompt = { title = "prompt", bash_title = "bash" }, -- `!` uses this title; `!!` uses fixed "shell"
         attachments = { title = "attached" },
     },
 

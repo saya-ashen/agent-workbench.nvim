@@ -1,18 +1,35 @@
 local Framing = require("agent-workbench.ui.chat.terminal.shell.framing")
+local Session = require("agent-workbench.ui.chat.terminal.shell.session")
 local Completion = require("agent-workbench.ui.chat.terminal.shell.completion")
 
 describe("shell frame parser", function()
     it("recognizes control frames split at every byte boundary", function()
         local frame = Framing.new("token")
         local bytes = frame:start_marker() .. "hello\nworld" .. frame:end_prefix() .. "7:/tmp/a%20b\7"
-        local events = {}
+        local output = {}
+        local ended
         for index = 1, #bytes do
-            vim.list_extend(events, frame:feed(bytes:sub(index, index)))
+            for _, event in ipairs(frame:feed(bytes:sub(index, index))) do
+                if event.type == "output" then
+                    output[#output + 1] = event.bytes
+                else
+                    ended = event
+                end
+            end
         end
-        assert.are.same({
-            { type = "output", bytes = "hello\nworld" },
-            { type = "end", status = 7, cwd = "/tmp/a b" },
-        }, events)
+        assert.are.equal("hello\nworld", table.concat(output))
+        assert.are.same({ type = "end", status = 7, cwd = "/tmp/a b" }, ended)
+    end)
+
+    it("streams output immediately while retaining split end markers", function()
+        local frame = Framing.new("token")
+        assert.are.same({ { type = "output", bytes = "prompt> " } }, frame:feed(frame:start_marker() .. "prompt> "))
+        assert.is_true(frame:active())
+
+        local prefix = frame:end_prefix()
+        assert.are.same({}, frame:feed(prefix:sub(1, -2)))
+        assert.are.same({ { type = "end", status = 0 } }, frame:feed(prefix:sub(-1) .. "0\7"))
+        assert.is_false(frame:active())
     end)
 
     it("keeps noise out and parses consecutive frames", function()
@@ -66,6 +83,42 @@ describe("shell frame parser", function()
             { type = "end", status = 0, cwd = vim.uv.cwd() },
         }, frame:feed(raw))
         assert.are.equal(0, vim.fn.filereadable(path))
+    end)
+
+    it("tracks alternate-screen entry and exit across callback boundaries", function()
+        local entered, left = 0, 0
+        local output = {}
+        local session = Session.new({
+            cwd = vim.uv.cwd(),
+            on_output = function(bytes)
+                output[#output + 1] = bytes
+            end,
+            on_tui_enter = function()
+                entered = entered + 1
+            end,
+            on_tui_leave = function()
+                left = left + 1
+            end,
+            on_end = function() end,
+            on_exit = function() end,
+        })
+        session._frame = {
+            feed = function(_, bytes)
+                return { { type = "output", bytes = bytes } }
+            end,
+        }
+
+        session:_receive("before\27[?10")
+        assert.are.equal(0, entered)
+        session:_receive("49hafter")
+        session:_receive("\27[?1049h")
+        session:_receive("\27[?104")
+        assert.are.same({ 1, 0 }, { entered, left })
+        session:_receive("9l")
+        session:_receive("\27[?47h")
+
+        assert.are.same({ 2, 1 }, { entered, left })
+        assert.are.equal("before\27[?1049hafter\27[?1049h\27[?1049l\27[?47h", table.concat(output))
     end)
 
     it("finds the current fish token in worksheet input", function()

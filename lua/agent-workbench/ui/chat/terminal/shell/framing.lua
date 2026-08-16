@@ -52,6 +52,20 @@ function Framing:wrap(command)
     )
 end
 
+local function marker_prefix_suffix_length(bytes, marker)
+    for length = math.min(#bytes, #marker - 1), 1, -1 do
+        if bytes:sub(-length) == marker:sub(1, length) then
+            return length
+        end
+    end
+    return 0
+end
+
+---@return boolean
+function Framing:active()
+    return self._active
+end
+
 ---@param value string
 ---@return string?
 local function unescape_url(value)
@@ -82,10 +96,11 @@ function Framing:feed(bytes)
         end
         local finish = self._bytes:find(end_prefix, 1, true)
         if not finish then
-            local keep = #end_prefix + 16
-            if #self._bytes > keep then
-                events[#events + 1] = { type = "output", bytes = self._bytes:sub(1, #self._bytes - keep) }
-                self._bytes = self._bytes:sub(#self._bytes - keep + 1)
+            local keep = marker_prefix_suffix_length(self._bytes, end_prefix)
+            local output_end = #self._bytes - keep
+            if output_end > 0 then
+                events[#events + 1] = { type = "output", bytes = self._bytes:sub(1, output_end) }
+                self._bytes = self._bytes:sub(output_end + 1)
             end
             break
         end

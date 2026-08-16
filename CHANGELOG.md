@@ -2,6 +2,12 @@
 
 ## 2026-08-16
 
+- **ADDED:** Shell Worksheet now detects standard alternate-screen output and automatically opens the existing persistent PTY at its latest screen in a native terminal float for full-screen applications such as `btop`, `htop`, `fzf`, and `lazygit`. Leaving the alternate screen or ending the outer command restores the worksheet without restarting Fish; `<C-g>c` interrupts, `<C-g>p` returns early while leaving the program running, and Normal-mode `q` interrupts the program before closing the float.
+
+- **FIXED:** Shell Worksheet now routes `<CR>` input to a running command's foreground PTY instead of rejecting it as a second command, enabling line-oriented nested shells and REPLs such as `nix shell`. Framed output now streams immediately while retaining only possible split marker bytes; commands remain line-oriented unless they enter an alternate screen, and hidden-password prompts remain unsupported in Worksheet input.
+
+- **FIXED:** Select requests now consume RPC `optionDetails` metadata beside the backward-compatible string option list, preserving labels, descriptions, previews, and explicit values without encoding UI data in the title. Prompt keeps only the selected preview in a multiline virtual pane beside the options, preserves box/code formatting, and refreshes it during navigation; narrow windows stack the same preview below the list without flattening it. Embedded `--- N. ... preview ---` title blocks remain supported for older `ask_user_question` releases; confirming returns the option value or legacy string, never preview text.
+- **FIXED:** Attention requests now open when focus is in History or another Agent Workbench window. Select/confirm requests move focus to Prompt automatically; free-form input/editor dialogs no longer require Prompt focus. Requests still queue when another request is active or compose draft protection applies.
 - **FIXED:** `scripts/nvim-dev` now starts through `require("agent-workbench")`, avoiding the deprecated `require("pi")` startup warning and its `Press any key to continue` prompt.
 - **FIXED:** Shell Worksheet now registers its Blink Fish completion provider through `agent-workbench.completion.shell`; the stale pre-rename `pi.completion.shell` path caused `module not found` errors from Blink cursor autocommands.
 

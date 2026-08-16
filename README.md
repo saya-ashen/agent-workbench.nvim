@@ -109,11 +109,13 @@ The worksheet is file-style Neovim editing, not terminal-mode input:
 - ANSI colors, URLs, paths, unified diffs, and JSON output receive editor highlights when supported.
 - Copying, searching, visual selection, `gf`, and normal motions operate on original output text.
 - Normal-mode editing from historical output jumps to the current input cell.
+- While a command is running, `<CR>` sends the current input to its foreground PTY instead of starting a second cell. This supports line-oriented nested shells and REPLs such as `nix shell`.
+- Commands that enter a standard alternate screen, including `btop`, `htop`, `fzf`, and `lazygit`, automatically open the same persistent PTY in a native terminal float. Leaving the alternate screen or ending the outer command restores the worksheet; terminal-mode `<C-g>c` interrupts it, terminal-mode `<C-g>p` returns early while leaving it running, and Normal-mode `q` interrupts the program and closes the float.
 - `<C-c>` interrupts only while a command is running; idle behavior stays native.
-- `<C-d>`, `q`, and `<C-g>p` return to compose while preserving worksheet state.
+- Outside the terminal float, `<C-d>`, `q`, and `<C-g>p` return to compose while preserving worksheet state.
 - Prompt requests can temporarily replace the worksheet while Fish keeps running.
 
-The worksheet currently requires the `fish` executable. It does not replace the user's normal shell configuration and does not make `!!` commands private: commands can still modify files and external systems.
+The worksheet currently requires the `fish` executable. It does not replace the user's normal shell configuration and does not make `!!` commands private: commands can still modify files and external systems. Foreground input stays line-oriented until a command emits a standard alternate-screen sequence; Agent Workbench then displays that same PTY in a native terminal float for full-screen input and resize handling. Programs that need raw input without entering an alternate screen are not detected. Hidden password prompts remain visible in the worksheet, so do not enter secrets there.
 
 ### Native Neovim UI
 
@@ -194,7 +196,7 @@ Defaults are usable without a custom configuration. Full options live in [doc/co
 | `:AgentWorkbenchReplaceSession` | Replace the current idle session |
 | `:AgentWorkbenchStop` | Stop the current RPC process and close its session |
 | `:AgentWorkbenchToggleChat` | Hide or show chat without stopping the session |
-| `:AgentWorkbenchToggleLayout` | Switch between side and float layouts |
+| `:AgentWorkbenchToggleLayout` | Switch between buffer and float layouts |
 | `:AgentWorkbenchSessions` | Show all live sessions and their state |
 | `:AgentWorkbenchTree` | Navigate the current session tree |
 | `:AgentWorkbenchSessionStats` | Show usage and cost statistics |
@@ -207,10 +209,13 @@ Defaults are usable without a custom configuration. Full options live in [doc/co
 | `:AgentWorkbenchAbort` | Abort the current agent turn |
 | `:AgentWorkbenchAbortBash` | Abort the running `!` command |
 | `:AgentWorkbenchCompact [instructions]` | Compact session context |
-| `:AgentWorkbenchCycleModel` / `:AgentWorkbenchSelectModel` | Change model |
+| `:AgentWorkbenchSelectModelAll` | Select a model from all available models |
+| `:AgentWorkbenchToggleThinking` | Show or hide thinking blocks |
 | `:AgentWorkbenchCycleThinking` / `:AgentWorkbenchSelectThinking` | Change thinking level |
+| `:AgentWorkbenchSendMention` | Send current file or selection as an @mention |
 | `:AgentWorkbenchAttachImage {path}` | Attach an image file |
 | `:AgentWorkbenchPasteImage` | Attach an image from the clipboard |
+| `:AgentWorkbenchToggleStartupDetails` | Expand or collapse startup details |
 | `:AgentWorkbenchToggleAutoCompaction` | Toggle automatic compaction |
 | `:AgentWorkbenchSessionName [name]` | Set or show session name |
 | `:AgentWorkbenchToggleDebug` | Toggle RPC debug logging |
@@ -281,6 +286,7 @@ Direct Neovim test commands are documented in `.agents/skills/develop/` for envi
 - [API](doc/api.md): public Lua API
 - [Extensions](doc/extensions.md): extension UI and custom RPC blocks
 - [Highlight groups](doc/highlight-groups.md): all plugin highlight groups
+- [Migration](doc/migration.md): move from `pi.nvim` compatibility entry points to the canonical Agent Workbench namespace
 - [Troubleshooting](doc/troubleshooting.md): healthcheck, RPC logs, and lifecycle diagnosis
 
 ## Relationship To pi.nvim
