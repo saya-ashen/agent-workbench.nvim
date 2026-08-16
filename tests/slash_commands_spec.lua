@@ -1,6 +1,6 @@
 describe("local slash commands", function()
-    local SlashCommands = require("pi.slash_commands")
-    local CommandsCache = require("pi.cache.commands")
+    local SlashCommands = require("agent-workbench.slash_commands")
+    local CommandsCache = require("agent-workbench.cache.commands")
 
     after_each(function()
         CommandsCache.invalidate()
@@ -37,8 +37,8 @@ describe("local slash commands", function()
 
     it("dispatches picker and lifecycle commands locally", function()
         local called = {}
-        local old_pi = package.loaded.pi
-        package.loaded.pi = {
+        local old_pi = package.loaded["agent-workbench"]
+        package.loaded["agent-workbench"] = {
             new_session = function()
                 called.new = true
             end,
@@ -76,7 +76,7 @@ describe("local slash commands", function()
             assert.is_true(SlashCommands.execute("/abort ignored"))
             assert.is_false(SlashCommands.execute("/extension-command"))
         end)
-        package.loaded.pi = old_pi
+        package.loaded["agent-workbench"] = old_pi
         assert.is_true(ok, err)
 
         assert.is_true(called.new)

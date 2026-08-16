@@ -11,7 +11,7 @@ When a request arrives, Agent Workbench decides between showing it immediately a
 
 Queued requests can be opened on demand with:
 
-- `:PiAttention` — open the oldest queued request across all tabs, switching to its owning tab before activating the session. If that tab was closed, current tab stays active.
+- `:AgentWorkbenchAttention` — open the oldest queued request across all tabs, switching to its owning tab before activating the session. If that tab was closed, current tab stays active.
 - `pi.attention()` — same thing from Lua.
 
 Both are no-ops when there's nothing queued.
@@ -23,14 +23,14 @@ By default (`attention.auto_open_on_prompt_focus = true`), focusing π prompt pu
 Disable this if you prefer to control the timing manually:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     attention = {
         auto_open_on_prompt_focus = false,
     },
 })
 ```
 
-With auto-open disabled, you drain the queue explicitly with `:PiAttention`.
+With auto-open disabled, you drain the queue explicitly with `:AgentWorkbenchAttention`.
 
 ## Completion notification
 
@@ -45,7 +45,7 @@ Handy if you are working on something else, either code or talk with another age
 A few Lua functions let you inspect the attention state without opening anything — useful for custom statuslines, tabline indicators, or extension widgets:
 
 ```lua
-local pi = require("pi")
+local pi = require("agent-workbench")
 
 pi.attention_count()         -- pending requests for the current tab
 pi.attention_count(tab_id)   -- pending requests for a specific tab
@@ -58,7 +58,7 @@ Agent Workbench also fires a `User` autocmd when a new request is added to the q
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
-    pattern = "PiAttentionRequested",
+    pattern = "AgentWorkbenchAttentionRequested",
     callback = function(event)
         local data = event.data
         -- data.tab, data.kind ("diff"|"select"|"confirm"|"input"|"editor"),
@@ -85,7 +85,7 @@ Compose draft, cursor, attachments, and prompt history remain untouched. After r
 Plugin-local model/thinking/diff-note pickers still use `vim.ui.select`. Inputs and editors remain custom floating windows with `pi-dialog` filetype. Style and keys for these floats live under `dialog` in `setup()`:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     dialog = {
         border = "rounded",
         -- Max size: fraction (<1) of editor, or columns/lines (>=1).

@@ -1,5 +1,5 @@
-local Config = require("pi.config")
-local WorkspaceBar = require("pi.ui.workspaces")
+local Config = require("agent-workbench.config")
+local WorkspaceBar = require("agent-workbench.ui.workspaces")
 
 Config.setup({})
 
@@ -26,16 +26,16 @@ describe("workspace bar", function()
         dirs[2] = assert(vim.uv.fs_realpath(dirs[2]))
         vim.cmd("tcd " .. vim.fn.fnameescape(dirs[1]))
 
-        original_sessions = package.loaded["pi.sessions.manager"]
-        original_attention = package.loaded["pi.attention"]
+        original_sessions = package.loaded["agent-workbench.sessions.manager"]
+        original_attention = package.loaded["agent-workbench.attention"]
         original_bufferline = rawget(_G, "nvim_bufferline")
         original_bufferline_config = package.loaded["bufferline.config"]
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return {}
             end,
         }
-        package.loaded["pi.attention"] = {
+        package.loaded["agent-workbench.attention"] = {
             count_for_session = function()
                 return 0
             end,
@@ -43,8 +43,8 @@ describe("workspace bar", function()
     end)
 
     after_each(function()
-        package.loaded["pi.sessions.manager"] = original_sessions
-        package.loaded["pi.attention"] = original_attention
+        package.loaded["agent-workbench.sessions.manager"] = original_sessions
+        package.loaded["agent-workbench.attention"] = original_attention
         rawset(_G, "nvim_bufferline", original_bufferline)
         WorkspaceBar._reset()
         package.loaded["bufferline.config"] = original_bufferline_config
@@ -80,7 +80,7 @@ describe("workspace bar", function()
     it("aggregates sessions by workspace cwd and renders clickable tabs", function()
         vim.cmd("tabnew")
         vim.cmd("tcd " .. vim.fn.fnameescape(dirs[2]))
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return {
                     {
@@ -121,7 +121,7 @@ describe("workspace bar", function()
         vim.cmd("tabnew")
         local second_tab = vim.api.nvim_get_current_tabpage()
         vim.cmd("tcd " .. vim.fn.fnameescape(dirs[1]))
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return {
                     {
@@ -173,14 +173,14 @@ describe("workspace bar", function()
         vim.ui.input = original_input
 
         assert.are.equal(2, #vim.api.nvim_list_tabpages())
-        assert.are.equal(dirs[2], require("pi.workspace").cwd(vim.api.nvim_get_current_tabpage()))
+        assert.are.equal(dirs[2], require("agent-workbench.workspace").cwd(vim.api.nvim_get_current_tabpage()))
     end)
 
     it("does not create a workspace when path selection is cancelled or invalid", function()
         local original_input = vim.ui.input
-        local original_notify = package.loaded["pi.notify"]
+        local original_notify = package.loaded["agent-workbench.notify"]
         local error_message
-        package.loaded["pi.notify"] = {
+        package.loaded["agent-workbench.notify"] = {
             error = function(message)
                 error_message = message
             end,
@@ -196,7 +196,7 @@ describe("workspace bar", function()
         end
         WorkspaceBar.create()
         vim.ui.input = original_input
-        package.loaded["pi.notify"] = original_notify
+        package.loaded["agent-workbench.notify"] = original_notify
 
         assert.are.equal(1, #vim.api.nvim_list_tabpages())
         assert.is_truthy(error_message:find("Workspace path is not a directory", 1, true))
@@ -206,7 +206,7 @@ describe("workspace bar", function()
         Config.setup({ workspace_bar = { enabled = true, show = "multiple" } })
         vim.o.tabline = ""
         WorkspaceBar.setup()
-        assert.are.equal("%!v:lua.require'pi.ui.workspaces'.tabline()", vim.o.tabline)
+        assert.are.equal("%!v:lua.require'agent-workbench.ui.workspaces'.tabline()", vim.o.tabline)
 
         rawset(_G, "nvim_bufferline", function()
             return ""
@@ -313,7 +313,7 @@ describe("workspace bar", function()
         local bufferline_config = { options = {} }
         package.loaded["bufferline.config"] = bufferline_config
         vim.o.tabline = "%!v:lua.nvim_bufferline()"
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return {
                     {

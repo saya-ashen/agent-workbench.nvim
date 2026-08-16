@@ -1,4 +1,4 @@
-local Chat = require("pi.ui.chat")
+local Chat = require("agent-workbench.ui.chat")
 
 local function cleanup(chat)
     chat:destroy()

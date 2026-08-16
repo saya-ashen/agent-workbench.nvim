@@ -6,7 +6,7 @@
 -- wrapper; these specs pin its contract: prompt/kind/options passthrough,
 -- empty-option short-circuit, message folding, and confirm's Yes/No mapping.
 
-local Dialog = require("pi.ui.dialog")
+local Dialog = require("agent-workbench.ui.dialog")
 
 --- Install a vim.ui.select stub that records calls and resolves via fn.
 ---@return { calls: table[], answer: fun(choice: string?) }

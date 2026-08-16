@@ -1,4 +1,4 @@
-local Attention = require("pi.attention")
+local Attention = require("agent-workbench.attention")
 
 local function session(tab)
     return {
@@ -34,11 +34,11 @@ describe("cross-tab attention", function()
         vim.cmd("tabnew")
         second_tab = vim.api.nvim_get_current_tabpage()
         vim.api.nvim_set_current_tabpage(start_tab)
-        original_manager = package.loaded["pi.sessions.manager"]
+        original_manager = package.loaded["agent-workbench.sessions.manager"]
     end)
 
     after_each(function()
-        package.loaded["pi.sessions.manager"] = original_manager
+        package.loaded["agent-workbench.sessions.manager"] = original_manager
         if vim.api.nvim_tabpage_is_valid(second_tab) then
             vim.api.nvim_set_current_tabpage(second_tab)
             vim.cmd("tabclose!")
@@ -49,7 +49,7 @@ describe("cross-tab attention", function()
     it("switches to valid owning tab before activation", function()
         local owner = session(second_tab)
         local activated_tab
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return { owner }
             end,
@@ -79,7 +79,7 @@ describe("cross-tab attention", function()
         local owner = session(second_tab)
         vim.api.nvim_set_current_tabpage(second_tab)
         vim.cmd("tabclose!")
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return { owner }
             end,

@@ -1,5 +1,5 @@
-local Config = require("pi.config")
-local Diff = require("pi.ui.diff")
+local Config = require("agent-workbench.config")
+local Diff = require("agent-workbench.ui.diff")
 
 Config.setup({})
 
@@ -10,8 +10,8 @@ describe("pre-execution diff write failure", function()
 
     before_each(function()
         original_write = Diff._write_file
-        original_manager = package.loaded["pi.sessions.manager"]
-        package.loaded["pi.sessions.manager"] = {
+        original_manager = package.loaded["agent-workbench.sessions.manager"]
+        package.loaded["agent-workbench.sessions.manager"] = {
             get = function()
                 return nil
             end,
@@ -22,7 +22,7 @@ describe("pre-execution diff write failure", function()
 
     after_each(function()
         Diff._write_file = original_write
-        package.loaded["pi.sessions.manager"] = original_manager
+        package.loaded["agent-workbench.sessions.manager"] = original_manager
         vim.fn.delete(path)
         while #vim.api.nvim_list_tabpages() > 1 do
             vim.cmd("tabclose!")

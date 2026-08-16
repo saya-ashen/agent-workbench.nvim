@@ -2,8 +2,8 @@
 --- expansion in pi.ui.chat.mentions.
 
 describe("mention providers", function()
-    local Providers = require("pi.mention_providers")
-    local Config = require("pi.config")
+    local Providers = require("agent-workbench.mention_providers")
+    local Config = require("agent-workbench.config")
 
     local orig_providers = Config.options.mention_providers
 
@@ -174,8 +174,8 @@ describe("mention providers", function()
 end)
 
 describe("mentions.expand with dynamic providers", function()
-    local Providers = require("pi.mention_providers")
-    local Mentions = require("pi.ui.chat.mentions")
+    local Providers = require("agent-workbench.mention_providers")
+    local Mentions = require("agent-workbench.ui.chat.mentions")
 
     local orig_materialize = Providers.materialize
     local orig_get = Providers.get
@@ -269,9 +269,9 @@ describe("mentions.expand with dynamic providers", function()
 end)
 
 describe("complete_providers", function()
-    local Matcher = require("pi.completion")
-    local Providers = require("pi.mention_providers")
-    local Config = require("pi.config")
+    local Matcher = require("agent-workbench.completion")
+    local Providers = require("agent-workbench.mention_providers")
+    local Config = require("agent-workbench.config")
 
     local orig_providers = Config.options.mention_providers
 

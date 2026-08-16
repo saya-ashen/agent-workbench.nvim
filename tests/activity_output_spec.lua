@@ -1,5 +1,5 @@
-local Config = require("pi.config")
-local Chat = require("pi.ui.chat")
+local Config = require("agent-workbench.config")
+local Chat = require("agent-workbench.ui.chat")
 
 Config.setup({})
 

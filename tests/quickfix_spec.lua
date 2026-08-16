@@ -1,13 +1,13 @@
--- Unit tests for lua/pi/quickfix.lua
+-- Unit tests for lua/agent-workbench/quickfix.lua
 
 describe("pi.quickfix", function()
     local Quickfix
     local cwd
 
     before_each(function()
-        package.loaded["pi.quickfix"] = nil
-        package.loaded["pi.config"] = nil
-        Quickfix = require("pi.quickfix")
+        package.loaded["agent-workbench.quickfix"] = nil
+        package.loaded["agent-workbench.config"] = nil
+        Quickfix = require("agent-workbench.quickfix")
         Quickfix._reset()
         cwd = vim.fn.getcwd()
         -- Start from an empty quickfix list
@@ -149,7 +149,7 @@ describe("pi.quickfix", function()
         end)
 
         it("fills for find when enabled", function()
-            require("pi.config").setup({ quickfix = { find = true } })
+            require("agent-workbench.config").setup({ quickfix = { find = true } })
             Quickfix.on_tool_start("find", "call_1", { pattern = "**/*.py" })
             Quickfix.on_tool_end("find", "call_1", find_result, false)
 
@@ -161,19 +161,19 @@ describe("pi.quickfix", function()
 
         it("treats glob as its own config key (alias of find)", function()
             -- glob stays disabled by default even when find is enabled
-            require("pi.config").setup({ quickfix = { find = true } })
+            require("agent-workbench.config").setup({ quickfix = { find = true } })
             Quickfix.on_tool_start("glob", "call_1", { pattern = "**/*.py" })
             Quickfix.on_tool_end("glob", "call_1", find_result, false)
             assert.are.equal(0, #qf())
 
-            require("pi.config").setup({ quickfix = { glob = true } })
+            require("agent-workbench.config").setup({ quickfix = { glob = true } })
             Quickfix.on_tool_start("glob", "call_2", { pattern = "**/*.py" })
             Quickfix.on_tool_end("glob", "call_2", find_result, false)
             assert.are.equal(2, #qf())
         end)
 
         it("does not fill when grep is disabled", function()
-            require("pi.config").setup({ quickfix = { grep = false } })
+            require("agent-workbench.config").setup({ quickfix = { grep = false } })
             Quickfix.on_tool_end("grep", "call_1", grep_result, false)
             assert.are.equal(0, #qf())
         end)

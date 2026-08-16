@@ -8,8 +8,8 @@
 -- semantics (partial lines across chunks, multiple lines per chunk, empty
 -- keepalive chunks) plus a large-line performance guard.
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
 
 Config.setup({})
 

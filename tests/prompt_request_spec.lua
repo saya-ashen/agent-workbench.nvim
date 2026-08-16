@@ -1,5 +1,5 @@
-local Chat = require("pi.ui.chat.init")
-local Config = require("pi.config")
+local Chat = require("agent-workbench.ui.chat.init")
+local Config = require("agent-workbench.config")
 
 local draft_enabled
 
@@ -87,8 +87,8 @@ describe("prompt request mode", function()
             },
             attention = { pending = {} },
         }
-        local original_manager = package.loaded["pi.sessions.manager"]
-        package.loaded["pi.sessions.manager"] = {
+        local original_manager = package.loaded["agent-workbench.sessions.manager"]
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return { session }
             end,
@@ -102,8 +102,8 @@ describe("prompt request mode", function()
                 return true
             end,
         }
-        package.loaded["pi.attention"] = nil
-        local Attention = require("pi.attention")
+        package.loaded["agent-workbench.attention"] = nil
+        local Attention = require("agent-workbench.attention")
 
         assert.is_true(Attention.present(session, {
             method = "select",
@@ -126,8 +126,8 @@ describe("prompt request mode", function()
 
         assert.are.equal("A", sent[1].value)
         assert.are.equal(true, sent[2].cancelled)
-        package.loaded["pi.sessions.manager"] = original_manager
-        package.loaded["pi.attention"] = nil
+        package.loaded["agent-workbench.sessions.manager"] = original_manager
+        package.loaded["agent-workbench.attention"] = nil
         delete_chat(chat)
     end)
 

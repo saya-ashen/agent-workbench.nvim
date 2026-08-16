@@ -2,9 +2,9 @@
 -- replacing transcript lines. Complete output stays addressable in buffer;
 -- fold state only controls window visibility.
 
-local Config = require("pi.config")
-local Chat = require("pi.ui.chat")
-local History = require("pi.ui.chat.history")
+local Config = require("agent-workbench.config")
+local Chat = require("agent-workbench.ui.chat")
+local History = require("agent-workbench.ui.chat.history")
 
 local function pump(ms)
     vim.wait(ms or 60)
@@ -73,7 +73,7 @@ end
 describe("tool block expand/collapse round-trip", function()
     after_each(function()
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     it("expands output of exactly 30 lines inline", function()

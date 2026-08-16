@@ -5,9 +5,9 @@
 -- preview). They never touch behavior: collapse thresholds, event flow, and
 -- buffer text are out of scope.
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
-local Highlights = require("pi.ui.highlights")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
+local Highlights = require("agent-workbench.ui.highlights")
 
 local function pump(ms)
     vim.wait(ms or 60)
@@ -41,12 +41,12 @@ end
 describe("history visual polish (issue #47)", function()
     before_each(function()
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     after_each(function()
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     describe("highlight definitions", function()

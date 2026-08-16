@@ -1,7 +1,7 @@
 -- Unit tests for pi.paste (clipboard image paste interception). Hermetic:
 -- img-clip and Pi.paste_image are stubbed, no real clipboard or session.
 
-local Ft = require("pi.filetypes")
+local Ft = require("agent-workbench.filetypes")
 
 --- Number of times the stubbed clipboard was queried for image content.
 local clip_queries = 0
@@ -27,9 +27,9 @@ local function stub_img_clip(opts)
 end
 
 describe("pi.paste", function()
-    local Paste = require("pi.paste")
-    local Config = require("pi.config")
-    local Pi = require("pi")
+    local Paste = require("agent-workbench.paste")
+    local Config = require("agent-workbench.config")
+    local Pi = require("agent-workbench")
 
     local buf
     local orig_paste_image

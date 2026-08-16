@@ -9,8 +9,8 @@ Agent Workbench binds each live session to its listed History buffer. One Neovim
 Use normal buffer commands to switch sessions:
 
 ```vim
-:Pi
-:PiNewSession
+:AgentWorkbench
+:AgentWorkbenchNewSession
 :bnext
 :bprevious
 :buffer <session-history-buffer>
@@ -20,16 +20,16 @@ Entering a session History buffer switches the active chat view in the current t
 
 ## Workspaces
 
-Each Neovim tab acts as one workspace. On setup, Agent Workbench fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:PiNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. If that workspace has an idle π session, Agent Workbench starts a fresh session whose RPC process, tools, resources, and persistence all use the new cwd, hands its visible History and prompt windows to the replacement, then stops the previous session and deletes its stale History buffer. A streaming, compacting, retrying, or direct-bash session blocks the change and restores its original cwd; wait or abort first. Files and later π sessions use the workspace cwd too. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:PiWorkspaces` opens a searchable picker.
+Each Neovim tab acts as one workspace. On setup, Agent Workbench fixes current cwd as tab-local; new tabs inherit and fix their initial cwd. `:AgentWorkbenchNewWorkspace` opens a directory input with path completion, then creates a new tab rooted at the confirmed path. Cancellation or an invalid directory creates nothing. Use `:tcd {dir}` to change an existing workspace. If that workspace has an idle π session, Agent Workbench starts a fresh session whose RPC process, tools, resources, and persistence all use the new cwd, hands its visible History and prompt windows to the replacement, then stops the previous session and deletes its stale History buffer. A streaming, compacting, retrying, or direct-bash session blocks the change and restores its original cwd; wait or abort first. Files and later π sessions use the workspace cwd too. The workspace bar shows every tab, its cwd basename, live session count, and busy/attention marker. Click an item or use `gt` / `gT` to switch workspaces; `:AgentWorkbenchWorkspaces` opens a searchable picker.
 
 When `bufferline.nvim` owns the tabline, Agent Workbench appends workspace tabs through bufferline's right custom area instead of replacing it. Workspace tabs show the short cwd basename by default, followed by session count and status; visible numeric indices are hidden while native click targets and `gt` / `gT` navigation remain active. Configure `workspace_bar.label = "path"` for full paths, `show_index = true` for visible indices, or pass a label function receiving the workspace row. While this integration is active, Agent Workbench disables bufferline's redundant native numeric tab indicators and restores their prior setting on reset. Workspace tabs preserve any existing right custom area. Other user-defined tablines are never overwritten. With no custom tabline, Agent Workbench installs its built-in workspace tabline temporarily and yields ownership if bufferline loads later.
 
-`:PiWorkspaceSidebar` toggles a collapsible workspace explorer (right side, 38 columns by default). Its compact tree-style rows show a shortened `~/...` cwd, then list that workspace's session History buffers and ordinary listed buffers together. Session rows show a backend title (falling back to `session <id>`), a state-specific icon, and a right-aligned `running`, `compacting`, `attention`, `idle`, or `stopped` state. Ordinary buffers show their basename, filetype icon and color from `nvim-web-devicons` when available, and a `modified` marker when changed; without devicons they use a generic file icon. On workspace rows, both `h` and `l` toggle expansion. On session rows, `h` collapses the parent workspace and `l` activates the session, focusing the prompt with History scrolled to latest output on first entry or restoring History at its last moved cursor afterward; on buffer rows, `<CR>` / `l` switches to the buffer. `e` / `<Tab>` also toggles workspace rows. `<CR>` switches the workspace or opens its selected item, `d` deletes an ordinary buffer directly or confirms before stopping a session and deleting its History buffer, `a` creates a session in the selected workspace, `A` opens the new-workspace path input, `o` switches and closes the sidebar, `R` refreshes workspaces and buffers, `?` toggles key help, and `q` closes. The sidebar is a native scratch buffer and split; it does not require Snacks or Neo-tree. Configure `workspace_sidebar.position` (`"left"` or `"right"`) and `workspace_sidebar.width`.
+`:AgentWorkbenchWorkspaceSidebar` toggles a collapsible workspace explorer (right side, 38 columns by default). Its compact tree-style rows show a shortened `~/...` cwd, then list that workspace's session History buffers and ordinary listed buffers together. Session rows show a backend title (falling back to `session <id>`), a state-specific icon, and a right-aligned `running`, `compacting`, `attention`, `idle`, or `stopped` state. Ordinary buffers show their basename, filetype icon and color from `nvim-web-devicons` when available, and a `modified` marker when changed; without devicons they use a generic file icon. On workspace rows, both `h` and `l` toggle expansion. On session rows, `h` collapses the parent workspace and `l` activates the session, focusing the prompt with History scrolled to latest output on first entry or restoring History at its last moved cursor afterward; on buffer rows, `<CR>` / `l` switches to the buffer. `e` / `<Tab>` also toggles workspace rows. `<CR>` switches the workspace or opens its selected item, `d` deletes an ordinary buffer directly or confirms before stopping a session and deleting its History buffer, `a` creates a session in the selected workspace, `A` opens the new-workspace path input, `o` switches and closes the sidebar, `R` refreshes workspaces and buffers, `?` toggles key help, and `q` closes. The sidebar is a native scratch buffer and split; it does not require Snacks or Neo-tree. Configure `workspace_sidebar.position` (`"left"` or `"right"`) and `workspace_sidebar.width`.
 
-Buffers are tracked by workspace ownership. On tab switches, Agent Workbench temporarily lists only buffers owned by the current workspace, keeping bufferline, `:bnext`, and `:bprevious` scoped to that workspace without deleting hidden buffers. The workspace sidebar still groups tracked buffers from every workspace and keeps session History buffers with their creating workspace. A normal buffer can belong to multiple workspaces when entered there. Entering a session History buffer directly restores its last moved cursor and expanded/collapsed block folds, or opens at latest output when no cursor was recorded. `:PiMoveBuffer {tab-number}` moves the current ordinary buffer to another workspace; π History buffers cannot be moved. Closing a workspace removes its membership only; it never deletes buffers or stops sessions.
+Buffers are tracked by workspace ownership. On tab switches, Agent Workbench temporarily lists only buffers owned by the current workspace, keeping bufferline, `:bnext`, and `:bprevious` scoped to that workspace without deleting hidden buffers. The workspace sidebar still groups tracked buffers from every workspace and keeps session History buffers with their creating workspace. A normal buffer can belong to multiple workspaces when entered there. Entering a session History buffer directly restores its last moved cursor and expanded/collapsed block folds, or opens at latest output when no cursor was recorded. `:AgentWorkbenchMoveBuffer {tab-number}` moves the current ordinary buffer to another workspace; π History buffers cannot be moved. Closing a workspace removes its membership only; it never deletes buffers or stops sessions.
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     workspace_bar = {
         enabled = true,
         show = "multiple", -- "multiple" | "always"
@@ -70,7 +70,7 @@ Sessions are JSONL documents stored under:
 
 where `<agent_dir>` is resolved in this order:
 
-1. `agent_dir` in `require("pi").setup(...)`
+1. `agent_dir` in `require("agent-workbench").setup(...)`
 2. `$PI_CODING_AGENT_DIR` environment variable
 3. `~/.pi/agent` (default)
 
@@ -82,23 +82,23 @@ There are three ways to open a chat — each honors the usual `layout=side|float
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:Pi` | `pi.show()` / `pi.toggle()` | Open the chat. If current tab has no active session, starts one. |
-| `:PiContinue` | `pi.continue_session()` | Load the most recent session not already live in another buffer. |
-| `:PiResume` | `pi.resume_session()` | Pick any past session. Selecting a live session activates its existing buffer. |
+| `:AgentWorkbench` | `pi.show()` / `pi.toggle()` | Open the chat. If current tab has no active session, starts one. |
+| `:AgentWorkbenchContinue` | `pi.continue_session()` | Load the most recent session not already live in another buffer. |
+| `:AgentWorkbenchResume` | `pi.resume_session()` | Pick any past session. Selecting a live session activates its existing buffer. |
 
 And mid-session management:
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:PiNewSession` | `pi.new_session()` | Create and activate a separate session buffer and RPC process. Existing sessions keep running. |
-| `:PiTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-pitree). |
-| `:PiSessions` | `pi.sessions()` | Toggle the live overview of all active sessions (name + busy/idle/attention). See [Sessions overview](#sessions-overview-pisessions). |
-| `:PiSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens an input dialog prefilled with the current name. Names appear in the `:PiResume` picker so you can identify long-running conversations at a glance. |
-| `:PiStop` | `pi.stop()` | Tear down the current session entirely, killing the backing `pi --mode rpc` process. Different from `:PiToggleChat`, which just hides the windows while the session keeps running. |
+| `:AgentWorkbenchNewSession` | `pi.new_session()` | Create and activate a separate session buffer and RPC process. Existing sessions keep running. |
+| `:AgentWorkbenchTree` | `pi.tree()` | Navigate the session tree: jump back to any past conversation point, optionally summarizing the abandoned branch. See [Session tree navigation](#session-tree-navigation-agentworkbenchtree). |
+| `:AgentWorkbenchSessions` | `pi.sessions()` | Toggle the live overview of all active sessions (name + busy/idle/attention). See [Sessions overview](#sessions-overview-agentworkbenchsessions). |
+| `:AgentWorkbenchSessionName [name]` | `pi.set_session_name(name?)` | Set a human-readable display name for the current session. Without an argument, opens an input dialog prefilled with the current name. Names appear in the `:AgentWorkbenchResume` picker so you can identify long-running conversations at a glance. |
+| `:AgentWorkbenchStop` | `pi.stop()` | Tear down the current session entirely, killing the backing `pi --mode rpc` process. Different from `:AgentWorkbenchToggleChat`, which just hides the windows while the session keeps running. |
 
-## Session tree navigation (:PiTree)
+## Session tree navigation (:AgentWorkbenchTree)
 
-A pi session is not a linear log but a **tree** of entries: going back to an earlier point and continuing from there creates a new branch, while the abandoned branch stays on disk. `:PiTree` (or typing `/tree` in the prompt) is the π equivalent of the TUI's `/tree` command:
+A pi session is not a linear log but a **tree** of entries: going back to an earlier point and continuing from there creates a new branch, while the abandoned branch stays on disk. `:AgentWorkbenchTree` (or typing `/tree` in the prompt) is the π equivalent of the TUI's `/tree` command:
 
 1. A picker lists the session's conversation entries (user/assistant messages, branch summaries, compactions), indented by *branch* depth — a linear conversation stays flat at the left edge (no per-message indent), only real forks nest — with `●` marking the current point and any branch label shown right after the entry's kind tag (before its preview text, so it survives truncation). Text-less assistant turns are never blank: a tool-only turn shows a compact tool-call summary (the chat's per-tool nerd-font icon as a lightweight marker, plus the first argument — the bash command, edited path, search pattern, …; extra tools on the same turn fold into `(+N)`), and an aborted or errored turn shows `(aborted)` / `(error: …)`. This mirrors the pi TUI's `/tree`, where every line carries content.
 2. After picking an entry you're asked whether to **summarize the abandoned branch** — `No summary`, `Summarize`, or `Summarize with custom prompt` (mirrors the TUI; `Esc` backs out to the picker).
@@ -109,31 +109,31 @@ Navigation is refused while the agent is streaming. Summarizing requires a selec
 How it works: the RPC protocol has no `navigate_tree` command, so Agent Workbench bundles a tiny pi extension (`extensions/tree.ts`) and injects it into every RPC process via `--extension`. It registers a `/tree` command whose handler calls pi's `ctx.navigateTree()`; extension commands are awaited end-to-end over RPC, so the chat rebuilds exactly when navigation (and any summarization) completes.
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     tree = {
-        enabled = true, -- set false to stop injecting the extension and disable :PiTree
+        enabled = true, -- set false to stop injecting the extension and disable :AgentWorkbenchTree
     },
 })
 ```
 
 Requires a pi version whose extension API exposes `ctx.navigateTree` — on older versions the command fails with an explicit error telling you to upgrade or disable the feature.
 
-## Sessions overview (:PiSessions)
+## Sessions overview (:AgentWorkbenchSessions)
 
-When you run several sessions, `:PiSessions` gives you a single dashboard of everything live. It lists active session buffers, including multiple sessions in one tab. Selecting a row activates that session in current tab. First entry focuses the prompt in Normal mode with History at latest output; later entries restore History at its last moved cursor.
+When you run several sessions, `:AgentWorkbenchSessions` gives you a single dashboard of everything live. It lists active session buffers, including multiple sessions in one tab. Selecting a row activates that session in current tab. First entry focuses the prompt in Normal mode with History at latest output; later entries restore History at its last moved cursor.
 
 - a single **status dot** at the left edge, colored and animated per state: blinking yellow while the agent works (in a background tab), slow-blinking in the compaction color while compacting, steady warning color when the session needs your attention, blinking green when a turn finished while you were in another tab, blinking red when the last turn errored (both consumed — back to idle — when you enter the tab), steady dim when idle, steady error color if the process died,
-- the **session name** right after the dot: the backend session name (`:PiSessionName`), falling back to the first user message, then `(unnamed)`,
+- the **session name** right after the dot: the backend session name (`:AgentWorkbenchSessionName`), falling back to the first user message, then `(unnamed)`,
 - the **current session** marked on the dot itself: the dot of the tab you're looking at renders in the agent color — steady when idle, blinking while busy (same rhythm as the other dots, keeping the agent color) — while background sessions blink yellow while working. Each tab's view marks its own session and the marker follows tab switches — no extra text or UI elements.
 
 The list is a single shared buffer (filetype `pi-sessions`): every tab that opens it gets its own window on the same buffer, so a status change redraws all open views at once. Updates are event-driven (agent start/end, compaction, session creation/teardown, attention requests, name changes) — nothing polls.
 
-Keys inside the list: `<CR>` / `o` jump to that session's tab and open its chat using the latest-output or saved-History focus behavior, `r` renames the session under the cursor (same as `:PiSessionName`, without leaving the list), `R` re-fetches session names, `?` toggles a shortcut help overlay, `q` closes the window.
+Keys inside the list: `<CR>` / `o` jump to that session's tab and open its chat using the latest-output or saved-History focus behavior, `r` renames the session under the cursor (same as `:AgentWorkbenchSessionName`, without leaving the list), `R` re-fetches session names, `?` toggles a shortcut help overlay, `q` closes the window.
 
 By default the window follows the current tab's chat layout (a side split when the chat is in side layout, a centered float when it is in float layout); `mode` pins it to one style, and `auto_open` shows the list whenever the chat opens:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     sessions_list = {
         mode = "follow",   -- "follow" | "side" | "float"
         auto_open = false, -- open the list together with the chat
@@ -151,11 +151,11 @@ The dot colors are driven by `PiSessionsList*` highlight groups (`Busy`, `Compac
 
 Long sessions eventually run into the model's context window limit. pi delegates this to a **compaction** step: the backend summarizes older parts of the conversation and replaces them with the summary, freeing up tokens for new turns. pi supports both automatic and manual compaction.
 
-- **Automatic compaction** is enabled at the backend level. When the conversation approaches the context threshold, pi compacts on its own and the `compaction` statusline component lights up (see [Statusline](usage.md#statusline)) — it renders the same 󰏗 icon as the compaction summary label while auto-compaction is on. `:PiToggleAutoCompaction` / `pi.toggle_auto_compaction()` flips the setting on/off for the current session — the icon appears/disappears immediately and the backend session file records the change. With no active session the command is a silent no-op.
-- **Manual compaction** — `:PiCompact [instructions]` / `pi.compact(instructions?)` — triggers compaction immediately. If you pass custom instructions, they're forwarded to the summarizer to guide what gets kept:
+- **Automatic compaction** is enabled at the backend level. When the conversation approaches the context threshold, pi compacts on its own and the `compaction` statusline component lights up (see [Statusline](usage.md#statusline)) — it renders the same 󰏗 icon as the compaction summary label while auto-compaction is on. `:AgentWorkbenchToggleAutoCompaction` / `pi.toggle_auto_compaction()` flips the setting on/off for the current session — the icon appears/disappears immediately and the backend session file records the change. With no active session the command is a silent no-op.
+- **Manual compaction** — `:AgentWorkbenchCompact [instructions]` / `pi.compact(instructions?)` — triggers compaction immediately. If you pass custom instructions, they're forwarded to the summarizer to guide what gets kept:
 
 ```vim
-:PiCompact focus on architectural decisions and the reasoning behind them; drop intermediate tool outputs
+:AgentWorkbenchCompact focus on architectural decisions and the reasoning behind them; drop intermediate tool outputs
 ```
 
 Compaction can't run while the agent is streaming — wait for the current turn to finish (or abort it) first. Message submits during compaction are queued and sent after compaction finishes.

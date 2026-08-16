@@ -1,4 +1,4 @@
-local Rpc = require("pi.rpc")
+local Rpc = require("agent-workbench.rpc")
 
 Rpc.start = function(self)
     self._job_id = 1
@@ -16,9 +16,9 @@ Rpc.stop = function(self)
 end
 
 local ok, err = pcall(function()
-    require("pi").setup({ auto_start_session = false })
-    require("pi").show({ layout = "side" })
-    local session = assert(require("pi.sessions.manager").get(), "session missing")
+    require("agent-workbench").setup({ auto_start_session = false })
+    require("agent-workbench").show({ layout = "side" })
+    local session = assert(require("agent-workbench.sessions.manager").get(), "session missing")
     assert(vim.api.nvim_buf_is_valid(session.history_buf), "History buffer missing")
     assert(vim.api.nvim_buf_is_valid(session.chat:prompt_buf()), "prompt buffer missing")
 end)

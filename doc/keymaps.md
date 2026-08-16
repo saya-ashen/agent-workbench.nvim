@@ -12,8 +12,8 @@ What the plugin does bind on its own:
 - `<Tab>` opens complete long tool output in a viewer (and toggles short output inline); `za` / `<CR>` / `o` toggle block previews, while `gf` opens the file under the cursor in the history buffer.
 - `dd` / `x` to remove an entry in the attachments buffer.
 - The [diff review](diff-review.md) keys inside the diff tab.
-- The `:PiDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff, `<CR>`/`o` jumps to its first changed line, `<C-f>`/`<C-b>`/`<C-d>`/`<C-u>` scroll the diff on the right; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-pidiff)).
-- The [sessions overview](sessions.md#sessions-overview-pisessions) keys inside the list.
+- The `:AgentWorkbenchDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff, `<CR>`/`o` jumps to its first changed line, `<C-f>`/`<C-b>`/`<C-d>`/`<C-u>` scroll the diff on the right; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-agentworkbenchdiff)).
+- The [sessions overview](sessions.md#sessions-overview-agentworkbenchsessions) keys inside the list.
 - The workspace sidebar uses tree-style keys: on workspace rows, both `h` and `l` toggle expansion; on session rows, `h` collapses the parent and `l` activates the session; on buffer rows, `<CR>`/`l` switches to that buffer. `e` / `<Tab>` also toggles, `<CR>` switches workspace or buffer, `d` deletes the selected buffer, `a` creates a session, `A` creates a workspace, `o` switches and closes, `R` refreshes, `?` shows help, and `q` closes.
 
 ## Key specs
@@ -47,25 +47,25 @@ Every π buffer gets a stable filetype, so you can target them from your own `Fi
 | `pi-chat-attachments` | Attachments panel |
 | `pi-tool-output` | Read-only split for tool output longer than 30 lines |
 | `pi-dialog` | Input and info dialog floats (completion plugins can be disabled here without affecting the prompt) |
-| `pi-sessions` | The [sessions overview](sessions.md#sessions-overview-pisessions) list |
+| `pi-sessions` | The [sessions overview](sessions.md#sessions-overview-agentworkbenchsessions) list |
 | `pi-workspaces` | The collapsible workspace explorer sidebar |
-| `pi-diff-review` | The `:PiDiff` session diff review file list (left area of the panel) |
+| `pi-diff-review` | The `:AgentWorkbenchDiff` session diff review file list (left area of the panel) |
 
 ## Example setup
 
 A reasonable starting point looks like this:
 
 ```lua
-local pi = require("pi")
+local pi = require("agent-workbench")
 
 -- Global mappings — open / toggle / resume from anywhere.
-vim.keymap.set({ "n", "v" }, "<Leader>pp", function() vim.cmd("Pi layout=side")  end, { desc = "Pi side"  })
-vim.keymap.set({ "n", "v" }, "<Leader>pf", function() vim.cmd("Pi layout=float") end, { desc = "Pi float" })
-vim.keymap.set({ "n", "v" }, "<Leader>pl", "<Cmd>PiToggleLayout<CR>",                 { desc = "Pi toggle layout" })
-vim.keymap.set({ "n", "v" }, "<Leader>pc", "<Cmd>PiContinue<CR>",                     { desc = "Pi continue last session" })
-vim.keymap.set({ "n", "v" }, "<Leader>pr", "<Cmd>PiResume<CR>",                       { desc = "Pi resume past session" })
-vim.keymap.set({ "n", "v" }, "<Leader>pm", "<Cmd>PiSendMention<CR>",                  { desc = "Pi mention file/selection" })
-vim.keymap.set({ "n", "v" }, "<Leader>pa", "<Cmd>PiAttention<CR>",                    { desc = "Pi open next attention request" })
+vim.keymap.set({ "n", "v" }, "<Leader>pp", function() vim.cmd("AgentWorkbench layout=side")  end, { desc = "Pi side"  })
+vim.keymap.set({ "n", "v" }, "<Leader>pf", function() vim.cmd("AgentWorkbench layout=float") end, { desc = "Pi float" })
+vim.keymap.set({ "n", "v" }, "<Leader>pl", "<Cmd>AgentWorkbenchToggleLayout<CR>",                 { desc = "Pi toggle layout" })
+vim.keymap.set({ "n", "v" }, "<Leader>pc", "<Cmd>AgentWorkbenchContinue<CR>",                     { desc = "Pi continue last session" })
+vim.keymap.set({ "n", "v" }, "<Leader>pr", "<Cmd>AgentWorkbenchResume<CR>",                       { desc = "Pi resume past session" })
+vim.keymap.set({ "n", "v" }, "<Leader>pm", "<Cmd>AgentWorkbenchSendMention<CR>",                  { desc = "Pi mention file/selection" })
+vim.keymap.set({ "n", "v" }, "<Leader>pa", "<Cmd>AgentWorkbenchAttention<CR>",                    { desc = "Pi open next attention request" })
 ```
 
 The `<S-Up>` / `<S-Down>` mappings below are sort of placeholders — replace them with whatever keys you already use to move between windows in the rest of Neovim. The idea is that focus navigation inside π windows should match your normal buffer/window navigation, not introduce new conventions.
@@ -84,8 +84,8 @@ vim.api.nvim_create_autocmd("FileType", {
     group = group,
     pattern = { "pi-chat-history", "pi-chat-prompt", "pi-chat-attachments" },
     callback = function(event)
-        map(event.buf, "<C-q>", "<Cmd>PiToggleChat<CR>")
-        map(event.buf, "<M-c>", "<Cmd>PiAbort<CR>")
+        map(event.buf, "<C-q>", "<Cmd>AgentWorkbenchToggleChat<CR>")
+        map(event.buf, "<M-c>", "<Cmd>AgentWorkbenchAbort<CR>")
         map(event.buf, "<C-o>", pi.toggle_history_blocks)
     end,
 })

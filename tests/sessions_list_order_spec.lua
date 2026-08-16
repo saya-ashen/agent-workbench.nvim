@@ -7,9 +7,9 @@
 -- visual-order invariant. They drive the session manager against a stubbed
 -- Rpc: no real pi process, canned responses (see session_model_pin_spec.lua).
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
-local Sessions = require("pi.sessions.manager")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
+local Sessions = require("agent-workbench.sessions.manager")
 
 Config.setup({})
 

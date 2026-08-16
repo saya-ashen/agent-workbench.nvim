@@ -1,7 +1,7 @@
 --- Tests for the stale-while-revalidate file cache (pi.cache.files).
 
 describe("files cache", function()
-    local FilesCache = require("pi.cache.files")
+    local FilesCache = require("agent-workbench.cache.files")
     local original_cwd = vim.fn.getcwd()
     local dir
 

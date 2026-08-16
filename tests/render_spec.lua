@@ -1,7 +1,7 @@
 -- Unit tests for pi.ui.render engine resolution (pure config logic, no plugin).
 
-local Config = require("pi.config")
-local Render = require("pi.ui.render")
+local Config = require("agent-workbench.config")
+local Render = require("agent-workbench.ui.render")
 
 describe("render engine resolution", function()
     after_each(function()

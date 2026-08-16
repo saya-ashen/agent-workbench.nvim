@@ -9,10 +9,10 @@
 -- event, that summarization retry events route without UNHANDLED noise, and
 -- that the branchSummary busy state renders and settles.
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
-local Sessions = require("pi.sessions.manager")
-local SessionsList = require("pi.ui.sessions")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
+local Sessions = require("agent-workbench.sessions.manager")
+local SessionsList = require("agent-workbench.ui.sessions")
 
 Config.setup({})
 
@@ -53,7 +53,7 @@ local function restore_stubs()
 end
 
 --- Feed events through the manager's installed RPC handler.
----@param session pi.Session
+---@param session agent_workbench.Session
 local function feed(session, ...)
     local handler = session.rpc._handler
     assert.truthy(handler, "handler not installed")
@@ -64,7 +64,7 @@ end
 
 --- Wait until the history status text settles on `expected` (nil = idle).
 --- set_status renders through vim.schedule, so assertions must pump.
----@param chat pi.ChatAgent
+---@param chat agent_workbench.ChatAgent
 ---@param expected string?
 local function await_status(chat, expected)
     return vim.wait(1000, function()
@@ -74,8 +74,8 @@ end
 
 describe("agent_settled routing", function()
     local tab = nil ---@type integer?
-    local session ---@type pi.Session?
-    local chat ---@type pi.ChatAgent?
+    local session ---@type agent_workbench.Session?
+    local chat ---@type agent_workbench.ChatAgent?
     local unhandled = {} ---@type string[]
     local rr_before = 0
 

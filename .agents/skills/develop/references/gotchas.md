@@ -30,7 +30,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 | G18 | Never delete sessions by grep; stubbed send writes no transcript |
 | G19 | Edit all three config spots together |
 | G20 | Read `config.options` at call time, never cache at module load |
-| G21 | Restart nvim after editing `lua/pi/**`; lazy never hot-reloads |
+| G21 | Restart nvim after editing `lua/agent-workbench/**`; lazy never hot-reloads |
 | G22 | No whole-buffer APIs (`nvim_win_text_height`, full `get_lines`) on per-event paths; gate behind a cheap provability check |
 | G23 | In a worktree, GUI loads MAIN checkout unless redirected; `make test`/`make smoke` use current checkout |
 | G24 | No Lua 5.3-only syntax (`&` `\|` `~` `<<` `>>`, `//`, `\u{}`) — stable Neovim's LuaJIT can't parse it; `loop or previous error` is only the secondary symptom |
@@ -153,7 +153,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 - **现象:** After the first `,ap`, `package.loaded["pi"]` is true but no chat buffers exist yet.
 - **根因:** lazy loads the plugin spec on first key use; the mapped toggle may not have executed on that same press.
-- **修法:** In tests, `wait_for` the `pi-chat-prompt` buffer; to isolate "is the wiring broken vs. lazy timing", call `require("pi").show({layout="side"})` over RPC and see if buffers appear.
+- **修法:** In tests, `wait_for` the `pi-chat-prompt` buffer; to isolate "is the wiring broken vs. lazy timing", call `require("agent-workbench").show({layout="side"})` over RPC and see if buffers appear.
 
 ### G14 — A plenary spec silently never runs; `make test` exits 1
 
@@ -177,7 +177,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
 
 - **现象:** After a test, the user's `prompt_history.json` contains the test's sentinel prompts, or their unsent draft is overwritten.
 - **根因:** A test instance still shares `stdpath("data")/pi/...` with the user's live instance. Production drafts isolate workspaces and processes, but a test can claim a stale real draft when it opens.
-- **修法:** Before opening chat, redirect the draft with `require("pi.draft")._set_path("/tmp/<run>/draft.txt")`. Also set `require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"` before the first send/recall; the history store is lazy. Assert the user's files are untouched and residue-free at the end.
+- **修法:** Before opening chat, redirect the draft with `require("agent-workbench.draft")._set_path("/tmp/<run>/draft.txt")`. Also set `require("agent-workbench.config").options.prompt.history.path = "/tmp/<run>/history.json"` before the first send/recall; the history store is lazy. Assert the user's files are untouched and residue-free at the end.
 
 ### G18 — You almost delete a real session file
 
@@ -194,14 +194,14 @@ Each entry is a real defect or trap encountered while adding features to this pl
 ### G20 — `get()` returns stale config
 
 - **现象:** A feature reads a config value captured at module load and ignores a later `setup()`.
-- **根因:** Caching `local cfg = require("pi.config").options.x` at the top of a module freezes the pre-`setup` deepcopy.
-- **修法:** Read `require("pi.config").options` at call time, inside the function that needs it.
+- **根因:** Caching `local cfg = require("agent-workbench.config").options.x` at the top of a module freezes the pre-`setup` deepcopy.
+- **修法:** Read `require("agent-workbench.config").options` at call time, inside the function that needs it.
 
 ### G21 — Fix is green everywhere but the running nvim still shows the bug
 
 - **现象:** Unit + headless + GUI automation are all green, the on-disk code is correct, yet the nvim the user (or you, mid-session) is actually using still behaves the old, broken way.
 - **根因:** lazy.nvim reads a plugin's Lua modules into `package.loaded` the first time they are `require`d, and **never** refreshes those tables from disk afterwards. pi is lazy-loaded on first use, so the first `,ap`/command snapshots the modules for the lifetime of that nvim process. If pi was already used in a running nvim before you landed the fix, that process is running the pre-fix code — re-running tests in *that* process will never show the fix. This is exactly how "all tests pass but the user still hits the bug" happens: the test instance is freshly launched (new code), the user's instance is long-lived (old code).
-- **修法:** After editing `lua/pi/**`, a **running nvim must be restarted** (or a brand-new nvim opened) to pick up the change. `:Lazy reload pi.nvim` is *not* reliable for this — it re-sources the plugin's start scripts but generally does **not** clear the `package.loaded["pi.*"]` cache, so `require` keeps returning the old tables. When verifying a fix, **always use a freshly launched instance** (`gui_launch.sh` does this); never validate against a session that already has pi loaded, or you will conclude "fixed" while the user's open instance is still old.
+- **修法:** After editing `lua/agent-workbench/**`, a **running nvim must be restarted** (or a brand-new nvim opened) to pick up the change. `:Lazy reload pi.nvim` is *not* reliable for this — it re-sources the plugin's start scripts but generally does **not** clear the `package.loaded["pi.*"]` cache, so `require` keeps returning the old tables. When verifying a fix, **always use a freshly launched instance** (`gui_launch.sh` does this); never validate against a session that already has pi loaded, or you will conclude "fixed" while the user's open instance is still old.
 - **元教训:** When "tests green but user reports the bug", first ask *when the user's process loaded the module*. If the user is talking to you *through* pi, their pi modules were necessarily required before your fix existed — the bug they see is the snapshot, and the only cure on their side is a restart you cannot perform for them (it would kill the very session you are in).
 
 ### G22 — Whole-buffer API call on a per-event hot path stalls large sessions
@@ -214,21 +214,21 @@ Each entry is a real defect or trap encountered while adding features to this pl
 ### G23 — In a worktree, GUI automation tests the MAIN checkout unless redirected
 
 - **现象:** Working in a feature worktree, unit/smoke tests reflect edits but a GUI run still behaves like `main` — a fix "doesn't take", or GUI proof reflects unrelated code.
-- **根因:** `make test` and `make smoke` boot `tests/minimal_init.lua`, which resolves the repo root from its own file location and prepends that checkout to `runtimepath`. The GUI harness boots the user's real `~/.config/nvim/init.lua`, so lazy.nvim loads pi from installed path `~/.local/share/nvim/lazy/pi2.nvim` regardless of cwd.
+- **根因:** `make test` and `make smoke` boot `tests/minimal_init.lua`, which resolves the repo root from its own file location and prepends that checkout to `runtimepath`. The GUI harness boots the user's real `~/.config/nvim/init.lua`, so lazy.nvim loads pi from installed path `~/.local/share/nvim/lazy/agent-workbench.nvim` regardless of cwd.
 - **修法:** Use `make test`, `make smoke`, and headless e2e under `nvim --headless -u tests/minimal_init.lua -l script.lua` during worktree development. For GUI proof, run after merging to `main`, or point lazy at the worktree with the existing `PI_DEV_DIR` gate:
 
   ```bash
   PI_DEV_DIR="$WT_ROOT/<name>" nvim
   ```
 
-  Never place a worktree **under** `~/.local/share/nvim/lazy/`: lazy treats every directory there as a plugin and would load it as a *second* pi plugin. Keep worktrees at a sibling root such as `~/.local/share/pi.nvim-worktrees/<name>`.
+  Never place a worktree **under** `~/.local/share/nvim/lazy/`: lazy treats every directory there as a plugin and would load it as a *second* pi plugin. Keep worktrees at a sibling root such as `~/.local/share/agent-workbench.nvim-worktrees/<name>`.
 - **元教训:** The main checkout is a *live plugin path* the running editor depends on; keep it on `main` and do feature work in a worktree so branch switches cannot swap the running editor's code mid-session.
 
 ### G24 — Lua 5.3-only syntax parses on your nvim but breaks plugin load on Neovim stable
 
 - **现象:** The plugin loads fine on your machine but on another (Neovim stable, e.g. macOS Homebrew) the first toggle fails with `E5108: ... loop or previous error loading module 'pi.sessions.manager'`. Both machines run the **same commit**.
-- **根因:** Two layers. (1) The real error — visible only in `:messages`, above the E5108 — is a *parse* error, e.g. `lua/pi/ui/chat/text.lua:73: ')' expected near '&'`: the code used a Lua 5.3 bitwise operator. Neovim's official stable builds embed LuaJIT, whose parser accepts Lua 5.1 plus a few extensions (`goto`, labels, `continue`) but **not** 5.3-only syntax: bitwise operators (`& | ~ << >>`), integer division `//`, and `\u{...}` escapes. Recent LuaJIT rolling releases (shipped by nvim 0.12+/nightly) added 5.3 bitwise-op *parsing*, so the identical code loads there — the failure is parser-generation-dependent, not commit-dependent, which is why "works on my machine" lied. (2) The message the user sees is a secondary symptom: LuaJIT's `require` plants a sentinel in `package.loaded` before running the module body; when the body throws (a parse error counts), the sentinel stays, and every later `require` of that module in the same session reports `loop or previous error loading module` instead of the real cause. The first failure happens inside lazy.nvim's `setup()` call (reported as `Failed to run 'config' for pi2.nvim` + the real error); the replayed keypress then hits the poisoned module.
-- **修法:** Keep everything under `lua/pi/**` parseable by the LuaJIT that Neovim stable ships (Lua 5.1 + goto/continue). Replace bitwise ops with arithmetic or range checks — e.g. the UTF-8 continuation-byte test `(b & 0xc0) == 0x80` is exactly `b >= 0x80 and b <= 0xbf`. Audit a change with:
+- **根因:** Two layers. (1) The real error — visible only in `:messages`, above the E5108 — is a *parse* error, e.g. `lua/agent-workbench/ui/chat/text.lua:73: ')' expected near '&'`: the code used a Lua 5.3 bitwise operator. Neovim's official stable builds embed LuaJIT, whose parser accepts Lua 5.1 plus a few extensions (`goto`, labels, `continue`) but **not** 5.3-only syntax: bitwise operators (`& | ~ << >>`), integer division `//`, and `\u{...}` escapes. Recent LuaJIT rolling releases (shipped by nvim 0.12+/nightly) added 5.3 bitwise-op *parsing*, so the identical code loads there — the failure is parser-generation-dependent, not commit-dependent, which is why "works on my machine" lied. (2) The message the user sees is a secondary symptom: LuaJIT's `require` plants a sentinel in `package.loaded` before running the module body; when the body throws (a parse error counts), the sentinel stays, and every later `require` of that module in the same session reports `loop or previous error loading module` instead of the real cause. The first failure happens inside lazy.nvim's `setup()` call (reported as `Failed to run 'config' for pi2.nvim` + the real error); the replayed keypress then hits the poisoned module.
+- **修法:** Keep everything under `lua/agent-workbench/**` parseable by the LuaJIT that Neovim stable ships (Lua 5.1 + goto/continue). Replace bitwise ops with arithmetic or range checks — e.g. the UTF-8 continuation-byte test `(b & 0xc0) == 0x80` is exactly `b >= 0x80 and b <= 0xbf`. Audit a change with:
 
   ```bash
   grep -rnE '\)&|&\s*0x|[a-z_)]\s*&\s*[0-9a-zA-Z_(]|[<>][<>]\s*[0-9]' lua/   # bitwise ops
@@ -237,7 +237,7 @@ Each entry is a real defect or trap encountered while adding features to this pl
   ```
 
   Belt-and-braces parse check: `find lua -name '*.lua' -exec luac5.1 -p {} +` — but PUC Lua 5.1 also rejects the LuaJIT extensions this repo *does* use (`continue` in `history.lua`, `goto`), so treat those hits as false positives; the authoritative ban list is 5.3-only syntax.
-- **排查方法:** `loop or previous error loading module X` is **never** the root cause — it means module X already failed to load earlier in the same nvim session. Look one message up in `:messages` (lazy's `Failed to run 'config' for ...` carries the real error), or restart nvim and `:lua require("pi.sessions.manager")` — a fresh session has no sentinel, so the first require prints the real error. When the same commit behaves differently across machines, compare `:lua =jit and jit.version or _VERSION`: differing LuaJIT vintages explain it.
+- **排查方法:** `loop or previous error loading module X` is **never** the root cause — it means module X already failed to load earlier in the same nvim session. Look one message up in `:messages` (lazy's `Failed to run 'config' for ...` carries the real error), or restart nvim and `:lua require("agent-workbench.sessions.manager")` — a fresh session has no sentinel, so the first require prints the real error. When the same commit behaves differently across machines, compare `:lua =jit and jit.version or _VERSION`: differing LuaJIT vintages explain it.
 - **元教训:** This plugin promises "Neovim 0.10+", so its code must parse on the LuaJIT those releases ship — not just on yours. Syntax compatibility is runtime-dependent and stays invisible until someone's stable build fails to load the plugin at all.
 
 ### G25 — A failure-counting grep that never matches reports "all green" on a failing suite

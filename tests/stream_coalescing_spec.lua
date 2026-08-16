@@ -2,8 +2,8 @@
 -- History._stream_flush_ms, while structural events (tool blocks, thinking
 -- blocks, turn boundaries) drain the pending stream in dispatch order.
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
 
 local TAB = 903
 
@@ -42,12 +42,12 @@ describe("stream coalescing", function()
         saved_flush_ms = History._stream_flush_ms
         History._stream_flush_ms = 1
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
     after_each(function()
         History._stream_flush_ms = saved_flush_ms
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     it("keeps the agent label above the first text when the block opens lazily", function()

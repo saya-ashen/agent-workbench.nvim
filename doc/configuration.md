@@ -1,11 +1,11 @@
 # Configuration
 
-All options are optional — `require("pi").setup()` with no arguments gives you the defaults below. This page is the full reference; the [README](../README.md) has a shorter overview of the most common knobs.
+All options are optional — `require("agent-workbench").setup()` with no arguments gives you the defaults below. This page is the full reference; the [README](../README.md) has a shorter overview of the most common knobs.
 
 ```lua
----@type pi.Options
-require("pi").setup({
-    -- Create and show Pi chat in every tab-backed workspace at startup and tab entry.
+---@type agent_workbench.Options
+require("agent-workbench").setup({
+    -- Create and show Agent Workbench in every tab-backed workspace at startup and tab entry.
     -- Set false to restore lazy session creation.
     auto_start_session = true,
     -- pi CLI invocation. Extra args are inserted before `--mode rpc`.
@@ -26,7 +26,7 @@ require("pi").setup({
     -- Override the π agent directory used for session lookup.
     -- Defaults to $PI_CODING_AGENT_DIR or ~/.pi/agent.
     agent_dir = nil,
-    -- Preferred models for cycling and the :PiSelectModel picker.
+    -- Preferred models for cycling and the :AgentWorkbenchSelectModel picker.
     -- Each entry is either a string (exact ID or "provider/modelId") or a table:
     --   { match = "opus", latest = true }
     --   { match = "gpt-5.3-codex", exact = true } or just "gpt-5.3-codex"
@@ -157,7 +157,7 @@ require("pi").setup({
     attention = {
         -- Auto-open the next pending attention request when the
         -- current tab's prompt is refocused and empty.
-        -- If false, needs :PiAttention command to pull what's pending.
+        -- If false, needs :AgentWorkbenchAttention command to pull what's pending.
         auto_open_on_prompt_focus = true,
         -- Notify when the agent finishes a turn and the prompt is not focused.
         notify_on_completion = true,
@@ -178,7 +178,7 @@ require("pi").setup({
         glob = false, -- alias of `find` for older pi versions that named the tool `glob`
     },
 
-    -- Double-<Esc> aborts the running agent (same as :PiAbort).
+    -- Double-<Esc> aborts the running agent (same as :AgentWorkbenchAbort).
     abort = {
         -- Enable the double-<Esc> abort gesture.
         enabled = true,
@@ -188,7 +188,7 @@ require("pi").setup({
         message = "Press <Esc> again to abort",
     },
 
-    -- Session tree navigation (:PiTree). Injects the bundled pi extension
+    -- Session tree navigation (:AgentWorkbenchTree). Injects the bundled pi extension
     -- (extensions/tree.ts) into every RPC process; requires a pi version
     -- whose extension API exposes ctx.navigateTree.
     tree = {
@@ -216,7 +216,7 @@ require("pi").setup({
         enabled = true,
     },
 
-    -- Sessions overview (:PiSessions): a live list of all active sessions
+    -- Sessions overview (:AgentWorkbenchSessions): a live list of all active sessions
     -- (multiple sessions may share one tab) — a status dot whose color/animation encodes the state
     -- (busy/compacting/attention/done/error/idle/exited) plus the session
     -- name. See doc/sessions.md for details.
@@ -224,7 +224,7 @@ require("pi").setup({
         -- How the window opens: "side" | "float" explicitly, or "follow" the
         -- current tab's chat layout (default).
         mode = "follow",
-        -- Open the list together with the chat (:Pi etc.).
+        -- Open the list together with the chat (:AgentWorkbench etc.).
         auto_open = false,
         -- Window placement in the side layout: "left" | "right" | "top" | "bottom".
         position = "left",
@@ -240,7 +240,7 @@ require("pi").setup({
         },
     },
 
-    -- Session diff review (:PiDiff): one floating panel — an outer border
+    -- Session diff review (:AgentWorkbenchDiff): one floating panel — an outer border
     -- framing the file list and the diff of the selected file — showing
     -- the `git diff` of every file the current session changed. See
     -- doc/diff-review.md.
@@ -298,7 +298,7 @@ require("pi").setup({
             enabled = true,
         },
         -- Intercept paste in the prompt: when the system clipboard holds an
-        -- image, attach it (like :PiPasteImage) instead of inserting text.
+        -- image, attach it (like :AgentWorkbenchPasteImage) instead of inserting text.
         -- Requires img-clip.nvim; plain-text pastes are never affected.
         paste_image = true,
         -- Compress image attachments before sending (external tool required:
@@ -364,7 +364,7 @@ Notes on a few fields:
 To trust project-local pi files when using `Agent Workbench`, either pass pi's trust flag through `cli.args`:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     cli = {
         args = { "--approve" },
     },

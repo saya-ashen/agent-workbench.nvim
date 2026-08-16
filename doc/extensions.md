@@ -57,28 +57,28 @@ The signature:
 ---@param key string            -- the widgetKey the extension sent
 ---@param lines string[]|nil    -- widgetLines (nil when the extension cleared the widget)
 ---@param placement string|nil  -- "aboveEditor" / "belowEditor" (as sent by the extension)
----@return pi.CustomBlock|nil
+---@return agent_workbench.CustomBlock|nil
 function(key, lines, placement)
     -- return a block, or nil to ignore this widget
 end
 ```
 
-Return `nil` to ignore a widget and let it vanish quietly. Return a `pi.CustomBlock` to render it inline:
+Return `nil` to ignore a widget and let it vanish quietly. Return an `agent_workbench.CustomBlock` to render it inline:
 
 ```lua
----@class pi.CustomBlock
+---@class agent_workbench.CustomBlock
 ---@field target  "history"          -- only "history" is supported today
 ---@field block   "custom"           -- discriminator; always "custom"
----@field content pi.CustomBlockLine[]
+---@field content agent_workbench.CustomBlockLine[]
 ```
 
-A `pi.CustomBlockLine` is a list of styled chunks, and each chunk is a `{ text, hl_group? }` pair:
+An `agent_workbench.CustomBlockLine` is a list of styled chunks, and each chunk is a `{ text, hl_group? }` pair:
 
 ```lua
 -- One line, two chunks with different highlights:
 {
     { "    ╰  rule: ", "Comment" },
-    { ".agents/rules/ts.md", "PiMention" },
+    { ".agents/rules/ts.md", "AgentWorkbenchMention" },
 }
 ```
 
@@ -91,7 +91,7 @@ Without `on_widget`, that widget would simply be ignored by Agent Workbench. Wit
 Here's the hook that turns that widget into an inline annotation:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     on_widget = function(key, lines)
         if key == "rules:load" and lines then
             local content = {}
@@ -156,7 +156,7 @@ local function strip_ansi(text)
     return text:gsub("\27%[[0-9;]*m", "")
 end
 
-require("pi").setup({
+require("agent-workbench").setup({
     cli = { bin = "omp" },
     rpc = {
         map_command = function(cmd)
@@ -172,7 +172,7 @@ require("pi").setup({
                 local text = strip_ansi(msg.text or "")
                 if text ~= "" then
                     vim.schedule(function()
-                        require("pi.notify").info(text)
+                        require("agent-workbench.notify").info(text)
                     end)
                 end
                 return nil

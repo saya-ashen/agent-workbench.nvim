@@ -140,7 +140,7 @@ send() {
 # typing. The KEYS UNDER TEST still travel as terminal bytes.
 focus_prompt() {
   runlua <<'LUA'
-pcall(function() require("pi").focus_chat_prompt() end)
+pcall(function() require("agent-workbench").focus_chat_prompt() end)
 vim.cmd("startinsert")
 LUA
   sleep 0.3
@@ -214,7 +214,7 @@ RESULT = p and (vim.trim(table.concat(vim.api.nvim_buf_get_lines(p, 0, -1, false
 LUA
 }
 last_two_history() { qlua <<'LUA'
-local e = require("pi.prompt_history").get():entries(); local n = #e
+local e = require("agent-workbench.prompt_history").get():entries(); local n = #e
 RESULT = (n >= 2) and (e[n - 1] .. " | " .. e[n]) or ("ONLY:" .. table.concat(e, " | "))
 LUA
 }

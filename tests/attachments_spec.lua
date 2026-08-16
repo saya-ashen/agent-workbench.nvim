@@ -1,9 +1,9 @@
 -- Unit tests for pi.ChatAttachments (attachment list buffer). Hermetic:
 -- img-clip is stubbed for clipboard tests; file tests use real temp files.
 
-local Config = require("pi.config")
+local Config = require("agent-workbench.config")
 
-local Compress = require("pi.image_compress")
+local Compress = require("agent-workbench.image_compress")
 
 --- Install a fake `img-clip.clipboard` module returning `b64` as the image.
 ---@param b64 string|nil nil => module absent
@@ -39,7 +39,7 @@ local function make_image_file(bytes)
 end
 
 describe("pi.ChatAttachments", function()
-    local Attachments = require("pi.ui.chat.attachments")
+    local Attachments = require("agent-workbench.ui.chat.attachments")
 
     local att
     local tmp_files

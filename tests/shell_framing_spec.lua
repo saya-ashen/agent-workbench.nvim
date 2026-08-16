@@ -1,5 +1,5 @@
-local Framing = require("pi.ui.chat.terminal.shell.framing")
-local Completion = require("pi.ui.chat.terminal.shell.completion")
+local Framing = require("agent-workbench.ui.chat.terminal.shell.framing")
+local Completion = require("agent-workbench.ui.chat.terminal.shell.completion")
 
 describe("shell frame parser", function()
     it("recognizes control frames split at every byte boundary", function()

@@ -6,7 +6,7 @@
 -- Node-style unicode escapes, arbitrary-depth parsing, strict rejection of
 -- malformed input, and the vim.json special values (vim.NIL / vim.empty_dict).
 
-local Json = require("pi.json")
+local Json = require("agent-workbench.json")
 
 --- vim.is_empty_dict does not exist in this nvim; empty dicts are recognized
 --- by their metatable identity (vim.empty_dict() returns a fresh table with
@@ -82,7 +82,7 @@ describe("pi.json", function()
                 type = "tool_execution_end",
                 toolName = "read",
                 toolCallId = "call_1",
-                args = { file_path = "lua/pi/json.lua" },
+                args = { file_path = "lua/agent-workbench/json.lua" },
                 result = {
                     content = { { type = "text", text = "line1\nline2" } },
                     details = { { path = "x", lines = { 1, 2, 3 } } },

@@ -3,7 +3,7 @@
 Everything exposed by the [user commands](../README.md#commands) is also available from Lua. Grab the module once and call into it directly:
 
 ```lua
-local pi = require("pi")
+local pi = require("agent-workbench")
 
 -- Setup (called once from your config entrypoint)
 pi.setup(opts?)
@@ -20,16 +20,16 @@ pi.layout()                   -- "side" | "float" | nil
 pi.continue_session(opts?)    -- load the most recent session for the current cwd
 pi.resume_session(opts?)      -- pick a past session for the current cwd
 pi.new_session()              -- create and activate a separate session buffer
-pi.tree()                     -- navigate the session tree (:PiTree)
-pi.sessions()                 -- toggle the live sessions overview (:PiSessions)
-pi.workspaces()               -- pick and switch a tab-backed workspace (:PiWorkspaces)
-pi.workspace_sidebar()        -- toggle the collapsible workspace explorer (:PiWorkspaceSidebar)
-pi.new_workspace()            -- select a directory and create a workspace (:PiNewWorkspace)
+pi.tree()                     -- navigate the session tree (:AgentWorkbenchTree)
+pi.sessions()                 -- toggle the live sessions overview (:AgentWorkbenchSessions)
+pi.workspaces()               -- pick and switch a tab-backed workspace (:AgentWorkbenchWorkspaces)
+pi.workspace_sidebar()        -- toggle the collapsible workspace explorer (:AgentWorkbenchWorkspaceSidebar)
+pi.new_workspace()            -- select a directory and create a workspace (:AgentWorkbenchNewWorkspace)
 pi.workspace_list()           -- workspace rows in tabline order
 pi.workspace_tabline()        -- built-in tabline rendering for integrations
 pi.move_buffer(tab_number)    -- move current ordinary buffer to another workspace
-pi.session_stats()            -- show the session stats dashboard (:PiSessionStats)
-pi.diff_review()              -- review the git diff of every file changed this session (:PiDiff)
+pi.session_stats()            -- show the session stats dashboard (:AgentWorkbenchSessionStats)
+pi.diff_review()              -- review the git diff of every file changed this session (:AgentWorkbenchDiff)
 pi.set_session_name(name?)    -- set the session display name; without an arg, opens an
                               -- input dialog prefilled with the current name
 pi.compact(instructions?)     -- manually compact the current session (optional guidance)

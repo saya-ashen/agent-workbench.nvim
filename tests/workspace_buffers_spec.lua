@@ -1,5 +1,5 @@
-local Config = require("pi.config")
-local WorkspaceBuffers = require("pi.workspace_buffers")
+local Config = require("agent-workbench.config")
+local WorkspaceBuffers = require("agent-workbench.workspace_buffers")
 
 Config.setup({})
 

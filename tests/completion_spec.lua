@@ -1,9 +1,9 @@
 --- Tests for the shared @-mention / /command matching logic (pi.completion).
 
 describe("completion matcher", function()
-    local Matcher = require("pi.completion")
-    local FilesCache = require("pi.cache.files")
-    local CommandsCache = require("pi.cache.commands")
+    local Matcher = require("agent-workbench.completion")
+    local FilesCache = require("agent-workbench.cache.files")
+    local CommandsCache = require("agent-workbench.cache.commands")
 
     local orig_list = FilesCache.list
     local orig_commands_list = CommandsCache.list
@@ -17,7 +17,7 @@ describe("completion matcher", function()
     end
 
     --- Install a fixed command list for complete_commands.
-    ---@param commands pi.SlashCommand[]
+    ---@param commands agent_workbench.SlashCommand[]
     local function with_commands(commands)
         CommandsCache.list = function()
             return commands
@@ -57,7 +57,7 @@ describe("completion matcher", function()
 
     describe("complete_files", function()
         it("empty prefix lists top-level dirs (collapsed) and files", function()
-            with_files({ "lua/pi/init.lua", "lua/pi/config.lua", "README.md", "a/b/c.txt" })
+            with_files({ "lua/agent-workbench/init.lua", "lua/agent-workbench/config.lua", "README.md", "a/b/c.txt" })
             local got = run_files("")
             assert.same({
                 { "lua/", "dir", false },
@@ -67,7 +67,7 @@ describe("completion matcher", function()
         end)
 
         it("prefix matches are case-sensitive; fuzzy pass still catches other cases", function()
-            with_files({ "lua/pi/init.lua", "lua/pi/config.lua", "luax.txt", "LUA/upper.txt" })
+            with_files({ "lua/agent-workbench/init.lua", "lua/agent-workbench/config.lua", "luax.txt", "LUA/upper.txt" })
             local got = run_files("lua")
             assert.same({
                 { "lua/", "dir", false }, -- prefix (case-sensitive), collapsed
@@ -77,10 +77,10 @@ describe("completion matcher", function()
         end)
 
         it("collapses directories relative to the typed prefix", function()
-            with_files({ "lua/pi/init.lua", "lua/pi/config.lua", "lua/other/x.lua" })
+            with_files({ "lua/agent-workbench/init.lua", "lua/agent-workbench/config.lua", "lua/other/x.lua" })
             local got = run_files("lua/")
             assert.same({
-                { "lua/pi/", "dir", false },
+                { "lua/agent-workbench/", "dir", false },
                 { "lua/other/", "dir", false },
             }, got)
         end)
@@ -125,7 +125,7 @@ describe("completion matcher", function()
     end)
 
     describe("complete_commands", function()
-        ---@type pi.SlashCommand[]
+        ---@type agent_workbench.SlashCommand[]
         local commands = {
             { name = "help", description = "show help", source = "prompt" },
             { name = "compact", description = "compact", source = "extension" },

@@ -12,13 +12,13 @@ Agent Workbench runs `pi --mode rpc` beside Neovim and turns agent work into an 
 
 The editor layer is designed to support additional coding-agent backends over time. Current releases support pi.dev only.
 
-The Lua namespace remains `pi` for compatibility:
+The canonical Lua namespace is now `agent-workbench`:
 
 ```lua
-require("pi").setup()
+require("agent-workbench").setup()
 ```
 
-The project name is separate from the Lua namespace. This repository is not an official new version of `pi.nvim`.
+Legacy `require("pi")` remains as a deprecated compatibility entry until `2.0.0`. New configuration should use the canonical namespace. This repository is not an official new version of `pi.nvim`.
 
 ![Agent Workbench demo](assets/demo.gif)
 
@@ -41,10 +41,10 @@ This frontend treats agent work as stateful editor work:
 
 Each tab acts as an independent workspace with its own working directory, buffers, sessions, and agent process.
 
-- `:PiNewWorkspace` creates a workspace rooted at a selected directory.
-- `:PiWorkspaces` switches workspaces through a searchable picker.
-- `:PiWorkspaceSidebar` shows workspaces, sessions, and ordinary buffers together.
-- `:PiMoveBuffer` moves ordinary buffers between workspaces.
+- `:AgentWorkbenchNewWorkspace` creates a workspace rooted at a selected directory.
+- `:AgentWorkbenchWorkspaces` switches workspaces through a searchable picker.
+- `:AgentWorkbenchWorkspaceSidebar` shows workspaces, sessions, and ordinary buffers together.
+- `:AgentWorkbenchMoveBuffer` moves ordinary buffers between workspaces.
 - Workspace buffers stay scoped to the current tab instead of leaking across projects.
 - Changing workspace cwd starts a fresh session only when the current session is idle.
 - Workspace state and unsent drafts are isolated by cwd and Neovim process.
@@ -58,16 +58,16 @@ Sessions are buffer-owned instead of being one global chat singleton.
 - Continue or resume sessions for the current working directory.
 - Background output stays in its owning History buffer.
 - Re-entering a session restores its last History cursor and folds.
-- `:PiSessions` gives one live overview of busy, idle, attention, and stopped sessions.
-- `:PiTree` navigates conversation branches and can summarize abandoned branches.
-- `:PiSessionStats` shows messages, tokens, cache usage, cost, and context usage.
+- `:AgentWorkbenchSessions` gives one live overview of busy, idle, attention, and stopped sessions.
+- `:AgentWorkbenchTree` navigates conversation branches and can summarize abandoned branches.
+- `:AgentWorkbenchSessionStats` shows messages, tokens, cache usage, cost, and context usage.
 - Manual and automatic context compaction keep long sessions usable.
 
 ### Agent Edits With Review Control
 
 Agent output is useful only when its changes remain understandable and reversible.
 
-- `:PiDiff` reviews all files changed by the current session in one panel.
+- `:AgentWorkbenchDiff` reviews all files changed by the current session in one panel.
 - Two-way diff review supports accepting, rejecting, and editing proposed results.
 - Review notes and permission-extension requests stay in the editor workflow.
 - Unsaved buffers are never overwritten by automatic reload.
@@ -130,11 +130,11 @@ The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and
 
 1. Install `pi` and make sure it is in `$PATH`.
 2. Install this plugin and the default Markdown renderer.
-3. Run `:checkhealth pi`.
-4. Open a project and run `:Pi`.
+3. Run `:checkhealth agent-workbench`.
+4. Open a project and run `:AgentWorkbench`.
 5. Type a prompt and press `<CR>`.
 6. Use `@path/to/file` to attach code context.
-7. Use `:PiDiff` before accepting agent edits.
+7. Use `:AgentWorkbenchDiff` before accepting agent edits.
 8. Use `!!` when local shell work should stay outside agent context.
 
 ## Requirements
@@ -147,12 +147,12 @@ The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and
 Optional:
 
 - `nvim-treesitter` with the Markdown parser for richer History highlighting
-- [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:PiPasteImage`
+- [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:AgentWorkbenchPasteImage`
 - `blink.cmp` for popup prompt completion
 - `bufferline.nvim` for workspace tabs
 - `nvim-web-devicons` for workspace sidebar icons and path highlights
 
-Run `:checkhealth pi` after installation.
+Run `:checkhealth agent-workbench` after installation.
 
 ## Installation
 
@@ -163,7 +163,7 @@ Run `:checkhealth pi` after installation.
     "saya-ashen/agent-workbench.nvim",
     dependencies = {
         "OXY2DEV/markview.nvim",
-        "HakonHarnes/img-clip.nvim", -- optional: :PiPasteImage
+        "HakonHarnes/img-clip.nvim", -- optional: :AgentWorkbenchPasteImage
     },
     opts = {},
 }
@@ -177,7 +177,7 @@ vim.pack.add({
     "https://github.com/OXY2DEV/markview.nvim",
 })
 
-require("pi").setup()
+require("agent-workbench").setup()
 ```
 
 Defaults are usable without a custom configuration. Full options live in [doc/configuration.md](doc/configuration.md).
@@ -186,39 +186,41 @@ Defaults are usable without a custom configuration. Full options live in [doc/co
 
 | Command | Purpose |
 | --- | --- |
-| `:Pi` | Open or toggle chat in the current workspace |
-| `:PiContinue` | Continue the newest session for the current cwd |
-| `:PiResume` | Pick a previous session for the current cwd |
-| `:PiNewSession` | Create another independent session |
-| `:PiStop` | Stop the current RPC process and close its session |
-| `:PiToggleChat` | Hide or show chat without stopping the session |
-| `:PiToggleLayout` | Switch between side and float layouts |
-| `:PiSessions` | Show all live sessions and their state |
-| `:PiTree` | Navigate the current session tree |
-| `:PiSessionStats` | Show usage and cost statistics |
-| `:PiDiff` | Review files changed by the current session |
-| `:PiNewWorkspace` | Create a directory-backed workspace |
-| `:PiWorkspaces` | Pick a workspace |
-| `:PiWorkspaceSidebar` | Toggle the workspace explorer |
-| `:PiMoveBuffer {tab}` | Move an ordinary buffer to another workspace |
-| `:PiAttention` | Open the next queued attention request |
-| `:PiAbort` | Abort the current agent turn |
-| `:PiAbortBash` | Abort the running `!` command |
-| `:PiCompact [instructions]` | Compact session context |
-| `:PiCycleModel` / `:PiSelectModel` | Change model |
-| `:PiCycleThinking` / `:PiSelectThinking` | Change thinking level |
-| `:PiAttachImage {path}` | Attach an image file |
-| `:PiPasteImage` | Attach an image from the clipboard |
-| `:PiToggleAutoCompaction` | Toggle automatic compaction |
-| `:PiSessionName [name]` | Set or show session name |
-| `:PiToggleDebug` | Toggle RPC debug logging |
+| `:AgentWorkbench` | Open or toggle chat in the current workspace |
+| `:AgentWorkbenchContinue` | Continue the newest session for the current cwd |
+| `:AgentWorkbenchResume` | Pick a previous session for the current cwd |
+| `:AgentWorkbenchNewSession` | Create another independent session |
+| `:AgentWorkbenchStop` | Stop the current RPC process and close its session |
+| `:AgentWorkbenchToggleChat` | Hide or show chat without stopping the session |
+| `:AgentWorkbenchToggleLayout` | Switch between side and float layouts |
+| `:AgentWorkbenchSessions` | Show all live sessions and their state |
+| `:AgentWorkbenchTree` | Navigate the current session tree |
+| `:AgentWorkbenchSessionStats` | Show usage and cost statistics |
+| `:AgentWorkbenchDiff` | Review files changed by the current session |
+| `:AgentWorkbenchNewWorkspace` | Create a directory-backed workspace |
+| `:AgentWorkbenchWorkspaces` | Pick a workspace |
+| `:AgentWorkbenchWorkspaceSidebar` | Toggle the workspace explorer |
+| `:AgentWorkbenchMoveBuffer {tab}` | Move an ordinary buffer to another workspace |
+| `:AgentWorkbenchAttention` | Open the next queued attention request |
+| `:AgentWorkbenchAbort` | Abort the current agent turn |
+| `:AgentWorkbenchAbortBash` | Abort the running `!` command |
+| `:AgentWorkbenchCompact [instructions]` | Compact session context |
+| `:AgentWorkbenchCycleModel` / `:AgentWorkbenchSelectModel` | Change model |
+| `:AgentWorkbenchCycleThinking` / `:AgentWorkbenchSelectThinking` | Change thinking level |
+| `:AgentWorkbenchAttachImage {path}` | Attach an image file |
+| `:AgentWorkbenchPasteImage` | Attach an image from the clipboard |
+| `:AgentWorkbenchToggleAutoCompaction` | Toggle automatic compaction |
+| `:AgentWorkbenchSessionName [name]` | Set or show session name |
+| `:AgentWorkbenchToggleDebug` | Toggle RPC debug logging |
 
 Every command has a Lua API counterpart. See [doc/api.md](doc/api.md).
+
+Legacy `:Pi*` aliases remain available during the migration period. Agent Workbench skips an alias when another plugin already owns that command, so the canonical `:AgentWorkbench*` commands can coexist with `pi.nvim`. The compatibility Lua modules `require("pi")` and `pi.completion.blink` remain inherently runtimepath-order dependent when both plugins are installed; use `require("agent-workbench")` and `agent-workbench.completion.blink` in mixed setups.
 
 ## Configuration
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     auto_start_session = true,
     layout = {
         default = "buffer",

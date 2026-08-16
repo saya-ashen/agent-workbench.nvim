@@ -1,6 +1,6 @@
-local Config = require("pi.config")
-local Sidebar = require("pi.ui.workspace_sidebar")
-local SessionsUi = require("pi.ui.sessions")
+local Config = require("agent-workbench.config")
+local Sidebar = require("agent-workbench.ui.workspace_sidebar")
+local SessionsUi = require("agent-workbench.ui.sessions")
 
 Config.setup({})
 
@@ -67,16 +67,16 @@ describe("workspace sidebar", function()
         vim.cmd("tcd " .. vim.fn.fnameescape(dirs[2]))
         vim.api.nvim_set_current_tabpage(start_tab)
 
-        original_workspaces = package.loaded["pi.ui.workspaces"]
-        original_sessions = package.loaded["pi.sessions.manager"]
-        original_attention = package.loaded["pi.attention"]
-        original_workspace_buffers = package.loaded["pi.workspace_buffers"]
+        original_workspaces = package.loaded["agent-workbench.ui.workspaces"]
+        original_sessions = package.loaded["agent-workbench.sessions.manager"]
+        original_attention = package.loaded["agent-workbench.attention"]
+        original_workspace_buffers = package.loaded["agent-workbench.workspace_buffers"]
         original_devicons = package.loaded["nvim-web-devicons"]
-        original_confirm = require("pi.ui.dialog").confirm
+        original_confirm = require("agent-workbench.ui.dialog").confirm
         local sessions = { session(11, start_tab, "busy"), session(22, second_tab, "idle") }
         SessionsUi.on_session_info_changed(sessions[1], "Build authentication flow")
         SessionsUi.on_session_info_changed(sessions[2], "Review release")
-        package.loaded["pi.ui.workspaces"] = {
+        package.loaded["agent-workbench.ui.workspaces"] = {
             list = function()
                 return {
                     {
@@ -101,7 +101,7 @@ describe("workspace sidebar", function()
                 created_workspace = true
             end,
         }
-        package.loaded["pi.sessions.manager"] = {
+        package.loaded["agent-workbench.sessions.manager"] = {
             list = function()
                 return sessions
             end,
@@ -112,12 +112,12 @@ describe("workspace sidebar", function()
                 created_session = vim.api.nvim_get_current_tabpage()
             end,
         }
-        package.loaded["pi.attention"] = {
+        package.loaded["agent-workbench.attention"] = {
             count_for_session = function()
                 return 0
             end,
         }
-        package.loaded["pi.workspace_buffers"] = {
+        package.loaded["agent-workbench.workspace_buffers"] = {
             list = function()
                 return {}
             end,
@@ -127,12 +127,12 @@ describe("workspace sidebar", function()
 
     after_each(function()
         Sidebar._reset()
-        package.loaded["pi.ui.workspaces"] = original_workspaces
-        package.loaded["pi.sessions.manager"] = original_sessions
-        package.loaded["pi.attention"] = original_attention
-        package.loaded["pi.workspace_buffers"] = original_workspace_buffers
+        package.loaded["agent-workbench.ui.workspaces"] = original_workspaces
+        package.loaded["agent-workbench.sessions.manager"] = original_sessions
+        package.loaded["agent-workbench.attention"] = original_attention
+        package.loaded["agent-workbench.workspace_buffers"] = original_workspace_buffers
         package.loaded["nvim-web-devicons"] = original_devicons
-        require("pi.ui.dialog").confirm = original_confirm
+        require("agent-workbench.ui.dialog").confirm = original_confirm
         if vim.api.nvim_tabpage_is_valid(second_tab) and #vim.api.nvim_list_tabpages() > 1 then
             vim.api.nvim_set_current_tabpage(second_tab)
             vim.cmd("tabclose!")
@@ -206,7 +206,7 @@ describe("workspace sidebar", function()
         vim.api.nvim_set_current_buf(history)
         local file = vim.api.nvim_create_buf(true, false)
         vim.api.nvim_buf_set_name(file, dirs[1] .. "/offer-letter.md")
-        package.loaded["pi.workspace_buffers"] = {
+        package.loaded["agent-workbench.workspace_buffers"] = {
             list = function(tab)
                 return tab == start_tab and { file } or {}
             end,
@@ -272,7 +272,7 @@ describe("workspace sidebar", function()
     end)
 
     it("shows attention before busy session state", function()
-        package.loaded["pi.attention"].count_for_session = function(value)
+        package.loaded["agent-workbench.attention"].count_for_session = function(value)
             return value.id == 11 and 1 or 0
         end
         Sidebar.open()
@@ -287,13 +287,13 @@ describe("workspace sidebar", function()
 
     it("confirms before deleting a session but deletes ordinary buffers directly", function()
         local session_buf = vim.api.nvim_create_buf(true, false)
-        package.loaded["pi.sessions.manager"].list()[1].history_buf = session_buf
+        package.loaded["agent-workbench.sessions.manager"].list()[1].history_buf = session_buf
         Sidebar.open()
         local win = vim.api.nvim_get_current_win()
         local buf = vim.api.nvim_win_get_buf(win)
         callback_for(buf, "l")()
         local confirmed
-        require("pi.ui.dialog").confirm = function(opts, callback)
+        require("agent-workbench.ui.dialog").confirm = function(opts, callback)
             confirmed = opts.title
             callback(false)
         end
@@ -304,7 +304,7 @@ describe("workspace sidebar", function()
 
         local file = vim.api.nvim_create_buf(true, false)
         vim.api.nvim_buf_set_name(file, dirs[1] .. "/delete-me.txt")
-        package.loaded["pi.workspace_buffers"] = {
+        package.loaded["agent-workbench.workspace_buffers"] = {
             list = function(tab)
                 return tab == start_tab and { file } or {}
             end,

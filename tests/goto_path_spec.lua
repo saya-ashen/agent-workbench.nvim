@@ -6,10 +6,10 @@
 -- specs pin the window-selection contract: never target a π panel or any
 -- winfixbuf-pinned window; fall back to a fresh split otherwise.
 
-local Config = require("pi.config")
-local Ft = require("pi.filetypes")
-local History = require("pi.ui.chat.history")
-local SessionList = require("pi.ui.sessions")
+local Config = require("agent-workbench.config")
+local Ft = require("agent-workbench.filetypes")
+local History = require("agent-workbench.ui.chat.history")
+local SessionList = require("agent-workbench.ui.sessions")
 
 --- Windows that existed before the test started; restored in after_each.
 local base_wins = {}
@@ -17,7 +17,7 @@ local saved_agent_dir
 
 --- Create a History whose buffer has a single line holding `path`.
 ---@param path string
----@return pi.ChatHistory
+---@return agent_workbench.ChatHistory
 local function make_history(path)
     local tab = vim.api.nvim_get_current_tabpage()
     local h = History.new(tab)
@@ -29,7 +29,7 @@ end
 
 --- Open the history buffer in a side-layout-style window (winfixbuf like
 --- the real layout sets) and wire it to the History.
----@param h pi.ChatHistory
+---@param h agent_workbench.ChatHistory
 ---@return integer win
 local function open_history_win(h)
     vim.cmd("topleft vsplit")
@@ -41,7 +41,7 @@ local function open_history_win(h)
 end
 
 --- Focus the first history line and invoke goto_path_at_cursor.
----@param h pi.ChatHistory
+---@param h agent_workbench.ChatHistory
 ---@param hist_win integer
 ---@return boolean ok
 ---@return boolean? opened

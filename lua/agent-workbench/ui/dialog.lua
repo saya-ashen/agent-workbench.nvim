@@ -1,0 +1,343 @@
+--- Dialog UI: selects and confirms render through vim.ui.select (the user's
+--- picker backend); info and input are custom floating windows.
+
+local M = {}
+
+local Ft = require("agent-workbench.filetypes")
+local Keys = require("agent-workbench.keys")
+
+local ns = vim.api.nvim_create_namespace("pi-dialog")
+
+local WINHIGHLIGHT = require("agent-workbench.ui.highlights").DIALOG_WINHIGHLIGHT
+
+---@return boolean
+local function is_insert()
+    return vim.fn.mode():match("^i") ~= nil
+end
+
+---@return agent_workbench.DialogConfig
+local function get_config()
+    local config = require("agent-workbench.config")
+    return config.options.dialog
+end
+
+local BASE_KEYS = {
+    confirm = { { "<CR>", modes = { "n", "i" } } },
+    cancel = { "<Esc>", "q" },
+}
+
+--- Bind base keys + user keys for a dialog action.
+---@param buf integer
+---@param action "confirm"|"cancel"
+---@param handler function
+local function bind_keys(buf, action, handler)
+    for _, key in ipairs(BASE_KEYS[action] or {}) do
+        Keys.bind(buf, key, handler, { nowait = true })
+    end
+    for _, key in ipairs(Keys.resolve(get_config().keys[action])) do
+        Keys.bind(buf, key, handler, { nowait = true })
+    end
+end
+
+---@param win integer
+local function fit_height_to_wrapped_content(win)
+    if not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+
+    local cfg = get_config()
+    local editor_w = vim.o.columns
+    local editor_h = vim.o.lines - vim.o.cmdheight
+    local cap_h = cfg.max_height < 1 and math.floor(editor_h * cfg.max_height) or cfg.max_height
+    local width = vim.api.nvim_win_get_width(win)
+    local height = math.max(1, math.min(vim.api.nvim_win_text_height(win, {}).all, cap_h))
+    local win_cfg = vim.api.nvim_win_get_config(win)
+    win_cfg.row = math.floor((editor_h - height) / 2)
+    win_cfg.col = math.floor((editor_w - width) / 2)
+    win_cfg.height = height
+
+    local ok = pcall(vim.api.nvim_win_set_config, win, win_cfg)
+    if not ok then
+        return
+    end
+end
+
+---@param lines string[]
+---@param title string
+---@param opts? { modifiable?: boolean, min_width?: integer }
+---@return { buf: integer, win: integer }
+local function open_float(lines, title, opts)
+    opts = opts or {}
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].filetype = Ft.dialog
+    vim.bo[buf].completefunc = ""
+    vim.bo[buf].omnifunc = ""
+    vim.bo[buf].modifiable = opts.modifiable or false
+
+    local max_width = opts.min_width or 0
+    for _, line in ipairs(lines) do
+        max_width = math.max(max_width, vim.fn.strdisplaywidth(line))
+    end
+    local cfg = get_config()
+    local pad = 4
+    local editor_w = vim.o.columns
+    local editor_h = vim.o.lines - vim.o.cmdheight
+    local cap_w = cfg.max_width < 1 and math.floor(editor_w * cfg.max_width) or cfg.max_width
+    local cap_h = cfg.max_height < 1 and math.floor(editor_h * cfg.max_height) or cfg.max_height
+    local width = math.max(1, math.min(max_width + pad, cap_w), vim.fn.strdisplaywidth(title) + 4)
+    local height = math.max(1, math.min(#lines, cap_h))
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        row = math.floor((editor_h - height) / 2),
+        col = math.floor((editor_w - width) / 2),
+        width = width,
+        height = height,
+        style = "minimal",
+        border = cfg.border,
+        title = " " .. title .. " ",
+        title_pos = "center",
+    })
+    vim.wo[win].winhighlight = WINHIGHLIGHT
+    vim.wo[win].signcolumn = "yes"
+    vim.wo[win].cursorline = false
+    vim.wo[win].wrap = true
+    fit_height_to_wrapped_content(win)
+
+    return { buf = buf, win = win }
+end
+
+---@param timeout integer?
+---@param callback fun()
+---@return integer?
+local function start_timeout(timeout, callback)
+    if type(timeout) ~= "number" or timeout <= 0 then
+        return nil
+    end
+    return vim.fn.timer_start(timeout, function()
+        vim.schedule(callback)
+    end)
+end
+
+---@param timer integer?
+local function stop_timeout(timer)
+    if timer then
+        pcall(vim.fn.timer_stop, timer)
+    end
+end
+
+--- Picker-style select dialog rendered through vim.ui.select, so rendering,
+--- filtering, and keymaps follow the user's picker backend (telescope, snacks,
+--- the built-in picker, ...).
+---@param opts { title: string, message?: string, options: string[], kind?: string }
+---@param callback fun(choice: string?)
+function M.select(opts, callback)
+    local options = opts.options or {}
+    if #options == 0 then
+        callback(nil)
+        return
+    end
+
+    local prompt = opts.title or "Select"
+    if opts.message and opts.message ~= "" then
+        prompt = prompt .. ": " .. (opts.message:gsub("%s+", " "))
+    end
+
+    vim.ui.select(options, {
+        prompt = prompt,
+        kind = opts.kind or "pi-select",
+    }, callback)
+end
+
+--- Informational dialog with static content.
+---@param opts { title: string, lines: string[], highlights?: table<integer, {start_col: integer, end_col: integer, hl: string}[]> }
+function M.info(opts)
+    local lines = vim.deepcopy(opts.lines or {})
+    local close_keys = {}
+    local seen = {}
+    for _, action in ipairs({ "cancel", "confirm" }) do
+        for _, key in ipairs(BASE_KEYS[action] or {}) do
+            local lhs = Keys.lhs(key)
+            if lhs ~= "" and not seen[lhs] then
+                seen[lhs] = true
+                close_keys[#close_keys + 1] = lhs
+            end
+        end
+        for _, key in ipairs(Keys.resolve(get_config().keys[action])) do
+            local lhs = Keys.lhs(key)
+            if lhs ~= "" and not seen[lhs] then
+                seen[lhs] = true
+                close_keys[#close_keys + 1] = lhs
+            end
+        end
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "Close: " .. table.concat(close_keys, ", ")
+    local footer_row = #lines - 1
+
+    local was_insert = is_insert()
+    vim.cmd("stopinsert")
+    local float = open_float(lines, opts.title or "Info", { min_width = 40 })
+    local buf, win = float.buf, float.win
+    vim.api.nvim_buf_set_extmark(buf, ns, footer_row, 0, {
+        end_col = #lines[#lines],
+        hl_group = "Comment",
+    })
+    -- Optional per-line highlight ranges (0-based rows and columns, end
+    -- exclusive). Rows are stable: the footer above is appended after the
+    -- caller's lines, so its indices never shift.
+    for row, ranges in pairs(opts.highlights or {}) do
+        for _, range in ipairs(ranges) do
+            vim.api.nvim_buf_add_highlight(buf, ns, range.hl, row, range.start_col, range.end_col)
+        end
+    end
+    local closed = false
+
+    local function close()
+        if closed then
+            return
+        end
+        closed = true
+        if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+            vim.api.nvim_buf_delete(buf, { force = true })
+        end
+        if was_insert then
+            vim.schedule(function()
+                vim.cmd("startinsert")
+            end)
+        end
+    end
+
+    bind_keys(buf, "cancel", close)
+    bind_keys(buf, "confirm", close)
+
+    vim.api.nvim_create_autocmd("BufLeave", {
+        buffer = buf,
+        once = true,
+        callback = close,
+    })
+end
+
+--- Confirm dialog rendered as a Yes/No select through vim.ui.select.
+---@param opts { title: string, message?: string }
+---@param callback fun(confirmed: boolean)
+function M.confirm(opts, callback)
+    M.select({
+        title = opts.title or "Confirm",
+        message = opts.message,
+        options = { "Yes", "No" },
+        kind = "pi-confirm",
+    }, function(choice)
+        callback(choice == "Yes")
+    end)
+end
+
+--- Input dialog with editable line.
+---@param opts { title: string, default?: string, timeout?: integer, on_timeout?: fun(), multiline?: boolean }
+---@param callback fun(value: string?)
+function M.input(opts, callback)
+    local default = opts.default or ""
+    local lines = vim.split(default, "\n", { plain = true })
+
+    local was_insert = is_insert()
+
+    local float = open_float(lines, opts.title or "Input", { modifiable = true, min_width = 40 })
+    local buf, win = float.buf, float.win
+
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+        buffer = buf,
+        callback = function()
+            fit_height_to_wrapped_content(win)
+        end,
+    })
+
+    -- Place cursor at end of last line and enter insert mode.
+    -- Deferred: opening the float triggers BufLeave on the prompt buffer,
+    -- which calls stopinsert. We must schedule startinsert! after that.
+    local last_line = lines[#lines] or ""
+    vim.api.nvim_win_set_cursor(win, { #lines, #last_line })
+    vim.defer_fn(function()
+        if vim.api.nvim_win_is_valid(win) and vim.api.nvim_get_current_win() == win then
+            vim.cmd("startinsert!")
+        end
+    end, 10)
+
+    local responded = false
+    local timeout = nil ---@type integer?
+
+    local function close()
+        stop_timeout(timeout)
+        vim.cmd("stopinsert")
+        if vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_win_close(win, true)
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+            vim.api.nvim_buf_delete(buf, { force = true })
+        end
+    end
+
+    local function restore_insert(fn)
+        vim.schedule(function()
+            if was_insert then
+                vim.cmd("startinsert")
+            end
+            if fn then
+                fn()
+            end
+        end)
+    end
+
+    local function resolve(value)
+        if responded then
+            return
+        end
+        responded = true
+        close()
+        restore_insert(function()
+            callback(value)
+        end)
+    end
+
+    local function expire()
+        if responded then
+            return
+        end
+        responded = true
+        close()
+        restore_insert(opts.on_timeout)
+    end
+
+    timeout = start_timeout(opts.timeout, expire)
+
+    local function submit()
+        local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        resolve(table.concat(buf_lines, "\n"))
+    end
+
+    Keys.bind_wrapped_line_navigation(buf)
+
+    bind_keys(buf, "confirm", submit)
+    if opts.multiline then
+        vim.keymap.set("i", "<S-CR>", function()
+            vim.api.nvim_put({ "", "" }, "c", false, true)
+        end, { buffer = buf, desc = "New line" })
+    end
+    bind_keys(buf, "cancel", function()
+        resolve(nil)
+    end)
+
+    vim.api.nvim_create_autocmd("BufLeave", {
+        buffer = buf,
+        once = true,
+        callback = function()
+            resolve(nil)
+        end,
+    })
+end
+
+return M

@@ -17,14 +17,14 @@ All keys are configurable under `diff.keys` using the [Key specs](keymaps.md#key
 
 Markdown diffs enable wrapping and linebreak in the review panes for readability. Other filetypes keep your global `wrap` and `linebreak` defaults.
 
-## Session diff review (`:PiDiff`)
+## Session diff review (`:AgentWorkbenchDiff`)
 
-Where the two-way review above intercepts a single edit _before_ it lands, `:PiDiff` reviews everything the session already changed, after the fact. It opens the combined `git diff` of every file the current session's `edit`/`write` tools touched (`session.changed_files`) in **one review panel**: a single floating window whose border and background frame two side-by-side areas — the file list on the left, the selected file's diff on the right.
+Where the two-way review above intercepts a single edit _before_ it lands, `:AgentWorkbenchDiff` reviews everything the session already changed, after the fact. It opens the combined `git diff` of every file the current session's `edit`/`write` tools touched (`session.changed_files`) in **one review panel**: a single floating window whose border and background frame two side-by-side areas — the file list on the left, the selected file's diff on the right.
 
 - **File list** (left, `pi-diff-review` filetype) — one row per changed file with an `A`/`M`/`D` status letter (added / modified / deleted) in the diff semantic colors. Moving the cursor shows that file's diff on the right; `<CR>`/`o` jumps to its first changed line. **`<C-f>` / `<C-b>`** page the diff, **`<C-d>` / `<C-u>`** scroll it by half a page, all without leaving the list.
 - **Diff area** (right) — the selected file's unified diff, rendered with the `diff` filetype for native syntax highlighting, with a `── path ──` header. `<CR>`/`o` on a hunk line jumps to that exact line (line numbers are tracked per hunk, so added and context lines land precisely; removed lines jump to the deletion point; deleted files have no target); `q` closes. Click or `<C-w>w` to move focus into the diff area, where any native scrolling (`j`/`k`, `gg`/`G`, `z.`, …) works.
 
-`q` anywhere in the panel closes the whole review; closing any of its windows closes the rest. Re-running `:PiDiff` refreshes (it always re-reads `git diff`).
+`q` anywhere in the panel closes the whole review; closing any of its windows closes the rest. Re-running `:AgentWorkbenchDiff` refreshes (it always re-reads `git diff`).
 
 Files the agent created render as full-file additions (git's `--no-index` mode). Files outside the current git repository are skipped and counted in the list hint line. Hunk context follows `'diffopt'` (`context:`), matching the two-way review.
 
@@ -43,7 +43,7 @@ diff_review = {
 },
 ```
 
-Unlike the pre-execution review, `:PiDiff` needs no permission extension: it only reads `git diff` output and never writes to disk.
+Unlike the pre-execution review, `:AgentWorkbenchDiff` needs no permission extension: it only reads `git diff` output and never writes to disk.
 
 ## You need a permission extension
 

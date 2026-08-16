@@ -1,7 +1,7 @@
-local Chat = require("pi.ui.chat.init")
-local Config = require("pi.config")
-local Output = require("pi.ui.chat.terminal.output")
-local Completion = require("pi.ui.chat.terminal.shell.completion")
+local Chat = require("agent-workbench.ui.chat.init")
+local Config = require("agent-workbench.config")
+local Output = require("agent-workbench.ui.chat.terminal.output")
+local Completion = require("agent-workbench.ui.chat.terminal.shell.completion")
 
 local next_session_id = 990
 
@@ -275,12 +275,12 @@ describe("shell worksheet", function()
         chat._worksheet:set_input("cmd --cu")
         vim.api.nvim_win_set_cursor(chat:prompt_win(), { 1, #"  cmd --cu" })
         vim.b[buf].pi_shell_blink_completion = true
-        local omnifunc = require("pi.completion.omnifunc").completefunc
+        local omnifunc = require("agent-workbench.completion.omnifunc").completefunc
         assert.are.equal(-3, omnifunc(1, ""))
         assert.are.same({}, omnifunc(0, "@file"))
 
         local response
-        local source = require("pi.completion.shell").new()
+        local source = require("agent-workbench.completion.shell").new()
         assert.is_true(source:enabled())
         source:get_completions({ bufnr = buf, cursor = { 1, #"  cmd --cu" } }, function(value)
             response = value
@@ -304,7 +304,7 @@ describe("shell worksheet", function()
         vim.b[buf].pi_shell_blink_completion = true
 
         local response
-        require("pi.completion.shell")
+        require("agent-workbench.completion.shell")
             .new()
             :get_completions({ bufnr = buf, cursor = { 1, #"  cmd -la" } }, function(value)
                 response = value
@@ -325,7 +325,7 @@ describe("shell worksheet", function()
         vim.b[buf].pi_shell_blink_completion = true
 
         local response
-        local source = require("pi.completion.shell").new()
+        local source = require("agent-workbench.completion.shell").new()
         assert.is_true(vim.tbl_contains(source:get_trigger_characters(), " "))
         source:get_completions({ bufnr = buf, cursor = { 1, #"  ls " } }, function(value)
             response = value
@@ -352,9 +352,11 @@ describe("shell worksheet", function()
         vim.b[buf].pi_shell_blink_completion = true
 
         local response
-        require("pi.completion.shell").new():get_completions({ bufnr = buf, cursor = { 1, #"  ls" } }, function(value)
-            response = value
-        end)
+        require("agent-workbench.completion.shell")
+            .new()
+            :get_completions({ bufnr = buf, cursor = { 1, #"  ls" } }, function(value)
+                response = value
+            end)
         assert.are.equal("ls", response.items[1].label)
         assert.are.equal("List directory contents", response.items[1].labelDetails.description)
         assert.are.equal("lscpu", response.items[2].label)

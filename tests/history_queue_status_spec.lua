@@ -3,8 +3,8 @@
 --   padding and no whole-buffer scans on the hot path (G22);
 -- * busy display model and queue count are also pushed to listeners.
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
 
 local ns = vim.api.nvim_create_namespace("pi-chat")
 local TAB = 960
@@ -267,7 +267,7 @@ describe("history queue status rendering", function()
         Config.options.spinner = { refresh_rate = 10, frames = { "a", "b", "c" } }
         local h = setup_history(3)
         -- NB: models[#models + 1] = nil would be a no-op, so mark clears.
-        ---@type (pi.StatusLineBusy|string)[]
+        ---@type (agent_workbench.StatusLineBusy|string)[]
         local models = {}
         h:set_status_listener(function(model)
             models[#models + 1] = model or "CLEARED"
@@ -291,7 +291,7 @@ describe("history queue status rendering", function()
 
     it("marks the busy model as thinking during thinking blocks", function()
         local h = setup_history(3)
-        ---@type pi.StatusLineBusy?[]
+        ---@type agent_workbench.StatusLineBusy?[]
         local models = {}
         h:set_status_listener(function(model)
             models[#models + 1] = model

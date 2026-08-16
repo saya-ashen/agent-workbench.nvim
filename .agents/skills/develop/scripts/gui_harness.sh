@@ -102,7 +102,7 @@ RESULT = p and (vim.trim(table.concat(vim.api.nvim_buf_get_lines(p, 0, -1, false
 LUA
 }
 last_two_history() { qlua <<'LUA'
-local e = require("pi.prompt_history").get():entries(); local n = #e
+local e = require("agent-workbench.prompt_history").get():entries(); local n = #e
 RESULT = (n >= 2) and (e[n - 1] .. " | " .. e[n]) or ("ONLY:" .. table.concat(e, " | "))
 LUA
 }

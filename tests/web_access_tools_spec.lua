@@ -3,9 +3,9 @@
 -- compact input summary lines, dedicated icons, and auto-collapse of their
 -- characteristically long outputs (issue #51).
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
-local Tools = require("pi.ui.chat.tools")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
+local Tools = require("agent-workbench.ui.chat.tools")
 
 local function pump(ms)
     vim.wait(ms or 60)
@@ -38,7 +38,7 @@ describe("pi-web-access tool renderers (issue #51)", function()
 
     after_each(function()
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     describe("renderer lookup", function()

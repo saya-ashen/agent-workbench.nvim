@@ -1,10 +1,10 @@
-local Config = require("pi.config")
-local Ft = require("pi.filetypes")
-local Rpc = require("pi.rpc")
-local SessionHistory = require("pi.sessions.history")
-local Sessions = require("pi.sessions.manager")
-local Workspace = require("pi.workspace")
-local WorkspaceBuffers = require("pi.workspace_buffers")
+local Config = require("agent-workbench.config")
+local Ft = require("agent-workbench.filetypes")
+local Rpc = require("agent-workbench.rpc")
+local SessionHistory = require("agent-workbench.sessions.history")
+local Sessions = require("agent-workbench.sessions.manager")
+local Workspace = require("agent-workbench.workspace")
+local WorkspaceBuffers = require("agent-workbench.workspace_buffers")
 
 Config.setup({})
 
@@ -50,7 +50,7 @@ local function install_pending_rpc()
 end
 
 ---@param pending table[]
----@param rpc pi.Rpc
+---@param rpc agent_workbench.Rpc
 ---@param command string
 ---@return table
 local function take_pending(pending, rpc, command)
@@ -410,7 +410,7 @@ describe("buffer-owned sessions", function()
 
     it("rebinds session ownership when a persisted URI attaches a new History", function()
         WorkspaceBuffers.setup()
-        local History = require("pi.ui.chat.history")
+        local History = require("agent-workbench.ui.chat.history")
         local session = assert(Sessions.get_or_create({ layout = "buffer" }))
         local old_buf = session.history_buf
         local history = History.new(session.id, "agent://test/rebound/transcript", 999)

@@ -1,4 +1,4 @@
-local Output = require("pi.ui.chat.terminal.output")
+local Output = require("agent-workbench.ui.chat.terminal.output")
 
 describe("shell output decorations", function()
     after_each(function()

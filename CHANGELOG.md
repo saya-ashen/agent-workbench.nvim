@@ -2,7 +2,11 @@
 
 ## 2026-08-16
 
-- **CHANGED:** The project is now presented as **Agent Workbench**, an independent Neovim workbench for coding agents currently powered by pi.dev. The Lua namespace (`pi`), `:Pi*` commands, and `pi-chat-*` filetypes remain unchanged for compatibility. The canonical repository is now [saya-ashen/agent-workbench.nvim](https://github.com/saya-ashen/agent-workbench.nvim).
+- **CHANGED:** Agent Workbench is now a standalone GitHub repository rather than a member of the `pi2.nvim` fork network. Original Git history and attribution remain, while upstream updates are reviewed and ported selectively.
+
+- **CHANGED:** The canonical Lua module moved from `require("pi")` to `require("agent-workbench")`, internal modules moved from `lua/pi/` to `lua/agent-workbench/`, and canonical commands now use `:AgentWorkbench*`. Deprecated `require("pi")`, `pi.completion.blink`, `:checkhealth pi`, and non-conflicting `:Pi*` command aliases remain until `2.0.0`; `pi-chat-*` filetypes and `Pi*` highlight groups remain unchanged for this migration phase.
+
+- **CHANGED:** The project is now presented as **Agent Workbench**, an independent Neovim workbench for coding agents currently powered by pi.dev. The canonical repository is [saya-ashen/agent-workbench.nvim](https://github.com/saya-ashen/agent-workbench.nvim).
 
 - **ADDED:** `flake.nix` and `flake.lock` provide a reproducible Linux development shell with Neovim, pi, Fish, packaged Plenary, formatting, lint, documentation, repository, and GUI-automation tools. `nix develop` sets `PLENARY_PATH`, so `make test` does not depend on plugins installed in the user's Neovim profile.
 

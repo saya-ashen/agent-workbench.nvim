@@ -1,11 +1,11 @@
 -- Unit tests for pi.image_compress (external-tool image compression).
 -- Hermetic: executable probing and vim.system are stubbed; no real tools run.
 
-local Compress = require("pi.image_compress")
-local Config = require("pi.config")
+local Compress = require("agent-workbench.image_compress")
+local Config = require("agent-workbench.config")
 
 ---@param over table<string, any>|nil
----@return pi.ImageCompressConfig
+---@return agent_workbench.ImageCompressConfig
 local function cfg(over)
     return vim.tbl_deep_extend("force", {
         enable = true,

@@ -1,7 +1,7 @@
 -- Direct bash execution blocks (! commands): header, streamed output with
 -- partial-line joining, completion statuses, truncation replacement, replay.
 
-local History = require("pi.ui.chat.history")
+local History = require("agent-workbench.ui.chat.history")
 
 local TAB = 902
 

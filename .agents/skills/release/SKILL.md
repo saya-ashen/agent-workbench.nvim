@@ -11,7 +11,7 @@ Use this skill when the user wants to publish a GitHub release. `AGENTS.md` is t
 
 - `gh` CLI installed (Arch: `sudo pacman -S github-cli`) and authenticated:
   - `gh auth status` must show the account with the `repo` scope.
-- Remote is `git@github.com:zgs225/pi2.nvim.git`; releases go to that repo.
+- `origin` points to `https://github.com/saya-ashen/agent-workbench.nvim.git`; releases go to that repository.
 
 ## Workflow
 
@@ -41,13 +41,14 @@ Use this skill when the user wants to publish a GitHub release. `AGENTS.md` is t
 - Condense each entry to a single user-facing bullet; keep config keys, commands, and keymaps in backticks.
 - Only fall back to `git log --oneline --no-merges` grouped by Conventional Commit type when there is no changelog coverage — and never list all commits for a large history.
 - For the first release, frame what the project *is* (a short intro paragraph) before the highlights.
-- End with a `**Full Changelog**:` link: `https://github.com/zgs225/pi2.nvim/commits/<tag>`.
+- End with a `**Full Changelog**:` link: `https://github.com/saya-ashen/agent-workbench.nvim/commits/<tag>`.
 
 Prefer user-facing framing over implementation detail — same rule as the `commit` skill.
 
 ## Output
 
 When asked to release:
+
 - state the proposed version, target commit, and draft/prerelease flags
 - show the draft notes and wait for confirmation
 - run `gh release create`

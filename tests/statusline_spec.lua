@@ -1,8 +1,8 @@
 -- Unit tests for pi.ui.chat.statusline: center group placement, spinner/queue
 -- components, abort priority chain, and the G22 pad-scan gate.
 
-local Config = require("pi.config")
-local StatusLine = require("pi.ui.chat.statusline")
+local Config = require("agent-workbench.config")
+local StatusLine = require("agent-workbench.ui.chat.statusline")
 
 local ns = vim.api.nvim_create_namespace("pi-statusline")
 

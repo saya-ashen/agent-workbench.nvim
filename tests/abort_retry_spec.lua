@@ -4,12 +4,12 @@
 -- separate `_retrying` flag, and the second <Esc> must send abort_retry (it
 -- only cancels the backoff) instead of abort.
 
-local Chat = require("pi.ui.chat")
-local Manager = require("pi.sessions.manager")
+local Chat = require("agent-workbench.ui.chat")
+local Manager = require("agent-workbench.sessions.manager")
 
 local TAB = 873
 
---- Build a real Chat headlessly and stub require("pi") so the abort target is
+--- Build a real Chat headlessly and stub require("agent-workbench") so the abort target is
 --- observable: the gesture's scheduled callback calls pi.abort() /
 --- pi.abort_retry(), which normally no-op without a session.
 local function setup_chat()
@@ -19,8 +19,8 @@ local function setup_chat()
         end,
     })
     local sent = {}
-    local original_pi = package.loaded["pi"]
-    package.loaded["pi"] = {
+    local original_pi = package.loaded["agent-workbench"]
+    package.loaded["agent-workbench"] = {
         abort = function()
             sent[#sent + 1] = "abort"
         end,
@@ -31,7 +31,7 @@ local function setup_chat()
     return chat,
         sent,
         function()
-            package.loaded["pi"] = original_pi
+            package.loaded["agent-workbench"] = original_pi
             chat:set_retrying(false)
             chat:_disarm_abort_esc()
             pcall(vim.api.nvim_buf_delete, chat._history:buf(), { force = true })

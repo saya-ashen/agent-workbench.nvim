@@ -1,4 +1,4 @@
-local History = require("pi.ui.chat.history")
+local History = require("agent-workbench.ui.chat.history")
 
 local TAB = 970
 

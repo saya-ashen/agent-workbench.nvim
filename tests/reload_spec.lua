@@ -1,4 +1,4 @@
--- Unit tests for lua/pi/reload.lua
+-- Unit tests for lua/agent-workbench/reload.lua
 
 describe("pi.reload", function()
     local Reload
@@ -11,9 +11,9 @@ describe("pi.reload", function()
     end
 
     before_each(function()
-        package.loaded["pi.reload"] = nil
-        package.loaded["pi.config"] = nil
-        Reload = require("pi.reload")
+        package.loaded["agent-workbench.reload"] = nil
+        package.loaded["agent-workbench.config"] = nil
+        Reload = require("agent-workbench.reload")
     end)
 
     after_each(function()
@@ -151,7 +151,7 @@ describe("pi.reload", function()
 
     describe("on_file_changed", function()
         it("does nothing when mode is false", function()
-            require("pi.config").setup({ reload = { mode = false } })
+            require("agent-workbench.config").setup({ reload = { mode = false } })
 
             local path = "/tmp/pi_reload_test_d.txt"
             local f = io.open(path, "w")
@@ -175,7 +175,7 @@ describe("pi.reload", function()
         end)
 
         it("reloads silently when mode is silent", function()
-            require("pi.config").setup({ reload = { mode = "silent" } })
+            require("agent-workbench.config").setup({ reload = { mode = "silent" } })
 
             local path = "/tmp/pi_reload_test_e.txt"
             local f = io.open(path, "w")

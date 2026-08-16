@@ -10,8 +10,8 @@
 -- first user message is found. These specs pin the parsing behaviour so a future
 -- change cannot silently reintroduce the full-decode or drop the name semantics.
 
-local Config = require("pi.config")
-local SessionHistory = require("pi.sessions.history")
+local Config = require("agent-workbench.config")
+local SessionHistory = require("agent-workbench.sessions.history")
 
 --- Mirror of the private encode_cwd() so the test can lay out the sessions dir.
 local function encode_cwd(cwd)

@@ -2,8 +2,8 @@
 -- line formatting/highlight chunks, row building, and the shared-buffer
 -- open/render/toggle lifecycle. Window opening is exercised headlessly.
 
-local Ft = require("pi.filetypes")
-local SessionList = require("pi.ui.sessions")
+local Ft = require("agent-workbench.filetypes")
+local SessionList = require("agent-workbench.ui.sessions")
 
 --- Build a fake pi.Session with just enough surface for the list.
 ---@param opts? { running?: boolean, streaming?: boolean, compacting?: boolean, verb?: string, tab?: integer }
@@ -280,8 +280,8 @@ describe("sessions overview", function()
 
         it("does not re-fetch resolved names on redraws", function()
             local s = fetchable_session()
-            local real_manager = package.loaded["pi.sessions.manager"]
-            package.loaded["pi.sessions.manager"] = {
+            local real_manager = package.loaded["agent-workbench.sessions.manager"]
+            package.loaded["agent-workbench.sessions.manager"] = {
                 list = function()
                     return { s }
                 end,
@@ -305,7 +305,7 @@ describe("sessions overview", function()
                 local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
                 assert.are.equal(" ● (unnamed)", lines[1])
             end)
-            package.loaded["pi.sessions.manager"] = real_manager
+            package.loaded["agent-workbench.sessions.manager"] = real_manager
             if not ok then
                 error(err)
             end
@@ -345,12 +345,12 @@ describe("sessions overview", function()
         --- The dialog answers `answer` immediately; fn receives the captured
         --- dialog option tables and notification list.
         local function with_stubs(sessions, answer, fn)
-            local real_manager = package.loaded["pi.sessions.manager"]
-            local real_dialog = package.loaded["pi.ui.dialog"]
-            local real_notify = package.loaded["pi.notify"]
+            local real_manager = package.loaded["agent-workbench.sessions.manager"]
+            local real_dialog = package.loaded["agent-workbench.ui.dialog"]
+            local real_notify = package.loaded["agent-workbench.notify"]
             local dialog_calls = {}
             local notifications = {}
-            package.loaded["pi.sessions.manager"] = {
+            package.loaded["agent-workbench.sessions.manager"] = {
                 list = function()
                     return sessions
                 end,
@@ -358,13 +358,13 @@ describe("sessions overview", function()
                     return nil
                 end,
             }
-            package.loaded["pi.ui.dialog"] = {
+            package.loaded["agent-workbench.ui.dialog"] = {
                 input = function(opts, cb)
                     table.insert(dialog_calls, opts)
                     cb(answer)
                 end,
             }
-            package.loaded["pi.notify"] = {
+            package.loaded["agent-workbench.notify"] = {
                 warn = function(msg)
                     table.insert(notifications, { "warn", msg })
                 end,
@@ -376,9 +376,9 @@ describe("sessions overview", function()
                 end,
             }
             local ok, err = pcall(fn, dialog_calls, notifications)
-            package.loaded["pi.sessions.manager"] = real_manager
-            package.loaded["pi.ui.dialog"] = real_dialog
-            package.loaded["pi.notify"] = real_notify
+            package.loaded["agent-workbench.sessions.manager"] = real_manager
+            package.loaded["agent-workbench.ui.dialog"] = real_dialog
+            package.loaded["agent-workbench.notify"] = real_notify
             if not ok then
                 error(err)
             end
@@ -480,8 +480,8 @@ describe("sessions overview", function()
         --- Run fn with the manager stubbed to a single session and the list
         --- open in the current tab.
         local function with_list_session(session, fn)
-            local real_manager = package.loaded["pi.sessions.manager"]
-            package.loaded["pi.sessions.manager"] = {
+            local real_manager = package.loaded["agent-workbench.sessions.manager"]
+            package.loaded["agent-workbench.sessions.manager"] = {
                 list = function()
                     return { session }
                 end,
@@ -493,7 +493,7 @@ describe("sessions overview", function()
                 SessionList.open()
                 fn()
             end)
-            package.loaded["pi.sessions.manager"] = real_manager
+            package.loaded["agent-workbench.sessions.manager"] = real_manager
             if not ok then
                 error(err)
             end
@@ -574,8 +574,8 @@ describe("sessions overview", function()
             end
             SessionList.on_session_info_changed(session, "selected")
 
-            local real_manager = package.loaded["pi.sessions.manager"]
-            package.loaded["pi.sessions.manager"] = {
+            local real_manager = package.loaded["agent-workbench.sessions.manager"]
+            package.loaded["agent-workbench.sessions.manager"] = {
                 list = function()
                     return { session }
                 end,
@@ -603,7 +603,7 @@ describe("sessions overview", function()
                 assert.are.equal(session, activated)
                 assert.is_true(focused)
             end)
-            package.loaded["pi.sessions.manager"] = real_manager
+            package.loaded["agent-workbench.sessions.manager"] = real_manager
             if not ok then
                 error(err)
             end
@@ -634,7 +634,7 @@ describe("sessions overview", function()
         end)
 
         it("float layout opens a floating window", function()
-            local Config = require("pi.config")
+            local Config = require("agent-workbench.config")
             local saved = Config.options.layout.default
             Config.options.layout.default = "float"
             SessionList.open()
@@ -644,7 +644,7 @@ describe("sessions overview", function()
         end)
 
         it("sessions_list.mode overrides the chat/default layout", function()
-            local Config = require("pi.config")
+            local Config = require("agent-workbench.config")
             local saved_mode = Config.options.sessions_list.mode
             local saved_default = Config.options.layout.default
 

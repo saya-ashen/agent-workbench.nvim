@@ -5,7 +5,7 @@
 -- model supports, falls back to the built-in list when the fetch fails, and
 -- warns without opening a picker when the model supports no thinking levels.
 
-local Thinking = require("pi.thinking")
+local Thinking = require("agent-workbench.thinking")
 
 ---@type string[]
 local sent = {}

@@ -5,10 +5,10 @@
 -- These specs drive the session manager against a stubbed Rpc: no real pi
 -- process, canned responses.
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
-local Sessions = require("pi.sessions.manager")
-local Pi = require("pi")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
+local Sessions = require("agent-workbench.sessions.manager")
+local Pi = require("agent-workbench")
 
 Config.setup({})
 Pi.setup({})

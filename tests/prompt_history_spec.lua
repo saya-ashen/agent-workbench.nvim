@@ -1,6 +1,6 @@
 -- Unit tests for pi.prompt_history (pure Lua, no UI).
 
-local PH = require("pi.prompt_history")
+local PH = require("agent-workbench.prompt_history")
 
 --- Create an in-memory store.
 local function mem(max)

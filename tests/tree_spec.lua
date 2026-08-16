@@ -3,7 +3,7 @@
 -- picker formatting. No RPC, no UI.
 
 describe("pi.tree", function()
-    local Tree = require("pi.tree")
+    local Tree = require("agent-workbench.tree")
 
     local function msg(id, role, content, parent)
         return {
@@ -83,8 +83,8 @@ describe("pi.tree", function()
         it("lists two tools and folds the rest with (+N)", function()
             local e = msg("a", "assistant", {
                 { type = "toolCall", name = "bash", arguments = { command = "one" } },
-                { type = "toolCall", name = "edit", arguments = { path = "/lua/pi/tree.lua" } },
-                { type = "toolCall", name = "read", arguments = { path = "/lua/pi/rpc.lua" } },
+                { type = "toolCall", name = "edit", arguments = { path = "/lua/agent-workbench/tree.lua" } },
+                { type = "toolCall", name = "read", arguments = { path = "/lua/agent-workbench/rpc.lua" } },
             })
             local text, kind = Tree.entry_preview(e)
             assert.are.equal("tools", kind)

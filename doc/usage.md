@@ -28,7 +28,7 @@ Related pages: [Sessions](sessions.md) · [Diff review](diff-review.md) · [Atte
 
 ## Chat & layouts
 
-The chat opens in a full-width `buffer` layout by default: history fills current editor window and prompt uses a small bottom split. `side` and `float` remain available through `layout.default` or `:Pi layout=side|float`.
+The chat opens in a full-width `buffer` layout by default: history fills current editor window and prompt uses a small bottom split. `side` and `float` remain available through `layout.default` or `:AgentWorkbench layout=side|float`.
 
 **Full buffer** keeps agent history in current editor window, with prompt in bottom split. This makes transcript navigation and block folding behave like normal Neovim buffer work.
 
@@ -46,7 +46,7 @@ Each chat contains three panels:
 
 The filetype names are stable — you can target them from your own `FileType` autocmds (see [Keymaps](keymaps.md) for an example). Input and info dialog buffers use the stable `pi-dialog` filetype, so completion plugins can be disabled there without affecting the prompt.
 
-Use `:PiToggleLayout` to swap `buffer` ↔ `float` without losing conversation, and `:PiToggleChat` to hide and re-show chat windows. `side` remains available through explicit layout selection. Neither stops agent. To shut down underlying `pi --mode rpc`, use `:PiStop`.
+Use `:AgentWorkbenchToggleLayout` to swap `buffer` ↔ `float` without losing conversation, and `:AgentWorkbenchToggleChat` to hide and re-show chat windows. `side` remains available through explicit layout selection. Neither stops agent. To shut down underlying `pi --mode rpc`, use `:AgentWorkbenchStop`.
 
 Each panel has a winbar with a title controlled by `panels.<panel>.title` (a string; defaults: `π`, `prompt`, `attached`). In side layout, the winbar can be disabled per-panel with `layout.side.panels.<panel>.winbar = false`. Separately, `panels.<panel>.name = function(tab_id) return ... end` lets you compute the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars. The prompt panel has an extra `panels.prompt.bash_title`: while the prompt uses backend `!` mode, its title switches to this string. Local `!!` mode uses the built-in `terminal` title. Both command modes use the `PiChatPromptWinbarBashTitle` / `PiChatPromptFloatBashTitle` highlight groups (a distinct foreground color, derived from `WarningMsg` by default), so it is obvious `<CR>` runs a command rather than messaging the agent.
 
@@ -69,7 +69,7 @@ Controls apply to startup, thinking, compaction, and tool blocks.
 
 Prompt buffer (`pi-chat-prompt`) has two session-local modes. `compose` is regular multi-line message editing. `request` temporarily renders extension select/confirm questions and options in same prompt area. Compose text and cursor are preserved and restored after request resolves, so parallel agents keep requests attached to correct session. See [Attention & dialogs](attention.md#prompt-request-mode).
 
-Prompt clears after each message submission, but contents persist across `:PiToggleChat`, layout toggles, and tab switches. Window auto-resizes between 8 and 15 rows.
+Prompt clears after each message submission, but contents persist across `:AgentWorkbenchToggleChat`, layout toggles, and tab switches. Window auto-resizes between 8 and 15 rows.
 
 Three buffer-local mappings control submission:
 
@@ -93,16 +93,16 @@ Both queued messages are rendered in the history with distinct labels (`labels.s
 
 ## Aborting with double `<Esc>`
 
-While the agent is **streaming** or **auto-retrying** (statusline shows "Retrying…" — the backoff window after a failed LLM call), pressing `<Esc>` twice in quick succession aborts — the same as `:PiAbort` / `pi.abort()`. During a retry the second `<Esc>` sends the precise `abort_retry` RPC command, which only cancels the backoff; the retry is cancelled and the failed turn ends instead of being retried. The first `<Esc>` arms the gesture and shows a hint in the **statusline center** (temporarily replacing the busy spinner there) — so it stays visible instead of flashing by like a command-line message. The second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. If you don't press a second `<Esc>` in time, the gesture disarms itself and the hint disappears. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
+While the agent is **streaming** or **auto-retrying** (statusline shows "Retrying…" — the backoff window after a failed LLM call), pressing `<Esc>` twice in quick succession aborts — the same as `:AgentWorkbenchAbort` / `pi.abort()`. During a retry the second `<Esc>` sends the precise `abort_retry` RPC command, which only cancels the backoff; the retry is cancelled and the failed turn ends instead of being retried. The first `<Esc>` arms the gesture and shows a hint in the **statusline center** (temporarily replacing the busy spinner there) — so it stays visible instead of flashing by like a command-line message. The second `<Esc>`, within `abort.timeout` milliseconds, actually aborts. If you don't press a second `<Esc>` in time, the gesture disarms itself and the hint disappears. This works from both insert and normal mode on the prompt buffer, and from normal mode on the history buffer.
 
-When a turn is aborted (by double-`<Esc>`, `:PiAbort`, or `pi.abort()`), the statusline center briefly shows an **Aborted** confirmation (`PiAborted` highlight) for about two seconds, and the completion marker left in the history (`· aborted`) uses that same prominent highlight rather than the muted busy color — so it's obvious the turn was cancelled.
+When a turn is aborted (by double-`<Esc>`, `:AgentWorkbenchAbort`, or `pi.abort()`), the statusline center briefly shows an **Aborted** confirmation (`PiAborted` highlight) for about two seconds, and the completion marker left in the history (`· aborted`) uses that same prominent highlight rather than the muted busy color — so it's obvious the turn was cancelled.
 
 When the agent is **idle**, `<Esc>` keeps its normal behavior (leaves insert mode) and the gesture is inert — no hint, no abort.
 
 Controlled by the `abort` config:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     abort = {
         enabled = true, -- set false to disable double-<Esc> abort entirely
         timeout = 1500, -- ms window for the second <Esc> to count
@@ -117,7 +117,7 @@ require("pi").setup({
 
 ### Backend bash (`!`)
 
-Prefix a command with `!`, for example `!ls -la`. Pi's backend executes it through the RPC `bash` command, output streams into a collapsible chat History block, and the result joins LLM context on the **next** prompt. After submission the prompt resets to `!`. Only one backend command runs at a time; a single `<Esc>` cancels it, as do `:PiAbortBash` and `pi.abort_bash()`.
+Prefix a command with `!`, for example `!ls -la`. Pi's backend executes it through the RPC `bash` command, output streams into a collapsible chat History block, and the result joins LLM context on the **next** prompt. After submission the prompt resets to `!`. Only one backend command runs at a time; a single `<Esc>` cancels it, as do `:AgentWorkbenchAbortBash` and `pi.abort_bash()`.
 
 Each backend command starts a fresh shell, so `cd`, `export`, aliases, and shell functions do not persist across `!` submissions. Chain state-dependent work in one command.
 
@@ -155,7 +155,7 @@ Walking up stashes whatever you're currently typing; walking back down past the 
 History persists to `stdpath("data")/pi/prompt_history.json` (written atomically) and survives restarts. Configure it under `prompt.history`:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     prompt = {
         history = {
             enabled = true, -- set false to disable recording/recall entirely
@@ -168,12 +168,12 @@ require("pi").setup({
 
 ## Draft persistence
 
-While [prompt history](#prompt-history) remembers what you've _sent_, draft persistence makes sure you don't lose what you're _typing_. Unsent prompts are saved below `stdpath("data")/pi/drafts/` as you edit (debounced), isolated by workspace and Neovim process. A new process restores only a draft left by an exited process in the same workspace, so concurrent Neovim instances never show or overwrite each other's drafts. Sending or clearing the prompt removes that process's stored draft. Each workspace restores at most once per process (an in-session `:PiNewSession` won't re-restore a stale draft).
+While [prompt history](#prompt-history) remembers what you've _sent_, draft persistence makes sure you don't lose what you're _typing_. Unsent prompts are saved below `stdpath("data")/pi/drafts/` as you edit (debounced), isolated by workspace and Neovim process. A new process restores only a draft left by an exited process in the same workspace, so concurrent Neovim instances never show or overwrite each other's drafts. Sending or clearing the prompt removes that process's stored draft. Each workspace restores at most once per process (an in-session `:AgentWorkbenchNewSession` won't re-restore a stale draft).
 
 Disable it under `prompt.draft`:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     prompt = {
         draft = { enabled = false },
     },
@@ -186,10 +186,10 @@ You can refer to files and directories anywhere in your prompt with `@path` ment
 
 | Written | Sent to the agent |
 | --- | --- |
-| `@lua/pi/init.lua` | `[file: lua/pi/init.lua]` |
-| `@lua/pi/init.lua#L42` | `[file: lua/pi/init.lua, line: 42]` |
-| `@lua/pi/init.lua#L10-40` | `[file: lua/pi/init.lua, lines: 10-40]` |
-| `@lua/pi` | `[directory: lua/pi]` |
+| `@lua/agent-workbench/init.lua` | `[file: lua/agent-workbench/init.lua]` |
+| `@lua/agent-workbench/init.lua#L42` | `[file: lua/agent-workbench/init.lua, line: 42]` |
+| `@lua/agent-workbench/init.lua#L10-40` | `[file: lua/agent-workbench/init.lua, lines: 10-40]` |
+| `@lua/agent-workbench` | `[directory: lua/agent-workbench]` |
 
 The file content itself is **not inlined**. Pi assumes the agent has a `read` tool and lets it pull the content on demand. There are two reasons for this:
 
@@ -198,11 +198,11 @@ The file content itself is **not inlined**. Pi assumes the agent has a `read` to
 
 Mentions are validated against the filesystem at send time. Paths are resolved relative to the current working directory. Anything that doesn't resolve to an existing file or directory is sent through unchanged, so a stray `@todo` in your message stays a stray `@todo`.
 
-Trailing punctuation works the way you'd expect: `(@lua/pi/init.lua)` and `Look at @lua/pi/init.lua.` both expand cleanly without dragging the punctuation into the path.
+Trailing punctuation works the way you'd expect: `(@lua/agent-workbench/init.lua)` and `Look at @lua/agent-workbench/init.lua.` both expand cleanly without dragging the punctuation into the path.
 
 While typing, `@mentions` are highlighted in the prompt buffer so you can see at a glance which references will expand.
 
-`:PiSendMention` inserts an `@mention` for the current buffer at the cursor position in the π prompt, opening the chat if needed. In normal mode it mentions the buffer as a whole; in visual mode (or with a `:'<,'>PiSendMention` range) it mentions just the selected lines. The command handles spacing around the insertion so you don't end up with double spaces or missing separators. It's also exposed as `pi.send_mention(args, opts)` from Lua — see the [Keymaps](keymaps.md) example for typical bindings.
+`:AgentWorkbenchSendMention` inserts an `@mention` for the current buffer at the cursor position in the π prompt, opening the chat if needed. In normal mode it mentions the buffer as a whole; in visual mode (or with a `:'<,'>AgentWorkbenchSendMention` range) it mentions just the selected lines. The command handles spacing around the insertion so you don't end up with double spaces or missing separators. It's also exposed as `pi.send_mention(args, opts)` from Lua — see the [Keymaps](keymaps.md) example for typical bindings.
 
 > [!TIP]
 > Because `@mentions` expand to `[file: ..., line: ...]` / `[file: ..., lines: ...]`, it's worth teaching the agent to re-read the exact reference before answering. Consider adding the following to your global `AGENTS.md` (or equivalent):
@@ -231,7 +231,7 @@ Dynamic mentions appear in `@`-completion ahead of file matches and are highligh
 You can register your own providers — any `name → function returning text` pair becomes an `@name` mention:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     mention_providers = {
         todos = {
             fn = function()
@@ -277,7 +277,7 @@ Arguments, if the command takes any, follow on the same line:
 
 Only the first line is recognized as a command — everything else in the same message is treated as plain prompt text. This is a [pi backend convention](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md#get_commands), not an Agent Workbench restriction. If you want a command and a regular prompt to take effect together, send them as two separate messages.
 
-One command is handled locally instead of being sent: a bare `/tree` opens the [session tree navigator](sessions.md#session-tree-navigation-pitree) (`:PiTree`), mirroring the TUI's built-in `/tree`.
+One command is handled locally instead of being sent: a bare `/tree` opens the [session tree navigator](sessions.md#session-tree-navigation-agentworkbenchtree) (`:AgentWorkbenchTree`), mirroring the TUI's built-in `/tree`.
 
 That said, this only applies to the explicit `/command` invocation path. Skills in particular are surfaced to the model as part of the system context: per the [Agent Skills spec](https://agentskills.io/specification), each skill's `name` and `description` are loaded at startup for _all_ available skills ("progressive disclosure"), and the full `SKILL.md` body is only loaded once the model decides to activate that skill. As a result, most models will pick up the right skill even when you _mention_ it inline ("please use the `commit` skill to write the message"), without you having to invoke `/skill:commit` explicitly. How reliably this works depends on the model and on how much other context it's juggling, so for anything load-bearing it's still safer to invoke the command explicitly on the first line.
 
@@ -286,9 +286,9 @@ While typing, the prompt buffer highlights matching local and backend `/commands
 You can also invoke a command programmatically from Lua, without going through the prompt buffer:
 
 ```lua
-require("pi").invoke("/permission-toggle-auto-accept")
+require("agent-workbench").invoke("/permission-toggle-auto-accept")
 -- the leading slash is optional:
-require("pi").invoke("permission-toggle-auto-accept")
+require("agent-workbench").invoke("permission-toggle-auto-accept")
 ```
 
 This is useful for binding commands directly to keymaps:
@@ -298,7 +298,7 @@ vim.keymap.set(
     "n",
     "<Leader>pt",
     function()
-        require("pi").invoke("/permission-toggle-auto-accept")
+        require("agent-workbench").invoke("/permission-toggle-auto-accept")
     end,
     { desc = "Pi toggle auto-accept" },
 )
@@ -323,7 +323,7 @@ It will:
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.
 
-**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `pi.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
+**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `agent-workbench.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
 
 ```lua
 require("blink.cmp").setup({
@@ -332,7 +332,7 @@ require("blink.cmp").setup({
             ["pi-chat-prompt"] = { "pi" },
         },
         providers = {
-            pi = { name = "Pi", module = "pi.completion.blink" },
+            pi = { name = "Pi", module = "agent-workbench.completion.blink" },
         },
     },
 })
@@ -348,23 +348,23 @@ Supported formats: `png`, `jpg`/`jpeg`, `gif`, `webp`, `svg`.
 
 There are three ways to attach an image:
 
-**1. From a file path** with `:PiAttachImage`:
+**1. From a file path** with `:AgentWorkbenchAttachImage`:
 
 ```vim
-:PiAttachImage path/to/screenshot.png
+:AgentWorkbenchAttachImage path/to/screenshot.png
 ```
 
 The path is resolved relative to the current working directory. Also exposed as `pi.attach_image(path)` from Lua.
 
-**2. From the clipboard** with `:PiPasteImage`:
+**2. From the clipboard** with `:AgentWorkbenchPasteImage`:
 
 ```vim
-:PiPasteImage
+:AgentWorkbenchPasteImage
 ```
 
 This requires [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) and a system clipboard tool (`pngpaste` on macOS, `xclip` on X11, `wl-paste` on Wayland). Clipboard images are auto-named `cb-image-1.png`, `cb-image-2.png`, and so on. Also exposed as `pi.paste_image()` from Lua.
 
-You normally don't need the command: with `prompt.paste_image = true` (the default), π wraps Neovim's global paste handler (`vim.paste`) and inspects anything pasted into the prompt. If the clipboard holds an image, it is attached automatically and the text paste is cancelled; any other paste is inserted as usual. This works for GUI paste (`nvim_paste`, e.g. `<D-v>`/`<C-v>` in Neovide). In a plain terminal the system paste shortcut is handled by the terminal itself and only delivers text, so an image-only clipboard may not trigger it — there, use `:PiPasteImage` (or map a key to `pi.paste_image()`) explicitly. Set `prompt.paste_image = false` to disable the interception entirely.
+You normally don't need the command: with `prompt.paste_image = true` (the default), π wraps Neovim's global paste handler (`vim.paste`) and inspects anything pasted into the prompt. If the clipboard holds an image, it is attached automatically and the text paste is cancelled; any other paste is inserted as usual. This works for GUI paste (`nvim_paste`, e.g. `<D-v>`/`<C-v>` in Neovide). In a plain terminal the system paste shortcut is handled by the terminal itself and only delivers text, so an image-only clipboard may not trigger it — there, use `:AgentWorkbenchPasteImage` (or map a key to `pi.paste_image()`) explicitly. Set `prompt.paste_image = false` to disable the interception entirely.
 
 **3. By drag-and-drop**, by dragging an image file into the π prompt buffer from your OS file manager. π intercepts the drop, recognizes it as a file path with a supported image extension, and adds it as an attachment instead of pasting the path as text. Plain-text pastes are not affected.
 
@@ -395,7 +395,7 @@ While zen is active:
 Zen mode has **no default keymap** — you have to opt in by setting at least `zen.keys.toggle`. Optionally, you can also set `zen.keys.exit` to bind extra keys that only exit zen (the toggle key always works for both directions).
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     zen = {
         -- Optional: width in columns. nil = textwidth, then 80.
         width = 100,
@@ -424,7 +424,7 @@ The expanded layout is split into **left**, **center**, and **right** groups. Ea
 - **A custom component function** — `function(state) -> string|chunks|nil`. See below.
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     statusline = {
         enabled = true,
         layout = {
@@ -485,7 +485,7 @@ statusline = {
 A custom component is a function that receives the current statusline state and returns either a string, a list of styled chunks, or `nil` to hide itself:
 
 ```lua
----@param state pi.StatusLineState
+---@param state agent_workbench.StatusLineState
 ---@return string|string[][]|nil text
 ---@return string?             hl
 local function my_component(state)
@@ -505,7 +505,7 @@ statusline = {
             "  ",
             function(state)
                 if state.extensions["permission"] then
-                    return "󰐌", "PiStatusLineOn"
+                    return "󰐌", "AgentWorkbenchStatusLineOn"
                 end
             end,
             "  ",
@@ -523,9 +523,9 @@ Return shapes:
 - `{ { "part1", "Hl1" }, { "part2", "Hl2" } }` — multiple chunks with per-chunk highlights.
 - `nil` — hide the component (and any adjacent separator).
 
-## Session stats (`:PiSessionStats`)
+## Session stats (`:AgentWorkbenchSessionStats`)
 
-`:PiSessionStats` opens a floating dashboard with the current session's numbers, mirroring the TUI's `/session` panel. The data comes from two RPC calls — `get_session_stats` (aggregates) and `get_entries` (the full entry list, used for the per-model cost breakdown) — so it works for any session state, including resumed ones.
+`:AgentWorkbenchSessionStats` opens a floating dashboard with the current session's numbers, mirroring the TUI's `/session` panel. The data comes from two RPC calls — `get_session_stats` (aggregates) and `get_entries` (the full entry list, used for the per-model cost breakdown) — so it works for any session state, including resumed ones.
 
 ```
 ┌─ Pi Session Stats ────────────────────────────────┐
@@ -574,7 +574,7 @@ Moving between π panels and scrolling the history without leaving the prompt ar
 Three functions move focus between the panels of the current chat:
 
 ```lua
-local pi = require("pi")
+local pi = require("agent-workbench")
 
 pi.focus_chat_history()      -- jump to the history window
 pi.focus_chat_prompt()       -- jump to the prompt window
@@ -628,7 +628,7 @@ When the `grep` tool finishes, its matches are parsed (`path:line[:col]: text`) 
 The quickfix window is **never opened automatically** — use `:copen` to see it. Each list is titled `pi <tool>: <pattern>` (or `pi <tool>` when there is no pattern). Errors are never loaded, and an empty match list leaves your current quickfix state untouched.
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     quickfix = {
         grep = true,  -- grep matches (default on)
         find = false, -- find file list
@@ -646,7 +646,7 @@ When the agent invokes a tool, Agent Workbench renders the call inline in the ch
   rg -n 'foo' lua/
 
   …12 lines
-  lua/pi/init.lua:42: foo = 1
+  lua/agent-workbench/init.lua:42: foo = 1
 ```
 
 Successful tool calls end silently (a blank breathing line); only errors print a status footer. The labels come from `labels.tool`, `labels.tool_failure` in your config. While a full-block tool runs, only its header, argument summary, and spinner remain visible; partial updates do not expand or rewrite the transcript body. Completion renders the authoritative final result once.
@@ -700,7 +700,7 @@ The prefix is stripped from the displayed text before the block is rendered, so 
 ### Customization
 
 > [!NOTE]
-> Tool renderers are currently **hard-coded** in `lua/pi/ui/chat/tools.lua`. There's no config surface for registering your own renderer or adjusting built-in thresholds. If you'd like any of these to be configurable, please open an issue.
+> Tool renderers are currently **hard-coded** in `lua/agent-workbench/ui/chat/tools.lua`. There's no config surface for registering your own renderer or adjusting built-in thresholds. If you'd like any of these to be configurable, please open an issue.
 
 ## Models
 
@@ -713,7 +713,7 @@ The top-level `models` option in `setup()` is an optional **preferred list** of 
 Each entry is one of:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     models = {
         -- 1. Plain string — exact model ID match (case-sensitive), or a
         --    canonical "provider/modelId" reference to disambiguate IDs
@@ -747,15 +747,15 @@ Three commands, each with a Lua API counterpart:
 
 | Command | Lua | What it does |
 | --- | --- | --- |
-| `:PiCycleModel` | `pi.cycle_model()` | Step to the next model. With `models` configured, cycles within the resolved subset; otherwise uses the backend's own cycle. |
-| `:PiSelectModel` | `pi.select_model()` | Open a picker (`vim.ui.select`) to pick a model. With `models` configured, shows only the resolved subset; otherwise falls back to all available models. |
-| `:PiSelectModelAll` | `pi.select_model_all()` | Open a picker with **all** backend-available models, ignoring the `models` config. Useful when you want to reach for something you haven't curated into your short list. |
+| `:AgentWorkbenchCycleModel` | `pi.cycle_model()` | Step to the next model. With `models` configured, cycles within the resolved subset; otherwise uses the backend's own cycle. |
+| `:AgentWorkbenchSelectModel` | `pi.select_model()` | Open a picker (`vim.ui.select`) to pick a model. With `models` configured, shows only the resolved subset; otherwise falls back to all available models. |
+| `:AgentWorkbenchSelectModelAll` | `pi.select_model_all()` | Open a picker with **all** backend-available models, ignoring the `models` config. Useful when you want to reach for something you haven't curated into your short list. |
 
 All three take effect immediately and persist for the current session. The active model appears in the `model` statusline component (see [Statusline](#statusline)).
 
 ### Session model state
 
-Model changes apply to current session. A resumed session (`:PiResume` / `:PiContinue`) adopts model stored in its session file; a newly created session resolves its initial model from pi backend settings.
+Model changes apply to current session. A resumed session (`:AgentWorkbenchResume` / `:AgentWorkbenchContinue`) adopts model stored in its session file; a newly created session resolves its initial model from pi backend settings.
 
 Typical setup binds the three operations in the prompt buffer: a fast cycle key, a filtered picker, and an "all models" escape hatch. The [Keymaps](keymaps.md) example uses `<M-m>` / `<M-M>` for cycle and select.
 
@@ -768,7 +768,7 @@ Reasoning-capable models (Claude's extended thinking, OpenAI's `o*` family, Open
 Thinking blocks can be noisy, especially on models that think verbosely or on long turns, so you may want to hide them. Agent Workbench shows them by default; you can flip the default and toggle visibility on demand:
 
 - **Default**: `show_thinking` (bool in `setup()`) — `true` by default.
-- **Toggle**: `:PiToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
+- **Toggle**: `:AgentWorkbenchToggleThinking` / `pi.toggle_thinking()` — show or hide all thinking blocks in the current session.
 
 Hiding thinking doesn't change anything on the backend or affect how the agent works; it's purely a view setting.
 
@@ -788,8 +788,8 @@ off | minimal | low | medium | high | xhigh
 
 Two ways to change it mid-session:
 
-- **Cycle**: `:PiCycleThinking` / `pi.cycle_thinking_level()` — steps to the next level in the list. Handy for a single key you can tap repeatedly.
-- **Pick**: `:PiSelectThinking` / `pi.select_thinking_level()` — opens a picker (`vim.ui.select`) with the levels the **current model actually supports** (fetched via the RPC `get_available_thinking_levels` command); if the fetch fails it falls back to the full built-in list.
+- **Cycle**: `:AgentWorkbenchCycleThinking` / `pi.cycle_thinking_level()` — steps to the next level in the list. Handy for a single key you can tap repeatedly.
+- **Pick**: `:AgentWorkbenchSelectThinking` / `pi.select_thinking_level()` — opens a picker (`vim.ui.select`) with the levels the **current model actually supports** (fetched via the RPC `get_available_thinking_levels` command); if the fetch fails it falls back to the full built-in list.
 
 Both operations require an active session with a reasoning-capable model; on a non-reasoning model they warn _"Current model does not support thinking"_ and leave state unchanged.
 
@@ -800,7 +800,7 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim): headings, list bullets, code blocks, links, and inline Markdown. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     render = {
         engine = "builtin", -- default: "markview"
     },
@@ -827,7 +827,7 @@ The behavior is controlled by `reload.mode`:
 | `false` | Disabled — buffers are never touched. |
 
 ```lua
-require("pi").setup({
+require("agent-workbench").setup({
     reload = {
         mode = "silent",  -- or "notify" or false
     },
@@ -843,7 +843,7 @@ At the top of every π chat history, Agent Workbench renders a **startup block**
 By default the block starts collapsed with a compact summary. Set `expand_startup_details = true` to start with full details, and toggle it at any time with either:
 
 - `<Tab>` on the block in the history buffer (the same `<Tab>` that expands/collapses tool blocks under the cursor).
-- `:PiToggleStartupDetails` / `pi.toggle_startup_details()`.
+- `:AgentWorkbenchToggleStartupDetails` / `pi.toggle_startup_details()`.
 
 ### What's in it
 

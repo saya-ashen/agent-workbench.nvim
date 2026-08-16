@@ -2,7 +2,7 @@
 -- listing the list's shortcuts; it closes with the list window and is
 -- per-tab-window like the list itself.
 
-local SessionList = require("pi.ui.sessions")
+local SessionList = require("agent-workbench.ui.sessions")
 
 --- Find the help float: a pi-dialog buffer showing the session list shortcuts.
 ---@return integer?, integer?

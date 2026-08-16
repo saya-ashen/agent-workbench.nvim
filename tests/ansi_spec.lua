@@ -1,4 +1,4 @@
-local Ansi = require("pi.ui.chat.terminal.ansi")
+local Ansi = require("agent-workbench.ui.chat.terminal.ansi")
 
 describe("shell ANSI parser", function()
     it("keeps text exact while recording basic styles", function()

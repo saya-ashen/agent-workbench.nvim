@@ -1,8 +1,8 @@
 -- Unit tests for pi.ui.diff_review (:PiDiff): pure diff parsing, hunk
 -- line-number walking, config resolution, and float rendering.
 
-local Config = require("pi.config")
-local M = require("pi.ui.diff_review")
+local Config = require("agent-workbench.config")
+local M = require("agent-workbench.ui.diff_review")
 
 local SAMPLE = table.concat({
     "diff --git a/README.md b/README.md",
@@ -15,11 +15,11 @@ local SAMPLE = table.concat({
     "+new line",
     " context line",
     "+",
-    "diff --git a/lua/pi/init.lua b/lua/pi/init.lua",
+    "diff --git a/lua/plugin/init.lua b/lua/plugin/init.lua",
     "new file mode 100644",
     "index 0000000..abcdef0",
     "--- /dev/null",
-    "+++ b/lua/pi/init.lua",
+    "+++ b/lua/plugin/init.lua",
     "@@ -0,0 +1,2 @@",
     "+local M = {}",
     "+return M",
@@ -56,7 +56,7 @@ describe("diff_review parse_sections", function()
         }, readme.body)
 
         local new_file = sections[2]
-        assert.are.equal("lua/pi/init.lua", new_file.path)
+        assert.are.equal("lua/plugin/init.lua", new_file.path)
         assert.is_false(new_file.deleted)
         assert.are.equal("A", new_file.status)
         assert.are.equal("new file mode 100644", new_file.body[1])
@@ -236,7 +236,7 @@ describe("diff_review render", function()
         local list_lines = vim.api.nvim_buf_get_lines(list_buf, 0, -1, false)
         assert.matches("3 files", list_lines[1])
         assert.are.equal("M README.md", list_lines[2])
-        assert.are.equal("A lua/pi/init.lua", list_lines[3])
+        assert.are.equal("A lua/plugin/init.lua", list_lines[3])
         assert.are.equal("D gone.txt", list_lines[4])
 
         -- the float shows the first file's diff
@@ -266,9 +266,9 @@ describe("diff_review render", function()
         local float_win = assert(M._float_win())
         local b = vim.api.nvim_win_get_buf(float_win)
         local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-        assert.is_true(vim.startswith(lines[1], "── lua/pi/init.lua"))
+        assert.is_true(vim.startswith(lines[1], "── lua/plugin/init.lua"))
         -- the first added line (buffer line 7) -> new-file line 1
-        assert.are.same({ path = vim.fn.fnamemodify("lua/pi/init.lua", ":p"), line = 1 }, M._targets()[7])
+        assert.are.same({ path = vim.fn.fnamemodify("lua/plugin/init.lua", ":p"), line = 1 }, M._targets()[7])
 
         -- a deleted file shows only the header, with no jump targets
         M._show_file(3)

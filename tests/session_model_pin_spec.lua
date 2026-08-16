@@ -1,10 +1,10 @@
 -- Model pin is session-owned. Creating another History buffer starts a separate
 -- RPC session and does not mutate existing session's selected model.
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
-local Sessions = require("pi.sessions.manager")
-local Models = require("pi.models")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
+local Sessions = require("agent-workbench.sessions.manager")
+local Models = require("agent-workbench.models")
 
 Config.setup({})
 

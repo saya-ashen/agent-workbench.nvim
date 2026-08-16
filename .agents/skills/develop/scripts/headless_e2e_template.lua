@@ -28,12 +28,12 @@ local function find_buf(ft)
 end
 
 -- Open the real chat and wait for its buffers.
-require("pi").show { layout = "side" }
+require("agent-workbench").show { layout = "side" }
 vim.wait(4000, function()
   return find_buf "pi-chat-prompt" ~= nil
 end, 50)
 
-local chat = require("pi.sessions.manager").get().chat
+local chat = require("agent-workbench.sessions.manager").get().chat
 check("chat instance available", chat ~= nil)
 
 -- Stub the backend BEFORE any submit.

@@ -4,7 +4,7 @@ Develop every feature in its own **git worktree**, not in the main checkout. The
 
 ## Why
 
-The main checkout at `~/.local/share/nvim/lazy/pi2.nvim` is a *live lazy.nvim plugin path* — the running Neovim loads its code, and it must stay on `main`. Creating or switching branches there:
+The main checkout at `~/.local/share/nvim/lazy/agent-workbench.nvim` is a *live lazy.nvim plugin path* — the running Neovim loads its code, and it must stay on `main`. Creating or switching branches there:
 
 - swaps the code under the **running editor** mid-session (lazy never hot-reloads, so the open nvim keeps the old modules while the files on disk change — see G21), and
 - races with **any other session** touching the same directory (branch switches landing between your edits, uncommitted work stranded on the wrong branch).
@@ -16,8 +16,8 @@ A worktree gives your feature an isolated directory and branch while the main ch
 Run from anywhere; `MAIN` stays on `main`.
 
 ```bash
-MAIN=~/.local/share/nvim/lazy/pi2.nvim            # live plugin path — leave it on main
-WT_ROOT=~/.local/share/pi.nvim-worktrees           # MUST be outside .../nvim/lazy (see below)
+MAIN=~/.local/share/nvim/lazy/agent-workbench.nvim            # live plugin path — leave it on main
+WT_ROOT=~/.local/share/agent-workbench.nvim-worktrees           # MUST be outside .../nvim/lazy (see below)
 name=grep-quickfix                                 # short kebab name
 
 git -C "$MAIN" fetch origin

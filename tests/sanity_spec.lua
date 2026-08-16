@@ -3,7 +3,7 @@
 
 describe("test harness sanity", function()
     it("loads a pi.nvim module", function()
-        local ft = require("pi.filetypes")
+        local ft = require("agent-workbench.filetypes")
         assert.are.equal("pi-chat-prompt", ft.prompt)
         assert.are.equal("pi-chat-history", ft.history)
     end)

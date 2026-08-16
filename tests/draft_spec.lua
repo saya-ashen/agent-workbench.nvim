@@ -2,7 +2,7 @@
 -- workspace/process path stays under a temporary directory.
 
 describe("pi.draft", function()
-    local Draft = require("pi.draft")
+    local Draft = require("agent-workbench.draft")
     local root
     local path_for
 
@@ -62,8 +62,8 @@ describe("pi.draft", function()
 
     describe("prompt integration", function()
         it("keeps prompt saves scoped by constructor cwd", function()
-            local Attachments = require("pi.ui.chat.attachments")
-            local Prompt = require("pi.ui.chat.prompt")
+            local Attachments = require("agent-workbench.ui.chat.attachments")
+            local Prompt = require("agent-workbench.ui.chat.prompt")
             local first_attachments = Attachments.new()
             local first = Prompt.new(9001, first_attachments, "/workspace/one")
             first:set_text("workspace one")
@@ -83,9 +83,9 @@ describe("pi.draft", function()
         end)
 
         it("never persists terminal grid contents as compose draft", function()
-            local Config = require("pi.config")
-            local Attachments = require("pi.ui.chat.attachments")
-            local Prompt = require("pi.ui.chat.prompt")
+            local Config = require("agent-workbench.config")
+            local Attachments = require("agent-workbench.ui.chat.attachments")
+            local Prompt = require("agent-workbench.ui.chat.prompt")
             local draft_enabled = Config.options.prompt.draft.enabled
             Config.options.prompt.draft.enabled = true
             local attachments = Attachments.new()

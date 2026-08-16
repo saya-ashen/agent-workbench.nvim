@@ -6,9 +6,9 @@
 -- content (fence nesting).  The builtin engine keeps the existing behaviour
 -- (no wrapping, auto-close odd fences).
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
-local Render = require("pi.ui.render")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
+local Render = require("agent-workbench.ui.render")
 
 local TAB = 910
 
@@ -44,7 +44,7 @@ end
 
 --- Create a History with tool-block collapsing disabled so buffer lines
 --- are the raw rendered output (easier to assert on).
----@return pi.ChatHistory
+---@return agent_workbench.ChatHistory
 local function new_history()
     local h = History.new(TAB)
     h._blocks_expanded = true
@@ -52,7 +52,7 @@ local function new_history()
 end
 
 --- Fire a bash tool call through the standard on_tool_start / on_tool_end path.
----@param h pi.ChatHistory
+---@param h agent_workbench.ChatHistory
 ---@param output string  tool result text
 local function bash_tool(h, output)
     h:on_tool_start("bash", "call1", { command = "echo hi" })
@@ -64,7 +64,7 @@ local function bash_tool(h, output)
 end
 
 --- Fire an unknown tool (hits the default renderer) through on_tool_start/end.
----@param h pi.ChatHistory
+---@param h agent_workbench.ChatHistory
 ---@param output string
 local function unknown_tool(h, output)
     h:on_tool_start("my_custom_tool", "call2", { query = "test" })

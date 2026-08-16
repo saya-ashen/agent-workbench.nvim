@@ -21,9 +21,9 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **What it's for:** plugin loading from the current checkout, chat opening, buffer/extmark wiring, keymap *registration*, and method-level behavior — everything that doesn't need pixels or real key events.
 
-**How it runs:** `nvim --headless -i NONE -u tests/minimal_init.lua -l script.lua`. The script drives `require("pi").show{layout="side"}`, waits for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` runs `tests/smoke.lua`, stubs RPC lifecycle, opens chat, and asserts session/History/prompt exist. It never loads user config, starts real pi, or writes real session data. Both paths resolve the current checkout from `tests/minimal_init.lua`, so they are worktree-safe (G23).
+**How it runs:** `nvim --headless -i NONE -u tests/minimal_init.lua -l script.lua`. The script drives `require("agent-workbench").show{layout="side"}`, waits for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` runs `tests/smoke.lua`, stubs RPC lifecycle, opens chat, and asserts session/History/prompt exist. It never loads user config, starts real pi, or writes real session data. Both paths resolve the current checkout from `tests/minimal_init.lua`, so they are worktree-safe (G23).
 
-**Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) return true end` (get `chat` via `require("pi.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
+**Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) return true end` (get `chat` via `require("agent-workbench.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
 
 **Pitfalls unique to headless:**
 
@@ -58,14 +58,14 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 1. Before opening chat, redirect the test instance's draft storage to `/tmp`:
 
    ```lua
-   require("pi.draft")._set_path("/tmp/<run>/draft.txt")
+   require("agent-workbench.draft")._set_path("/tmp/<run>/draft.txt")
    ```
 
    Production drafts isolate workspaces and live processes, but a test instance could still claim a stale real draft if the override is installed after chat opens.
 2. Before the first recall/send, redirect prompt history:
 
    ```lua
-   require("pi.config").options.prompt.history.path = "/tmp/<run>/history.json"
+   require("agent-workbench.config").options.prompt.history.path = "/tmp/<run>/history.json"
    ```
 
    The history store is lazy, so the user's `prompt_history.json` is never opened by the test instance.

@@ -8,8 +8,8 @@
 -- behavior of the pause/resume helpers when the engine is builtin or when
 -- render-markdown is not installed, so they can never error in those setups.
 
-local Config = require("pi.config")
-local Render = require("pi.ui.render")
+local Config = require("agent-workbench.config")
+local Render = require("agent-workbench.ui.render")
 
 describe("render pause/resume", function()
     local saved_engine

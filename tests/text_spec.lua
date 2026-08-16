@@ -1,7 +1,7 @@
 -- Unit tests for pi.ui.chat.text — thinking preview truncation helpers.
 
 describe("pi.ui.chat.text", function()
-    local Text = require("pi.ui.chat.text")
+    local Text = require("agent-workbench.ui.chat.text")
 
     describe("thinking_flat", function()
         it("joins lines and normalizes whitespace", function()

@@ -131,10 +131,10 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiDiffWinbarProposed` | `PROPOSED:` label on the right pane winbar |
 | `PiDiffWinbarHint` | Key hint text (`[<Leader>da=accept ...]`) on the winbar |
 | `PiDiffReviewNote` | Sign and virtual text for line-level diff review notes |
-| `PiDiffReviewFile` | File header in the `:PiDiff` float; `M` status letter in the `:PiDiff` file list |
-| `PiDiffReviewHint` | Hint line (file count / key hints) in the `:PiDiff` file list |
-| `PiDiffReviewFloatTitle` | Float title of the `:PiDiff` window |
-| `PiDiffAddSign` / `PiDiffDeleteSign` | `A` / `D` status letters in the `:PiDiff` file list (same groups as inline diff signs) |
+| `PiDiffReviewFile` | File header in the `:AgentWorkbenchDiff` float; `M` status letter in the `:AgentWorkbenchDiff` file list |
+| `PiDiffReviewHint` | Hint line (file count / key hints) in the `:AgentWorkbenchDiff` file list |
+| `PiDiffReviewFloatTitle` | Float title of the `:AgentWorkbenchDiff` window |
+| `PiDiffAddSign` / `PiDiffDeleteSign` | `A` / `D` status letters in the `:AgentWorkbenchDiff` file list (same groups as inline diff signs) |
 
 ## Statusline
 
@@ -149,7 +149,7 @@ All highlight groups are defined with `default = true`, so they can be overridde
 
 | Group | Role |
 | --- | --- |
-| `PiStatsBar` | Bar fill in the `:PiSessionStats` dashboard (per-model cost bars and the context bar below its warn threshold) |
+| `PiStatsBar` | Bar fill in the `:AgentWorkbenchSessionStats` dashboard (per-model cost bars and the context bar below its warn threshold) |
 
 The dashboard reuses `PiToolHeader` for its section headers, `Comment` for dimmed labels, and `PiStatusLineWarning` / `PiStatusLineError` for the context bar above the warn/error thresholds.
 

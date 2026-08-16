@@ -8,7 +8,7 @@
 --   * Reset singletons in after_each so specs don't leak state.
 
 describe("pi.<module>", function()
-  local Mod = require "pi.<module>"
+  local Mod = require "agent-workbench.<module>"
 
   before_each(function()
     -- If the module persists to disk, point it at a throwaway file:

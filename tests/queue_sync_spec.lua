@@ -11,7 +11,7 @@
 -- * unmatched local entries are SWEPT when idle: no delivery can arrive
 --   anymore, so they are ghosts.
 
-local History = require("pi.ui.chat.history")
+local History = require("agent-workbench.ui.chat.history")
 
 local TAB = 961
 

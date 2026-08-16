@@ -7,8 +7,8 @@
 -- rhythm. The fix makes the thinking block end like a tool block: one trailing
 -- blank + the breathing-line flag.
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
 
 local function pump(ms)
     vim.wait(ms or 60)
@@ -55,13 +55,13 @@ describe("thinking block spacing rhythm (issue #48)", function()
     before_each(function()
         Config.options.render = { engine = "builtin" }
         Config.options.show_thinking = true
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     after_each(function()
         Config.options.show_thinking = true
         Config.options.render = { engine = "builtin" }
-        require("pi.ui.render")._reset()
+        require("agent-workbench.ui.render")._reset()
     end)
 
     it("leaves one blank line before following text", function()

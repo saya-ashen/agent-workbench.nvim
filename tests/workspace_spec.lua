@@ -1,13 +1,13 @@
-local Workspace = require("pi.workspace")
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
+local Workspace = require("agent-workbench.workspace")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
 
 Config.setup({})
 
 describe("agent workspace", function()
     it("uses buffer layout and markview by default", function()
         assert.are.equal("buffer", Config.resolve_default_layout_mode())
-        assert.are.equal("markview", require("pi.ui.render").engine())
+        assert.are.equal("markview", require("agent-workbench.ui.render").engine())
     end)
 
     it("builds stable session URIs", function()
@@ -161,9 +161,9 @@ describe("agent workspace", function()
     end)
 
     it("opens over a scratch buffer whose wipe autocmd raises E367", function()
-        local Attachments = require("pi.ui.chat.attachments")
-        local Prompt = require("pi.ui.chat.prompt")
-        local Layout = require("pi.ui.chat.layout")
+        local Attachments = require("agent-workbench.ui.chat.attachments")
+        local Prompt = require("agent-workbench.ui.chat.prompt")
+        local Layout = require("agent-workbench.ui.chat.layout")
         local attachments = Attachments.new()
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/dashboard/transcript")
         local prompt = Prompt.new(vim.api.nvim_get_current_tabpage(), attachments)
@@ -193,9 +193,9 @@ describe("agent workspace", function()
     end)
 
     it("restores editor buffer after hiding buffer layout", function()
-        local Attachments = require("pi.ui.chat.attachments")
-        local Prompt = require("pi.ui.chat.prompt")
-        local Layout = require("pi.ui.chat.layout")
+        local Attachments = require("agent-workbench.ui.chat.attachments")
+        local Prompt = require("agent-workbench.ui.chat.prompt")
+        local Layout = require("agent-workbench.ui.chat.layout")
         local attachments = Attachments.new()
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/new-2/transcript")
         history:_with_modifiable(function()
@@ -231,11 +231,17 @@ describe("agent workspace", function()
         assert.is_truthy(vim.wo[prompt_win].winbar:find("idle", 1, true))
         assert.are.equal(0, prompt:statusline():virt_line_count())
 
-        assert.are.equal("v:lua.require'pi.completion.omnifunc'.completefunc", vim.bo[prompt:buf()].omnifunc)
-        assert.are.equal("v:lua.require'pi.completion.omnifunc'.completefunc", vim.bo[prompt:buf()].completefunc)
-        local commands = require("pi.cache.commands")
+        assert.are.equal(
+            "v:lua.require'agent-workbench.completion.omnifunc'.completefunc",
+            vim.bo[prompt:buf()].omnifunc
+        )
+        assert.are.equal(
+            "v:lua.require'agent-workbench.completion.omnifunc'.completefunc",
+            vim.bo[prompt:buf()].completefunc
+        )
+        local commands = require("agent-workbench.cache.commands")
         commands.set({ { name = "review", description = "Review changes", source = "extension" } })
-        local omnifunc = require("pi.completion.omnifunc").completefunc
+        local omnifunc = require("agent-workbench.completion.omnifunc").completefunc
         vim.api.nvim_buf_set_lines(prompt:buf(), 0, -1, false, { "/rev" })
         vim.api.nvim_set_current_win(prompt_win)
         vim.api.nvim_win_set_cursor(prompt_win, { 1, 4 })

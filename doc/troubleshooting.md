@@ -2,7 +2,7 @@
 
 When something misbehaves — the agent doesn't respond, a tool doesn't render correctly, an extension event doesn't arrive — Agent Workbench gives you a few places to look.
 
-## `:checkhealth pi`
+## `:checkhealth agent-workbench`
 
 The health check verifies:
 
@@ -13,13 +13,13 @@ The health check verifies:
   - older versions are a hard error; newer versions are reported as unvalidated (warning), not hard-failed.
 - **Treesitter parsers** — `markdown` and `markdown_inline` (info-only; chat highlighting is limited without them).
 - **Optional plugins** — `img-clip.nvim` (clipboard image paste), `render-markdown.nvim` (warned when it's the configured engine but missing), `blink.cmp` (info-only).
-- **The bundled tree extension** — `extensions/tree.ts` exists when `tree.enabled` is on (`:PiTree` depends on it).
+- **The bundled tree extension** — `extensions/tree.ts` exists when `tree.enabled` is on (`:AgentWorkbenchTree` depends on it).
 - **Image compression tools** — when `prompt.image_compress` is enabled, at least one of `sips` / `magick` / `ffmpeg` is found (warns if you pinned a specific `tool` that's missing).
 
 Run it any time you suspect something is off with the install:
 
 ```vim
-:checkhealth pi
+:checkhealth agent-workbench
 ```
 
 If the executable isn't found, either install pi or set `cli = { bin = "/absolute/path/to/pi" }` in `setup()`.
@@ -31,7 +31,7 @@ Agent Workbench communicates with the backend over a JSONL RPC protocol on the p
 There are two ways to enable it:
 
 - **Statically**, from the start of every session: `debug = true` in `setup()`.
-- **At runtime**, toggled on/off without restarting anything: `:PiToggleDebug` / `pi.toggle_debug()`. This override is in-memory only and lasts for the current Neovim session; restart clears it back to whatever `setup()` said.
+- **At runtime**, toggled on/off without restarting anything: `:AgentWorkbenchToggleDebug` / `pi.toggle_debug()`. This override is in-memory only and lasts for the current Neovim session; restart clears it back to whatever `setup()` said.
 
 Logs are written to:
 
@@ -53,11 +53,11 @@ When filing an issue, attaching the relevant section of `rpc.log` is by far the 
 
 At startup, default `auto_start_session = true` replaces an untouched empty `[No Name]` buffer with visible Pi chat. New tab-backed workspaces do same. Set `auto_start_session = false` to restore lazy session creation. Named files, modified buffers, and non-empty scratch buffers stay intact.
 
-- **Spawned** when Neovim starts, when a new tab-backed workspace opens, or when `:Pi`, `:PiNewSession`, `:PiContinue`, or `:PiResume` creates a session. Set `auto_start_session = false` to restore lazy session creation.
+- **Spawned** when Neovim starts, when a new tab-backed workspace opens, or when `:AgentWorkbench`, `:AgentWorkbenchNewSession`, `:AgentWorkbenchContinue`, or `:AgentWorkbenchResume` creates a session. Set `auto_start_session = false` to restore lazy session creation.
 - **Alive** while History buffer exists. Hiding chat, switching buffers, or closing a tab does **not** stop process.
 - **Torn down** by `:bdelete` / `:bwipeout` on History buffer, or by `VimLeavePre` for all sessions.
-- **Stopped explicitly** via `:PiStop` / `pi.stop()` — kills current session RPC and deletes its History buffer.
-- **Aborted** via `:PiAbort` / `pi.abort()` — cancels whatever the agent is currently doing mid-turn but keeps the session and process alive, so you can immediately send a new prompt. Different from `:PiStop`: abort stops the _agent_, stop kills the _process_.
+- **Stopped explicitly** via `:AgentWorkbenchStop` / `pi.stop()` — kills current session RPC and deletes its History buffer.
+- **Aborted** via `:AgentWorkbenchAbort` / `pi.abort()` — cancels whatever the agent is currently doing mid-turn but keeps the session and process alive, so you can immediately send a new prompt. Different from `:AgentWorkbenchStop`: abort stops the _agent_, stop kills the _process_.
 
 ## What to check when something's wrong
 
@@ -65,18 +65,18 @@ A rough triage checklist for common symptoms:
 
 | Symptom | First thing to check |
 | --- | --- |
-| `:Pi` does nothing / reports no executable | `:checkhealth pi` — is `bin` resolvable? |
+| `:AgentWorkbench` does nothing / reports no executable | `:checkhealth agent-workbench` — is `bin` resolvable? |
 | Chat opens but never gets a response | Enable debug logging and watch `rpc.log` — are commands going out? Are events coming back? |
 | Diff review doesn't open on edit/write | Is a permission extension loaded? See [Diff review](diff-review.md). |
 | Extension UI request ignored | Check the extension's `widgetKey` / method — is it something Agent Workbench knows how to route? See [Extensions](extensions.md). |
 | Slash command not highlighted | The command cache may not be populated yet (fetched on first chat open, refreshed every 30 seconds). |
-| Session doesn't continue with `:PiContinue` | Are you in the same cwd as when the session was started? Sessions are cwd-scoped — see [Sessions](sessions.md). |
+| Session doesn't continue with `:AgentWorkbenchContinue` | Are you in the same cwd as when the session was started? Sessions are cwd-scoped — see [Sessions](sessions.md). |
 | Statusline component shows stale data | The statusline is pushed from RPC events; if they stopped flowing, `rpc.log` will show the gap. |
 | Unhandled event warning | Agent Workbench doesn't yet know about a new event type the backend is sending. Please [open an issue](https://github.com/saya-ashen/agent-workbench.nvim/issues) with the event name and a snippet of `rpc.log`. |
-| `:PiTree` shows "Failed to decode RPC message: Found too many nested data structures" | The `get_tree` response for a very long session (roughly 500+ messages) is deeper than Neovim's built-in JSON decoder allows. See [Deep RPC payloads](#deep-rpc-payloads) below. |
+| `:AgentWorkbenchTree` shows "Failed to decode RPC message: Found too many nested data structures" | The `get_tree` response for a very long session (roughly 500+ messages) is deeper than Neovim's built-in JSON decoder allows. See [Deep RPC payloads](#deep-rpc-payloads) below. |
 
 ## Deep RPC payloads
 
-Neovim's `vim.json` (the bundled lua-cjson library) hard-caps JSON nesting at 1000 levels, which cannot be raised at runtime. The pi backend nests the session tree one level **per message**, so `get_tree` responses for long sessions — and with it `:PiTree` — used to fail with `Failed to decode RPC message: Found too many nested data structures (1001) at character N`, and the tree picker never opened.
+Neovim's `vim.json` (the bundled lua-cjson library) hard-caps JSON nesting at 1000 levels, which cannot be raised at runtime. The pi backend nests the session tree one level **per message**, so `get_tree` responses for long sessions — and with it `:AgentWorkbenchTree` — used to fail with `Failed to decode RPC message: Found too many nested data structures (1001) at character N`, and the tree picker never opened.
 
-Since 2026-08-11 Agent Workbench ships its own depth-tolerant JSON decoder (`pi.json`) as a fallback: incoming RPC lines that cjson refuses are re-decoded with it, so `:PiTree` works for sessions up to roughly 4000 messages (the fallback's defensive depth cap). Only when both decoders fail does the warning still appear — normally a sign of a genuinely malformed line; enable [RPC debug logging](#rpc-debug-logging) and check `rpc.log` in that case.
+Since 2026-08-11 Agent Workbench ships its own depth-tolerant JSON decoder (`pi.json`) as a fallback: incoming RPC lines that cjson refuses are re-decoded with it, so `:AgentWorkbenchTree` works for sessions up to roughly 4000 messages (the fallback's defensive depth cap). Only when both decoders fail does the warning still appear — normally a sign of a genuinely malformed line; enable [RPC debug logging](#rpc-debug-logging) and check `rpc.log` in that case.

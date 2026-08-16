@@ -9,11 +9,11 @@
 -- ({ input, output, cacheRead, cacheWrite, cost: { input, output, cacheRead,
 -- cacheWrite, total } }) on assistant/toolResult/compaction entries.
 
-local Config = require("pi.config")
-local Rpc = require("pi.rpc")
-local Sessions = require("pi.sessions.manager")
-local Pi = require("pi")
-local Stats = require("pi.stats")
+local Config = require("agent-workbench.config")
+local Rpc = require("agent-workbench.rpc")
+local Sessions = require("agent-workbench.sessions.manager")
+local Pi = require("agent-workbench")
+local Stats = require("agent-workbench.stats")
 
 Config.setup({})
 Pi.setup({})
@@ -426,7 +426,7 @@ end)
 -- ============================================================================
 
 local real_rpc = { start = Rpc.start, stop = Rpc.stop, send = Rpc.send }
-local real_dialog_info = require("pi.ui.dialog").info
+local real_dialog_info = require("agent-workbench.ui.dialog").info
 
 --- Commands sent through the stub, in order.
 local sent = {}
@@ -474,7 +474,7 @@ local function install_stub()
         notes[#notes + 1] = { msg = msg, level = level }
     end
 
-    require("pi.ui.dialog").info = function(opts)
+    require("agent-workbench.ui.dialog").info = function(opts)
         dialog_infos[#dialog_infos + 1] = vim.deepcopy(opts)
     end
 
@@ -504,7 +504,7 @@ local function restore_stub()
     Rpc.start = real_rpc.start
     Rpc.stop = real_rpc.stop
     Rpc.send = real_rpc.send
-    require("pi.ui.dialog").info = real_dialog_info
+    require("agent-workbench.ui.dialog").info = real_dialog_info
 end
 
 --- Wait until fn() is truthy; fail the spec with `what` otherwise.

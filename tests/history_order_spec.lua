@@ -7,8 +7,8 @@
 -- thinking block following an inline tool gets inserted before it, reordering
 -- the turn (thinking, thinking, tool instead of thinking, tool, thinking).
 
-local Config = require("pi.config")
-local History = require("pi.ui.chat.history")
+local Config = require("agent-workbench.config")
+local History = require("agent-workbench.ui.chat.history")
 
 local TAB = 901
 
