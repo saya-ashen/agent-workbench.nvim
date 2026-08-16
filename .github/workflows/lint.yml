@@ -19,7 +19,7 @@ jobs:
     name: stylua (make style)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install stylua
         run: |
           set -euo pipefail
@@ -36,7 +36,7 @@ jobs:
     name: lua-language-server (make lint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install lua-language-server
         run: |
           set -euo pipefail
