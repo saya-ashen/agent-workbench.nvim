@@ -85,6 +85,12 @@
 ---@field cancelled? boolean
 ---@field [string] any
 
+---@class agent_workbench.RpcSelectOption
+---@field label string
+---@field description? string
+---@field preview? string
+---@field value? string
+
 --- https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md
 ---@class agent_workbench.RpcEvent
 ---@field type agent_workbench.RpcEventType
@@ -111,6 +117,7 @@
 ---@field messages? table[]
 ---@field notifyType? "info"|"warning"|"error"
 ---@field options? string[]
+---@field optionDetails? agent_workbench.RpcSelectOption[]
 ---@field timeout? integer
 ---@field title? string
 ---@field prefill? string

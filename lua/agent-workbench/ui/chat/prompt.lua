@@ -32,12 +32,18 @@ Prompt.__index = Prompt
 ---@alias agent_workbench.PromptCommandMode "compose"|"bash"|"terminal"
 ---@alias agent_workbench.PromptRequestKind "select"|"confirm"
 
+---@class agent_workbench.PromptOption
+---@field label string
+---@field description? string
+---@field preview? string
+---@field value? string
+
 ---@class agent_workbench.PromptRequest
 ---@field id string
 ---@field kind agent_workbench.PromptRequestKind
 ---@field title string
 ---@field message? string
----@field options string[]
+---@field options (string|agent_workbench.PromptOption)[]
 ---@field selected integer
 ---@field timeout? integer
 ---@field callback fun(value: string?, expired?: boolean)
@@ -731,19 +737,147 @@ function Prompt:terminal_stopped()
     return false
 end
 
+---@param option string|agent_workbench.PromptOption
+---@return agent_workbench.PromptOption
+local function normalize_option(option)
+    if type(option) == "string" then
+        return { label = option, value = option }
+    end
+    return option
+end
+
+---@param option string|agent_workbench.PromptOption
+---@return string
+local function option_text(option)
+    local normalized = normalize_option(option)
+    if normalized.description and normalized.description ~= "" then
+        return normalized.label .. " — " .. normalized.description
+    end
+    return normalized.label
+end
+
+---@param option string|agent_workbench.PromptOption
+---@return string?
+local function option_value(option)
+    return normalize_option(option).value or normalize_option(option).label
+end
+
+---@param title string
+---@return string, table<integer, string>
+local function extract_title_previews(title)
+    local title_lines = vim.split(title, "\n", { plain = true })
+    local clean_lines = {}
+    local previews = {}
+    local current_index
+
+    for _, line in ipairs(title_lines) do
+        local index = line:match("^%-%-%- (%d+)%. .- preview %-%-%-$")
+        if index then
+            local parsed_index = tonumber(index)
+            if parsed_index then
+                current_index = parsed_index
+                previews[parsed_index] = ""
+            end
+        elseif current_index then
+            if not line:match("^```[%w_-]*$") and line ~= "```" then
+                previews[current_index] = previews[current_index]
+                    .. (previews[current_index] == "" and "" or "\n")
+                    .. line
+            end
+        else
+            clean_lines[#clean_lines + 1] = line
+        end
+    end
+
+    while clean_lines[#clean_lines] == "" do
+        table.remove(clean_lines)
+    end
+    for index, preview in pairs(previews) do
+        previews[index] = vim.trim(preview)
+    end
+    return table.concat(clean_lines, "\n"), previews
+end
+
+---@param text string
+---@return integer
+local function display_width(text)
+    return vim.fn.strdisplaywidth(text)
+end
+
+---@param lines string[]
+---@return integer
+local function max_display_width(lines)
+    local width = 0
+    for _, line in ipairs(lines) do
+        width = math.max(width, display_width(line))
+    end
+    return width
+end
+
+---@param buf integer
+---@param option_start integer Zero-based first option row.
+---@param option_lines string[]
+---@param preview string
+---@param win integer?
+local function render_request_preview(buf, option_start, option_lines, preview, win)
+    local preview_lines = vim.split(preview, "\n", { plain = true })
+    local window_width = win and vim.api.nvim_win_get_width(win) or vim.o.columns
+    local preview_col = max_display_width(option_lines) + 3
+    local side_by_side = preview_col + max_display_width(preview_lines) <= window_width
+
+    if side_by_side then
+        local shared_rows = math.min(#preview_lines, #option_lines)
+        for index = 1, shared_rows do
+            vim.api.nvim_buf_set_extmark(buf, request_ns, option_start + index - 1, 0, {
+                virt_text = { { preview_lines[index], "Comment" } },
+                virt_text_pos = "overlay",
+                virt_text_win_col = preview_col,
+                hl_mode = "combine",
+            })
+        end
+        if #preview_lines <= #option_lines then
+            return
+        end
+
+        local continuation = {}
+        for index = #option_lines + 1, #preview_lines do
+            continuation[#continuation + 1] = {
+                { string.rep(" ", preview_col) },
+                { preview_lines[index], "Comment" },
+            }
+        end
+        vim.api.nvim_buf_set_extmark(buf, request_ns, option_start + #option_lines - 1, 0, {
+            virt_lines = continuation,
+        })
+        return
+    end
+
+    local stacked = {}
+    for _, line in ipairs(preview_lines) do
+        stacked[#stacked + 1] = { { "  " .. line, "Comment" } }
+    end
+    vim.api.nvim_buf_set_extmark(buf, request_ns, option_start + #option_lines - 1, 0, {
+        virt_lines = stacked,
+    })
+end
+
 function Prompt:_render_request()
     local request = self._request
     if not request then
         return
     end
-    local lines = vim.split(request.title, "\n", { plain = true })
+    local title, embedded_previews = extract_title_previews(request.title)
+    local lines = vim.split(title, "\n", { plain = true })
     if request.message and request.message ~= "" and request.message ~= request.title then
         vim.list_extend(lines, vim.split(request.message, "\n", { plain = true }))
     end
     lines[#lines + 1] = ""
     local option_start = #lines
+    local option_lines = {}
     for index, option in ipairs(request.options) do
-        lines[#lines + 1] = (index == request.selected and "  › " or "    ") .. option
+        local line = (index == request.selected and "  › " or "    ") .. option_text(option)
+        option_lines[#option_lines + 1] = line
+        lines[#lines + 1] = line
     end
     lines[#lines + 1] = ""
     lines[#lines + 1] = "j/k or ↑/↓ move   <CR> confirm   <C-c> cancel"
@@ -759,11 +893,16 @@ function Prompt:_render_request()
         end_col = #(lines[selected_row + 1] or ""),
         hl_group = "PiPromptRequestSelected",
     })
+    local win = self:win()
+    local selected_option = normalize_option(request.options[request.selected])
+    local selected_preview = selected_option.preview or embedded_previews[request.selected]
+    if selected_preview and selected_preview ~= "" then
+        render_request_preview(self._buf, option_start, option_lines, selected_preview, win)
+    end
     vim.api.nvim_buf_set_extmark(self._buf, request_ns, #lines - 1, 0, {
         end_col = #(lines[#lines] or ""),
         hl_group = "Comment",
     })
-    local win = self:win()
     if win then
         pcall(vim.api.nvim_win_set_cursor, win, { selected_row + 1, 0 })
     end
@@ -818,7 +957,7 @@ end
 function Prompt:confirm_request()
     local request = self._request
     if request then
-        self:_finish_request(request.options[request.selected], false)
+        self:_finish_request(option_value(request.options[request.selected]), false)
     end
 end
 

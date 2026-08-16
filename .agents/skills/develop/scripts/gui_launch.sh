@@ -19,15 +19,16 @@ TEST_WS=${TEST_WS:-9}
 OLDWIN=$(cat "$WIN_FILE" 2>/dev/null)
 [ -n "$OLDWIN" ] && xdotool windowkill "$OLDWIN" 2>/dev/null
 if [ -S "$SOCK" ]; then
-  SPID=$(lsof -t "$SOCK" 2>/dev/null | head -1); [ -n "$SPID" ] && kill "$SPID" 2>/dev/null
+  SPID=$(lsof -t "$SOCK" 2>/dev/null | head -1)
+  [ -n "$SPID" ] && kill "$SPID" 2>/dev/null
 fi
 sleep 1.5
 rm -f "$SOCK" "$WIN_FILE"
 
 # Remember the user's workspace to restore later.
-i3-msg -t get_workspaces 2>/dev/null \
-  | python3 -c "import sys,json; ws=[w['name'] for w in json.load(sys.stdin) if w['focused']]; print(ws[0] if ws else '1')" \
-  > "$WS_FILE"
+i3-msg -t get_workspaces 2>/dev/null |
+  python3 -c "import sys,json; ws=[w['name'] for w in json.load(sys.stdin) if w['focused']]; print(ws[0] if ws else '1')" \
+    >"$WS_FILE"
 
 # Move to a dedicated empty workspace -> a single window fills the screen.
 i3-msg "workspace $TEST_WS" >/dev/null 2>&1
@@ -38,15 +39,22 @@ BEFORE=$(wmctrl -l | awk '{print $1}' | sort)
 wezterm start --always-new-process -- nvim --listen "$SOCK" "$@" &
 
 # Wait for socket, then the new X window, then RPC readiness.
-for i in $(seq 1 60); do [ -S "$SOCK" ] && break; sleep 0.25; done
 for i in $(seq 1 60); do
-  AFTER=$(wmctrl -l | awk '{print $1}' | sort)
-  NEW=$(comm -13 <(echo "$BEFORE") <(echo "$AFTER") | head -1)
-  [ -n "$NEW" ] && { echo "$NEW" > "$WIN_FILE"; break; }
+  [ -S "$SOCK" ] && break
   sleep 0.25
 done
 for i in $(seq 1 60); do
-  nvim --server "$SOCK" --remote-expr '1' >/dev/null 2>&1 && break; sleep 0.25
+  AFTER=$(wmctrl -l | awk '{print $1}' | sort)
+  NEW=$(comm -13 <(echo "$BEFORE") <(echo "$AFTER") | head -1)
+  [ -n "$NEW" ] && {
+    echo "$NEW" >"$WIN_FILE"
+    break
+  }
+  sleep 0.25
+done
+for i in $(seq 1 60); do
+  nvim --server "$SOCK" --remote-expr '1' >/dev/null 2>&1 && break
+  sleep 0.25
 done
 
 WIN=$(cat "$WIN_FILE" 2>/dev/null)
