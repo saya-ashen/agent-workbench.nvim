@@ -238,12 +238,43 @@ function Prompt.new(key, attachments, cwd)
             if self._mode ~= "compose" or self._display_mode ~= "compose" then
                 return
             end
-            if vim.api.nvim_get_current_buf() ~= self._buf or vim.fn.pumvisible() == 1 then
+            if vim.api.nvim_get_current_buf() ~= self._buf then
                 return
             end
             local line = vim.api.nvim_get_current_line()
             local cursor = vim.fn.col(".") - 1
             local completefunc = require("agent-workbench.completion.omnifunc").completefunc
+            local argument = require("agent-workbench.slash_commands").argument_context(line, cursor)
+            if argument then
+                require("agent-workbench.slash_commands").request_argument_completions(
+                    argument.name,
+                    argument.prefix,
+                    function(items)
+                        if #items == 0 then
+                            return
+                        end
+                        vim.schedule(function()
+                            if
+                                vim.api.nvim_get_current_buf() ~= self._buf
+                                or vim.api.nvim_get_current_line() ~= line
+                                or vim.fn.col(".") - 1 ~= cursor
+                                or vim.fn.pumvisible() == 1
+                            then
+                                return
+                            end
+                            if use_blink then
+                                blink.show({ providers = { "omni" } })
+                            else
+                                vim.fn.complete(argument.start + 1, completefunc(0, argument.prefix))
+                            end
+                        end)
+                    end
+                )
+                return
+            end
+            if vim.fn.pumvisible() == 1 then
+                return
+            end
             local start = completefunc(1, "")
             if start < 0 then
                 return

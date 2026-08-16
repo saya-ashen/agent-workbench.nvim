@@ -322,10 +322,11 @@ It will:
 
 - Complete `@path` mentions against project files (resolved relative to the current working directory), plus [dynamic mention providers](#dynamic-mentions) (`@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix`, and any custom `mention_providers`) ahead of file matches.
 - Complete `/commands` against the backend's command list — but only when the cursor is on the first line of the prompt and that line starts with `/`.
+- After `/model`, fetch available models once from the current RPC session, then filter the cached list as you type. Items show model ID and provider; accepting one inserts canonical `provider/model-id`.
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.
 
-**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `agent-workbench.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, and `.`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
+**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `agent-workbench.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, `.`, and the argument space after `/model`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
 
 ```lua
 require("blink.cmp").setup({
@@ -340,7 +341,7 @@ require("blink.cmp").setup({
 })
 ```
 
-Other completion plugins (nvim-cmp, etc.) aren't shipped as first-class sources, but they can usually bridge the built-in `completefunc` via their `omni`/`completefunc` source adapters. If you'd like a native source for another plugin, please open an issue.
+Other completion plugins (nvim-cmp, etc.) aren't shipped as first-class sources, but they can usually bridge the built-in `completefunc` via their `omni`/`completefunc` source adapters. Backend extension argument completion is not available over pi's current `get_commands` RPC response. If you'd like a native source for another plugin, please open an issue.
 
 ## Attachments
 

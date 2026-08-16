@@ -84,7 +84,7 @@ Prompt editing keeps normal editor habits while adding agent-specific controls.
 - Unsent prompts persist across restart.
 - Drafts are scoped by workspace and process, preventing cross-project prompt leaks.
 - `@` mentions support files, line ranges, git state, LSP errors, quickfix entries, and custom providers.
-- Slash commands and popup completion work inside the prompt.
+- Slash commands and popup completion work inside the prompt; `/model` completes models exposed by the current backend session.
 - Queue follow-up prompts while the agent is busy.
 - Double `<Esc>` aborts a running turn, including retry backoff.
 - Attach images from disk, clipboard, or drag-and-drop.

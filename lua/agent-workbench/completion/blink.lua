@@ -23,7 +23,7 @@ function source:enabled()
 end
 
 function source:get_trigger_characters()
-    return { "@", "/", "." }
+    return { "@", "/", ".", " " }
 end
 
 --- Walk backwards from cursor to find a trigger character.
@@ -47,6 +47,27 @@ end
 function source:get_completions(ctx, callback)
     local line = ctx.line
     local col = ctx.cursor[2]
+
+    -- Complete arguments for built-in commands such as /model.
+    if ctx.cursor[1] == 1 then
+        local argument = SlashCommands.argument_context(line, col)
+        if argument then
+            SlashCommands.request_argument_completions(argument.name, argument.prefix, function(completions)
+                local items = vim.tbl_map(function(item)
+                    return {
+                        label = item.label,
+                        kind = vim.lsp.protocol.CompletionItemKind.Value,
+                        insertText = item.value,
+                        filterText = item.value,
+                        sortText = item.value,
+                        labelDetails = { description = item.description },
+                    }
+                end, completions)
+                callback({ items = items, is_incomplete_forward = false, is_incomplete_backward = false })
+            end)
+            return
+        end
+    end
 
     -- Try /command completion first — only at start of first line
     if ctx.cursor[1] == 1 then

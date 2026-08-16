@@ -2,6 +2,8 @@
 
 ## 2026-08-16
 
+- **ADDED:** typing `/model` now opens model argument completion from the current RPC session, matching pi's TUI behavior. Available models are fetched once per live session, filtered locally as input changes, shown with model ID and provider, and inserted as canonical `provider/model-id` through built-in omnifunc or the optional Blink source.
+
 - **CHANGED:** Agent sessions now start lazily by default. Opening Neovim or a new workspace tab no longer starts `pi --mode rpc`; set `auto_start_session = true` to restore one automatic visible session per workspace.
 
 - **ADDED:** `:AgentWorkbenchReplaceSession`, `replace_session()`, and `/replace` start a fresh session in the current view, then stop the previous process and delete its live History buffer. Busy sessions refuse replacement. Existing `/new` and `:AgentWorkbenchNewSession` retain the current session and create another independent one.

@@ -13,6 +13,21 @@ local builtin = {
     { name = "abort", description = "Abort current operation", source = "builtin" },
 }
 
+---@class agent_workbench.SlashArgumentContext
+---@field name string
+---@field prefix string
+---@field start integer 0-based replacement column
+
+---@class agent_workbench.SlashArgumentCompletion
+---@field value string
+---@field label string
+---@field description string
+
+---@type table<agent_workbench.Session, table[]>
+local model_cache = setmetatable({}, { __mode = "k" })
+---@type table<agent_workbench.Session, fun(models: table[])[]>
+local model_waiters = setmetatable({}, { __mode = "k" })
+
 ---@return agent_workbench.SlashCommand[]
 function M.list()
     local CommandsCache = require("agent-workbench.cache.commands")
@@ -68,6 +83,126 @@ end
 function M.parse(text)
     local name, args = text:match("^%s*/([%w_:%-]+)%s*(.-)%s*$")
     return name, args or ""
+end
+
+---@param line string
+---@param cursor integer Number of bytes before cursor
+---@return agent_workbench.SlashArgumentContext?
+function M.argument_context(line, cursor)
+    local before = line:sub(1, cursor)
+    local name, prefix = before:match("^/([%w_:%-]+)%s+(.*)$")
+    if name ~= "model" then
+        return nil
+    end
+    return { name = name, prefix = prefix, start = #before - #prefix }
+end
+
+---@param models table[]
+---@param prefix string
+---@return agent_workbench.SlashArgumentCompletion[]
+local function model_completions(models, prefix)
+    local Matcher = require("agent-workbench.completion")
+    local query = prefix:lower()
+    local direct = {}
+    local fuzzy = {}
+    for _, model in ipairs(models) do
+        if type(model.provider) == "string" and type(model.id) == "string" then
+            local canonical = model.provider .. "/" .. model.id
+            local id = model.id:lower()
+            local provider = model.provider:lower()
+            local name = type(model.name) == "string" and model.name:lower() or ""
+            local search = id
+                .. " "
+                .. provider
+                .. " "
+                .. canonical:lower()
+                .. " "
+                .. provider
+                .. " "
+                .. id
+                .. " "
+                .. name
+            local item = { value = canonical, label = model.id, description = model.provider }
+            if query == "" or id:sub(1, #query) == query or canonical:lower():sub(1, #query) == query then
+                direct[#direct + 1] = item
+            elseif Matcher.fuzzy_match(query, search) then
+                fuzzy[#fuzzy + 1] = item
+            end
+        end
+    end
+    vim.list_extend(direct, fuzzy)
+    return direct
+end
+
+---@param name string
+---@param prefix string
+---@return agent_workbench.SlashArgumentCompletion[]?
+function M.cached_argument_completions(name, prefix)
+    if name ~= "model" then
+        return nil
+    end
+    local session = require("agent-workbench.sessions.manager").get()
+    local models = session and model_cache[session] or nil
+    return models and model_completions(models, prefix) or nil
+end
+
+---@param name string
+---@param prefix string
+---@param callback fun(items: agent_workbench.SlashArgumentCompletion[])
+---@return boolean supported
+function M.request_argument_completions(name, prefix, callback)
+    if name ~= "model" then
+        return false
+    end
+    local session = require("agent-workbench.sessions.manager").get()
+    if not session or not session.rpc:is_running() then
+        callback({})
+        return true
+    end
+    local cached = model_cache[session]
+    if cached then
+        callback(model_completions(cached, prefix))
+        return true
+    end
+
+    local waiters = model_waiters[session]
+    if not waiters then
+        waiters = {}
+        model_waiters[session] = waiters
+    end
+    waiters[#waiters + 1] = function(models)
+        callback(model_completions(models, prefix))
+    end
+    if #waiters > 1 then
+        return true
+    end
+
+    local sent = session.rpc:send({ type = "get_available_models" }, function(res)
+        vim.schedule(function()
+            local models = res.success and (res.data or {}).models or nil
+            if models then
+                model_cache[session] = models
+            end
+            local pending = model_waiters[session] or {}
+            model_waiters[session] = nil
+            for _, waiter in ipairs(pending) do
+                waiter(models or {})
+            end
+        end)
+    end)
+    if not sent then
+        local pending = model_waiters[session] or {}
+        model_waiters[session] = nil
+        for _, waiter in ipairs(pending) do
+            waiter({})
+        end
+    end
+    return true
+end
+
+function M._reset_argument_cache()
+    model_cache = setmetatable({}, { __mode = "k" })
+    model_waiters = setmetatable({}, { __mode = "k" })
 end
 
 ---@param text string

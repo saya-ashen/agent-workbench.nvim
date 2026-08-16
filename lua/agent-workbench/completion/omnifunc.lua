@@ -17,8 +17,16 @@ function M.completefunc(findstart, base)
         local line = vim.api.nvim_get_current_line()
         local col = vim.fn.col(".") - 1
 
-        -- Check for / at start of line (commands)
+        -- Check for slash-command arguments before whole-command completion.
         local cursor_row = vim.fn.line(".")
+        if cursor_row == 1 then
+            local argument = SlashCommands.argument_context(line, col)
+            if argument then
+                return argument.start
+            end
+        end
+
+        -- Check for / at start of line (commands)
         if cursor_row == 1 and line:byte(1) == 47 then -- /
             return 0
         end
@@ -35,6 +43,20 @@ function M.completefunc(findstart, base)
             end
         end
         return -3
+    end
+
+    local line = vim.api.nvim_get_current_line()
+    local col = vim.fn.col(".") - 1
+    local argument = vim.fn.line(".") == 1 and SlashCommands.argument_context(line, col) or nil
+    if argument then
+        local completions = SlashCommands.cached_argument_completions(argument.name, base) or {}
+        return vim.tbl_map(function(item)
+            return {
+                word = item.value,
+                abbr = item.label,
+                menu = "[" .. item.description .. "]",
+            }
+        end, completions)
     end
 
     -- /command completion
