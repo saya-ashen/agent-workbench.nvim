@@ -196,7 +196,7 @@ function Prompt.new(key, attachments, cwd)
             if not provider then
                 pcall(blink.add_source_provider, source_id, {
                     name = "Fish",
-                    module = "pi.completion.shell",
+                    module = "agent-workbench.completion.shell",
                     async = true,
                     timeout_ms = 500,
                     max_items = 256,
@@ -204,7 +204,7 @@ function Prompt.new(key, attachments, cwd)
                 })
                 provider = providers and providers[source_id] or nil
             end
-            self._use_shell_blink = provider ~= nil and provider.module == "pi.completion.shell"
+            self._use_shell_blink = provider ~= nil and provider.module == "agent-workbench.completion.shell"
             if self._use_shell_blink and not blink_prompt_sources_wrapped then
                 local original = blink_config.sources.per_filetype[Ft.prompt]
                 blink_config.sources.per_filetype[Ft.prompt] = function()
