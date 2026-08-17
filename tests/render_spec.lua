@@ -85,6 +85,67 @@ describe("markview history visibility", function()
         assert.are.equal(2, renders, "re-entry must not render unchanged History again")
     end)
 
+    it("defers rendering when replay resumes", function()
+        local renders = 0
+        package.loaded.markview = {
+            clear = function() end,
+            render = function()
+                renders = renders + 1
+            end,
+        }
+        history_buf = vim.api.nvim_create_buf(true, true)
+        vim.api.nvim_win_set_buf(0, history_buf)
+
+        Render.attach_history(history_buf)
+        vim.wait(20)
+        assert.are.equal(1, renders)
+
+        Render.pause_history(history_buf)
+        vim.bo[history_buf].modifiable = true
+        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "complete replay" })
+        vim.bo[history_buf].modifiable = false
+        Render.refresh_history(history_buf)
+        Render.resume_history(history_buf)
+        assert.are.equal(1, renders, "resume must not block on Markdown rendering")
+        vim.wait(20)
+        assert.are.equal(2, renders)
+    end)
+
+    it("defers rendering in a background tab until that workspace is current", function()
+        local renders = 0
+        package.loaded.markview = {
+            clear = function() end,
+            render = function()
+                renders = renders + 1
+            end,
+        }
+        history_buf = vim.api.nvim_create_buf(true, true)
+        vim.api.nvim_win_set_buf(0, history_buf)
+        local owner_tab = vim.api.nvim_get_current_tabpage()
+
+        Render.attach_history(history_buf)
+        vim.wait(20)
+        assert.are.equal(1, renders)
+
+        vim.cmd("tabnew")
+        local foreground_tab = vim.api.nvim_get_current_tabpage()
+        vim.bo[history_buf].modifiable = true
+        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "background change" })
+        vim.bo[history_buf].modifiable = false
+        Render.refresh_history(history_buf)
+        vim.wait(20)
+        assert.are.equal(1, renders)
+
+        vim.api.nvim_set_current_tabpage(owner_tab)
+        Render.refresh_history(history_buf)
+        vim.wait(20)
+        assert.are.equal(2, renders)
+
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+        vim.cmd("tabclose!")
+        vim.api.nvim_set_current_tabpage(owner_tab)
+    end)
+
     it("uses linewise hybrid rendering and refreshes after cursor movement", function()
         local renders = 0
         local render_state

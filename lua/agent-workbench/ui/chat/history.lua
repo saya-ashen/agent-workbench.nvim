@@ -178,6 +178,28 @@ local LONG_TOOL_OUTPUT_LINES = 30
 local LONG_TOOL_PREVIEW_LINES = 4
 local STARTUP_HL_PRIORITY = 200
 
+---@param win integer?
+---@param buf? integer
+---@return boolean
+local function window_in_current_tab(win, buf)
+    return win ~= nil
+        and vim.api.nvim_win_is_valid(win)
+        and vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
+        and (not buf or vim.api.nvim_win_get_buf(win) == buf)
+end
+
+---@param buf integer
+---@return integer[]
+local function current_tab_windows(buf)
+    local windows = {}
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+        if window_in_current_tab(win, buf) then
+            windows[#windows + 1] = win
+        end
+    end
+    return windows
+end
+
 ---@return integer
 local function now_ms()
     return os.time() * 1000
@@ -513,7 +535,7 @@ function History.new(tab, name, session_id)
             if not vim.api.nvim_buf_is_valid(args.buf) then
                 return
             end
-            for _, win in ipairs(vim.fn.win_findbuf(args.buf)) do
+            for _, win in ipairs(current_tab_windows(args.buf)) do
                 self:_configure_window(win)
             end
         end
@@ -551,6 +573,9 @@ end
 --- Recompute expression folds after block metadata changes without a buffer edit.
 --- Existing tool fold states are captured per window before zx rebuilds ranges.
 function History:_refresh_native_folds()
+    if self._replaying then
+        return
+    end
     NativeFolds.refresh(self)
 end
 
@@ -594,9 +619,20 @@ function History:_with_modifiable(fn)
     end
 end
 
+--- Apply replay mutations inline inside each bounded replay slice. Live RPC
+--- events keep their scheduled ordering.
+---@param fn fun()
+function History:_schedule(fn)
+    if self._replaying then
+        fn()
+        return
+    end
+    vim.schedule(fn)
+end
+
 ---@return boolean
 function History:_should_auto_scroll()
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if self._replaying or not window_in_current_tab(self._win, self._buf) then
         return false
     end
     local visible_bottom = vim.api.nvim_win_call(self._win, function()
@@ -625,7 +661,7 @@ end
 
 --- Follow streaming output with Neovim's minimal cursor scrolling.
 function History:_follow_stream_bottom()
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if not window_in_current_tab(self._win, self._buf) then
         return
     end
     vim.api.nvim_win_call(self._win, function()
@@ -641,7 +677,7 @@ end
 
 --- Scroll to the last line with cursor at bottom of the window.
 function History:_scroll_to_bottom()
-    if self._replaying or not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if self._replaying or not window_in_current_tab(self._win, self._buf) then
         return
     end
     vim.api.nvim_win_call(self._win, function()
@@ -662,7 +698,7 @@ local DEFAULT_SCROLL_LINES = 15
 ---@param direction "up"|"down"
 ---@param lines? integer lines to scroll (default 15)
 function History:scroll(direction, lines)
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if not window_in_current_tab(self._win, self._buf) then
         return
     end
     local count = lines or DEFAULT_SCROLL_LINES
@@ -679,7 +715,7 @@ end
 
 ---@param extmark_id integer?
 function History:_scroll_to_agent_response(extmark_id)
-    if not self._win or not vim.api.nvim_win_is_valid(self._win) then
+    if not window_in_current_tab(self._win, self._buf) then
         return
     end
     if not extmark_id then
@@ -726,6 +762,9 @@ end
 ---@param level integer
 ---@param status_anchor? integer
 function History:_activate_output_fold(anchor, level, status_anchor)
+    if self._replaying then
+        return
+    end
     NativeFolds.activate_output(self, anchor, level, status_anchor)
 end
 
@@ -734,6 +773,9 @@ function History:_open_active_output_folds()
 end
 
 function History:_close_active_output_folds()
+    if self._replaying then
+        return
+    end
     self._fold_changedtick = nil
     self._fold_values = nil
     self:_refresh_native_folds()
@@ -1416,7 +1458,7 @@ end
 
 ---@param status agent_workbench.Status?
 function History:set_status(status)
-    vim.schedule(function()
+    self:_schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1604,7 +1646,7 @@ end
 ---@param queue_type? "steer"|"follow_up"
 function History:add_user_message(msg, timestamp, image_count, queue_type)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
@@ -1705,7 +1747,7 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
             self._status_anchor_id = nil
             self:_refresh_native_folds()
             NativeFolds.age_outputs(self, 2)
-            for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
+            for _, win in ipairs(current_tab_windows(self._buf)) do
                 vim.api.nvim_win_call(win, function()
                     if vim.fn.foldclosed(label_row + 1) ~= -1 then
                         vim.cmd("silent! " .. (label_row + 1) .. "foldopen")
@@ -1722,7 +1764,7 @@ end
 ---@param continuation? boolean whether this starts another section in current agent turn
 function History:on_agent_start(timestamp, section, continuation)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch() -- land stragglers from the previous turn in order
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
@@ -1815,7 +1857,7 @@ end
 --- thinking block follows its prose. Scheduling preserves RPC event order with
 --- the lazily-created assistant header.
 function History:mark_agent_activity()
-    vim.schedule(function()
+    self:_schedule(function()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1855,7 +1897,7 @@ end
 ---@param opts? { force_completion?: boolean, stop_reason?: string }
 function History:on_agent_end(done_verb, opts)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch() -- land the final streamed text before turn close
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
@@ -2452,7 +2494,7 @@ end
 ---@param tokens_before integer
 function History:append_compaction_summary(summary, tokens_before)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch()
         self:_append_compaction_summary(summary, tokens_before)
     end)
@@ -2586,7 +2628,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
         self._tool_start_pending[tool_call_id] = true
     end
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch() -- land pending text before the block
         if type(tool_call_id) == "string" then
             self._tool_start_pending[tool_call_id] = nil
@@ -2835,7 +2877,7 @@ end
 ---@param is_error? boolean
 function History:on_tool_end(tool_name, tool_call_id, result, is_error)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch() -- land pending text before closing the block
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
@@ -3141,7 +3183,7 @@ function History:_set_tool_block_expanded(target_block, expanded)
     self._fold_changedtick = nil
     self._fold_values = nil
 
-    for _, win in ipairs(vim.fn.win_findbuf(self._buf)) do
+    for _, win in ipairs(current_tab_windows(self._buf)) do
         vim.api.nvim_win_call(win, function()
             local command = not is_long and expanded and "foldopen!" or "foldclose"
             vim.cmd((header_row + 1) .. command)
@@ -3708,7 +3750,7 @@ function History:on_bash_start(id, command, exclude_from_context)
     -- this scheduled callback creates the block.
     self._bash_start_pending[id] = true
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         -- Land pending text before the block. Queued output survives: it
         -- drains after the block exists (below), while the flag is still set.
         self:_pop_text_batch()
@@ -3937,7 +3979,7 @@ end
 ---@param result table
 function History:on_bash_end(id, result)
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         self:_pop_text_batch()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
@@ -4039,7 +4081,7 @@ function History:on_thinking_start(opts)
         self._unmeasured_thinking[gen] = true
     end
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         if self._thinking_requested == gen then
             self._thinking_requested = nil
         end
@@ -4140,7 +4182,7 @@ function History:on_thinking_end()
         return
     end
     self:_seal_stream_text()
-    vim.schedule(function()
+    self:_schedule(function()
         -- Text sealed before thinking_end renders first; the block freeze
         -- below rewrites only its own header row, preserving order.
         self:_pop_text_batch()

@@ -164,6 +164,123 @@ describe("buffer-owned sessions", function()
         assert.are.equal(second.history_buf, vim.api.nvim_win_get_buf(second_history_win_after))
     end)
 
+    it("ignores incidental background History BufEnter events", function()
+        local foreground_tab = vim.api.nvim_get_current_tabpage()
+        local foreground = assert(Sessions.get_or_create({ layout = "buffer" }))
+
+        vim.cmd("tabnew")
+        local background_tab = vim.api.nvim_get_current_tabpage()
+        local background = assert(Sessions.get_or_create({ layout = "buffer" }))
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+        local foreground_win = vim.api.nvim_get_current_win()
+        local foreground_buf = vim.api.nvim_get_current_buf()
+
+        vim.api.nvim_buf_call(background.history_buf, function()
+            vim.api.nvim_exec_autocmds("BufEnter", { buffer = background.history_buf, modeline = false })
+        end)
+        vim.wait(20)
+
+        assert.are.equal(foreground_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(foreground_win, vim.api.nvim_get_current_win())
+        assert.are.equal(foreground_buf, vim.api.nvim_get_current_buf())
+        assert.are.equal(foreground, Sessions.get_for_tab(foreground_tab))
+        assert.are.equal(background, Sessions.get_for_tab(background_tab))
+        local foreground_history_win = assert(foreground.chat._layout:history_win())
+        local background_history_win = assert(background.chat._layout:history_win())
+        assert.are.equal(foreground.history_buf, vim.api.nvim_win_get_buf(foreground_history_win))
+        assert.are.equal(background.history_buf, vim.api.nvim_win_get_buf(background_history_win))
+        vim.api.nvim_set_current_tabpage(background_tab)
+        vim.cmd("tabclose!")
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+    end)
+
+    it("keeps detached background sessions passive until explicitly activated", function()
+        WorkspaceBuffers.setup()
+        local foreground_tab = vim.api.nvim_get_current_tabpage()
+        local foreground = assert(Sessions.get_or_create({ layout = "buffer" }))
+
+        vim.cmd("tabnew")
+        local closed_tab = vim.api.nvim_get_current_tabpage()
+        local background = assert(Sessions.get_or_create({ layout = "buffer" }))
+        vim.cmd("tabclose!")
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+        vim.wait(20)
+        assert.is_false(vim.api.nvim_tabpage_is_valid(closed_tab))
+        local foreground_win = vim.api.nvim_get_current_win()
+        local foreground_buf = vim.api.nvim_get_current_buf()
+
+        vim.api.nvim_buf_call(background.history_buf, function()
+            vim.api.nvim_exec_autocmds("BufEnter", { buffer = background.history_buf, modeline = false })
+        end)
+        vim.wait(20)
+
+        assert.are.equal(foreground_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(foreground_win, vim.api.nvim_get_current_win())
+        assert.are.equal(foreground_buf, vim.api.nvim_get_current_buf())
+        assert.are.equal(foreground, Sessions.get_for_tab(foreground_tab))
+        assert.is_false(background.chat:is_visible())
+
+        Sessions.activate(background)
+        vim.wait(20)
+
+        assert.are.equal(foreground_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(foreground_tab, background.workspace_tab)
+        assert.are.equal(background, Sessions.get_for_tab(foreground_tab))
+        assert.is_true(background.chat:is_visible())
+        assert.is_false(foreground.chat:is_visible())
+        assert.is_true(WorkspaceBuffers._contains(background.history_buf, foreground_tab))
+    end)
+
+    it("never enters background History windows while foreground focus is elsewhere", function()
+        local foreground_tab = vim.api.nvim_get_current_tabpage()
+        local foreground = assert(Sessions.get_or_create({ layout = "buffer" }))
+
+        vim.cmd("tabnew")
+        local background_tab = vim.api.nvim_get_current_tabpage()
+        local background = assert(Sessions.get_or_create({ layout = "buffer" }))
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+        local foreground_prompt_win = assert(foreground.chat:prompt_win())
+        vim.api.nvim_set_current_win(foreground_prompt_win)
+
+        local real_win_call = vim.api.nvim_win_call
+        local cross_tab_calls = {}
+        vim.api.nvim_win_call = function(win, callback)
+            if
+                vim.api.nvim_win_is_valid(win)
+                and vim.api.nvim_win_get_tabpage(win) ~= vim.api.nvim_get_current_tabpage()
+            then
+                cross_tab_calls[#cross_tab_calls + 1] = win
+            end
+            return real_win_call(win, callback)
+        end
+
+        local ok, err = pcall(function()
+            Sessions.handle_event(background, { type = "agent_start" })
+            Sessions.handle_event(background, {
+                type = "message_start",
+                message = { role = "assistant", content = {}, timestamp = os.time() * 1000 },
+            })
+            Sessions.handle_event(background, {
+                type = "message_update",
+                assistantMessageEvent = { type = "text_delta", delta = "background output" },
+            })
+            vim.wait(200)
+        end)
+        vim.api.nvim_win_call = real_win_call
+        if not ok then
+            error(err)
+        end
+
+        assert.are.same({}, cross_tab_calls)
+        local background_text = table.concat(vim.api.nvim_buf_get_lines(background.history_buf, 0, -1, false), "\n")
+        assert.is_truthy(background_text:find("background output", 1, true))
+        assert.are.equal(foreground_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(foreground.chat:prompt_buf(), vim.api.nvim_get_current_buf())
+        vim.api.nvim_set_current_tabpage(background_tab)
+        vim.cmd("tabclose!")
+        vim.api.nvim_set_current_tabpage(foreground_tab)
+    end)
+
     it("replaces an idle session in the same view", function()
         local first = assert(Sessions.get_or_create({ layout = "buffer" }))
         local old_history_buf = first.history_buf
@@ -414,21 +531,25 @@ describe("buffer-owned sessions", function()
         assert.are.equal(second.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
     end)
 
-    it("blocks prompts until a persisted session finishes switching", function()
+    it("keeps loading visible while backend messages replay in bounded slices", function()
         local pending = install_pending_rpc()
         local path = vim.fn.tempname() .. ".jsonl"
         local uri = Workspace.uri(Workspace.cwd(), path, 1)
-        local preview = { messages = { { role = "user", content = "persisted message" } } }
+        local payload = { messages = {} }
+        for index = 1, 40 do
+            payload.messages[index] = { role = "user", content = "persisted message " .. index }
+        end
         SessionHistory.list = function()
             return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
         end
         SessionHistory.load_messages = function()
-            return preview
+            error("resume must not read a local preview")
         end
 
         assert.is_true(Sessions.open_uri(uri))
         local session = assert(Sessions.get_for_tab())
         assert.is_true(session._switching_session)
+        assert.are.equal("loading", session.chat._history._placeholder_mode)
         vim.api.nvim_buf_set_lines(session.chat:prompt_buf(), 0, -1, false, { "new message" })
         session.chat:submit()
         assert.are.equal("new message", session.chat._prompt:text())
@@ -441,16 +562,175 @@ describe("buffer-owned sessions", function()
         switch.callback({ success = true, data = { cancelled = false } })
         local messages = take_pending(pending, session.rpc, "get_messages")
         clear_pending(pending)
-        messages.callback({ success = true, data = preview })
-        vim.wait(40)
+        assert.are.equal("loading", session.chat._history._placeholder_mode)
 
+        local real_defer = vim.defer_fn
+        local deferred = {}
+        vim.defer_fn = function(fn)
+            deferred[#deferred + 1] = fn
+        end
+        messages.callback({ success = true, data = payload })
+        local history_win
+        local staged_ok, staged_err = pcall(function()
+            assert.are.equal("loading", session.chat._history._placeholder_mode)
+            assert.is_true(vim.wait(200, function()
+                return #deferred > 0
+            end))
+
+            history_win = assert(session.chat._layout:history_win())
+            local loading_buf = assert(session.chat._replay_loading_buf)
+            assert.are.equal(loading_buf, vim.api.nvim_win_get_buf(history_win))
+            assert.is_not_nil(
+                table
+                    .concat(vim.api.nvim_buf_get_lines(loading_buf, 0, -1, false), "\n")
+                    :find("Loading session", 1, true)
+            )
+            local partial = table.concat(vim.api.nvim_buf_get_lines(session.history_buf, 0, -1, false), "\n")
+            assert.is_not_nil(partial:find("persisted message 1", 1, true))
+            assert.is_nil(partial:find("persisted message 40", 1, true))
+            assert.is_true(session._switching_session)
+        end)
+        vim.defer_fn = real_defer
+        assert.is_true(staged_ok, staged_err)
+        deferred[1]()
+        assert.is_true(vim.wait(500, function()
+            return not session._switching_session
+        end))
+        vim.wait(20)
+
+        local history_text = table.concat(vim.api.nvim_buf_get_lines(session.history_buf, 0, -1, false), "\n")
+        assert.is_not_nil(history_text:find("persisted message 40", 1, true))
+        assert.is_nil(session.chat._history._placeholder_mode)
+        assert.are.equal(session.history_buf, vim.api.nvim_win_get_buf(history_win))
         local prompt_win = assert(session.chat:prompt_win())
         assert.are.equal(prompt_win, vim.api.nvim_get_current_win())
         assert.are.equal(session.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
         assert.is_not.equal("i", vim.api.nvim_get_mode().mode)
-        assert.is_false(session._switching_session)
         session.chat:submit()
         assert.are.equal("prompt", take_pending(pending, session.rpc, "prompt").msg.type)
+    end)
+
+    it("drops a queued replay slice when its History buffer is deleted", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local uri = Workspace.uri(Workspace.cwd(), path, 1)
+        local payload = { messages = {} }
+        for index = 1, 40 do
+            payload.messages[index] = { role = "user", content = "persisted message " .. index }
+        end
+        SessionHistory.list = function()
+            return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
+        end
+
+        assert.is_true(Sessions.open_uri(uri))
+        local session = assert(Sessions.get_for_tab())
+        local switch = take_pending(pending, session.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = false } })
+        local messages = take_pending(pending, session.rpc, "get_messages")
+        clear_pending(pending)
+
+        local real_defer = vim.defer_fn
+        local deferred = {}
+        vim.defer_fn = function(fn)
+            deferred[#deferred + 1] = fn
+        end
+        messages.callback({ success = true, data = payload })
+        assert.is_true(vim.wait(200, function()
+            return #deferred > 0 and session.chat._replay_loading_buf ~= nil
+        end))
+        local loading_buf = assert(session.chat._replay_loading_buf)
+        vim.defer_fn = real_defer
+
+        local deleted, delete_err = pcall(vim.api.nvim_buf_delete, session.history_buf, { force = true })
+        assert.is_true(deleted, delete_err)
+        assert.is_nil(Sessions.get_by_id(session.id))
+        assert.is_false(vim.api.nvim_buf_is_valid(loading_buf))
+        local resumed, resume_err = pcall(deferred[1])
+        assert.is_true(resumed, resume_err)
+        vim.wait(20)
+    end)
+
+    it("cleans up staged replay when History rendering fails", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local uri = Workspace.uri(Workspace.cwd(), path, 1)
+        SessionHistory.list = function()
+            return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
+        end
+
+        assert.is_true(Sessions.open_uri(uri))
+        local session = assert(Sessions.get_for_tab())
+        session.chat.add_user_message = function()
+            error("render exploded")
+        end
+        local switch = take_pending(pending, session.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = false } })
+        local messages = take_pending(pending, session.rpc, "get_messages")
+        clear_pending(pending)
+        local real_notify = vim.notify
+        vim.notify = function() end
+        messages.callback({ success = true, data = { messages = { { role = "user", content = "broken" } } } })
+
+        local failed_cleanly = vim.wait(500, function()
+            local text = table.concat(vim.api.nvim_buf_get_lines(session.history_buf, 0, -1, false), "\n")
+            return not session._switching_session
+                and session.chat._replay_loading_buf == nil
+                and text:find("Failed to render session messages", 1, true) ~= nil
+        end)
+        vim.notify = real_notify
+        assert.is_true(failed_cleanly)
+        local history_win = assert(session.chat._layout:history_win())
+        assert.are.equal(session.history_buf, vim.api.nvim_win_get_buf(history_win))
+        vim.wait(20)
+    end)
+
+    it("leaves loading state when backend session switching is cancelled", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local uri = Workspace.uri(Workspace.cwd(), path, 1)
+        SessionHistory.list = function()
+            return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
+        end
+
+        assert.is_true(Sessions.open_uri(uri))
+        local session = assert(Sessions.get_for_tab())
+        local switch = take_pending(pending, session.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = true } })
+
+        assert.is_true(vim.wait(200, function()
+            return not session._switching_session and session.chat._history._placeholder_mode == nil
+        end))
+        for _, entry in ipairs(pending) do
+            assert.are_not.equal("get_messages", entry.msg.type)
+        end
+    end)
+
+    it("replaces loading state with backend message errors", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local uri = Workspace.uri(Workspace.cwd(), path, 1)
+        SessionHistory.list = function()
+            return { { id = vim.fs.basename(path):gsub("%.jsonl$", ""), path = path } }
+        end
+
+        assert.is_true(Sessions.open_uri(uri))
+        local session = assert(Sessions.get_for_tab())
+        local switch = take_pending(pending, session.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = false } })
+        local messages = take_pending(pending, session.rpc, "get_messages")
+        clear_pending(pending)
+        messages.callback({ success = false, error = "session replay failed" })
+
+        assert.is_true(vim.wait(300, function()
+            local text = table.concat(vim.api.nvim_buf_get_lines(session.history_buf, 0, -1, false), "\n")
+            return not session._switching_session
+                and session.chat._history._placeholder_mode == nil
+                and text:find("session replay failed", 1, true) ~= nil
+        end))
     end)
 
     it("restarts active session in the new workspace cwd after :tcd", function()

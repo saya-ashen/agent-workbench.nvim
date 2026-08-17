@@ -560,7 +560,11 @@ end
 
 ---@param session agent_workbench.Session
 function M.activate(session)
-    activate(session)
+    local owner_tab = session.workspace_tab
+    if owner_tab and vim.api.nvim_tabpage_is_valid(owner_tab) and owner_tab ~= current_tab() then
+        vim.api.nvim_set_current_tabpage(owner_tab)
+    end
+    activate(session, true)
 end
 
 --- List all active sessions in creation order.
@@ -632,17 +636,26 @@ function M._rebind_history(session, history)
 end
 
 ---@param session agent_workbench.Session
-activate = function(session)
+---@param explicit? boolean
+activate = function(session, explicit)
     if activating or sessions[session.id] ~= session then
         return
     end
-    activating = true
     local owner_tab = session.workspace_tab
-    if owner_tab and vim.api.nvim_tabpage_is_valid(owner_tab) and owner_tab ~= current_tab() then
-        -- Keep chat view takeover inside session's workspace. Background sessions
-        -- must not rebind another workspace's windows when selected globally.
-        vim.api.nvim_set_current_tabpage(owner_tab)
+    local owner_valid = owner_tab and vim.api.nvim_tabpage_is_valid(owner_tab)
+    if owner_tab and (not owner_valid or owner_tab ~= current_tab()) and not explicit then
+        -- Incidental BufEnter events from background renderers must not become
+        -- real workspace switches or rehome sessions whose workspace closed.
+        return
     end
+    if explicit and owner_tab and not owner_valid then
+        local WorkspaceBuffers = require("agent-workbench.workspace_buffers")
+        WorkspaceBuffers.unassign(session.history_buf, owner_tab)
+        active_by_tab[owner_tab] = nil
+        session.workspace_tab = current_tab()
+        WorkspaceBuffers.assign(session.history_buf, session.workspace_tab)
+    end
+    activating = true
     local tab = current_tab()
     local entered_history = current_buf() == session.history_buf
     local previous = active_by_tab[tab]
@@ -811,158 +824,189 @@ function M.replace_session()
     replacement.chat:ensure_shown_and_focus_prompt()
 end
 
---- Replay messages from get_messages response into chat.
----@param messages table[]
----@return table[]
-local function comparable_messages(messages)
-    local comparable = vim.deepcopy(messages)
-    for _, message in ipairs(comparable) do
-        if message.role == "custom" or message.role == "branchSummary" or message.role == "compactionSummary" then
-            message.timestamp = nil
-        end
-    end
-    return comparable
-end
+---@class agent_workbench.ReplayOpts
+---@field asynchronous? boolean Yield between bounded replay slices.
+---@field before_finish? fun()
+---@field on_complete? fun()
+---@field on_error? fun(error: string)
 
----@param left table[]
----@param right table[]
----@return boolean
-local function messages_equal(left, right)
-    return vim.deep_equal(comparable_messages(left), comparable_messages(right))
-end
+local REPLAY_SLICE_MESSAGES = 16
+local REPLAY_SLICE_NS = 8 * 1000 * 1000
 
 ---@param session agent_workbench.Session
 ---@param messages table[]
-local function replay_messages(session, messages)
+---@param opts? agent_workbench.ReplayOpts
+local function replay_messages(session, messages, opts)
     session.chat:set_replaying(true)
     local pending_agent_end = false
     local tool_call_args = {} ---@type table<string, table>
-    for _, msg in ipairs(messages) do
-        local role = msg.role
-        -- Flush pending agent_end before a user message
-        if pending_agent_end and role == "user" then
-            session.chat:on_agent_end()
-            pending_agent_end = false
-        end
-        if role == "user" then
-            local text = ""
-            local image_count = 0
-            if type(msg.content) == "string" then
-                text = msg.content
-            elseif type(msg.content) == "table" then
-                for _, part in ipairs(msg.content) do
-                    if type(part) == "string" then
-                        text = text .. part
-                    elseif type(part) == "table" and part.type == "text" then
-                        text = text .. (part.text or "")
-                    elseif type(part) == "table" and part.type == "image" then
-                        image_count = image_count + 1
-                    end
-                end
+    local index = 1
+    local run_slice
+
+    local function replay_slice()
+        local started = vim.uv.hrtime()
+        local processed = 0
+        while index <= #messages do
+            local msg = messages[index]
+            index = index + 1
+            processed = processed + 1
+            local role = msg.role
+            -- Flush pending agent_end before a user message
+            if pending_agent_end and role == "user" then
+                session.chat:on_agent_end()
+                pending_agent_end = false
             end
-            if text ~= "" or image_count > 0 then
-                session.chat:add_user_message(text, msg.timestamp, image_count > 0 and image_count or nil)
-            end
-        elseif role == "assistant" then
-            local text = ""
-            local tool_calls = {} ---@type { id: string, name: string, args: table? }[]
-            local thinking_parts = {} ---@type string[]
-            if type(msg.content) == "string" then
-                text = msg.content
-            elseif type(msg.content) == "table" then
-                for _, part in ipairs(msg.content) do
-                    if type(part) == "string" then
-                        text = text .. part
-                    elseif type(part) == "table" and part.type == "text" then
-                        text = text .. (part.text or "")
-                    elseif type(part) == "table" and part.type == "thinking" then
-                        local t = part.thinking or ""
-                        if t ~= "" then
-                            thinking_parts[#thinking_parts + 1] = t
+            if role == "user" then
+                local text = ""
+                local image_count = 0
+                if type(msg.content) == "string" then
+                    text = msg.content
+                elseif type(msg.content) == "table" then
+                    for _, part in ipairs(msg.content) do
+                        if type(part) == "string" then
+                            text = text .. part
+                        elseif type(part) == "table" and part.type == "text" then
+                            text = text .. (part.text or "")
+                        elseif type(part) == "table" and part.type == "image" then
+                            image_count = image_count + 1
                         end
-                    elseif type(part) == "table" and part.type == "toolCall" then
-                        tool_calls[#tool_calls + 1] = {
-                            id = part.toolCallId or part.id or "",
-                            name = part.toolName or part.name or "tool",
-                            args = normalize_tool_args(part.arguments or part.args or part.input),
-                        }
                     end
                 end
-            end
-            -- Replay thinking as a single block (session files store at most
-            -- one thinking part per assistant message).
-            local thinking_text = table.concat(thinking_parts, "\n")
-            if text ~= "" or #tool_calls > 0 or thinking_text ~= "" then
-                -- Suppress agent header for tool-only continuation turns:
-                -- if previous turn was tool-only and this turn is also tool-only,
-                -- skip the header to keep consecutive tool calls visually grouped.
-                -- A turn with thinking is NOT tool-only — the thinking block
-                -- needs the agent header above it.
-                local tool_only = text == "" and #tool_calls > 0 and thinking_text == ""
-                if not (tool_only and pending_agent_end) then
-                    if pending_agent_end then
+                if text ~= "" or image_count > 0 then
+                    session.chat:add_user_message(text, msg.timestamp, image_count > 0 and image_count or nil)
+                end
+            elseif role == "assistant" then
+                local text = ""
+                local tool_calls = {} ---@type { id: string, name: string, args: table? }[]
+                local thinking_parts = {} ---@type string[]
+                if type(msg.content) == "string" then
+                    text = msg.content
+                elseif type(msg.content) == "table" then
+                    for _, part in ipairs(msg.content) do
+                        if type(part) == "string" then
+                            text = text .. part
+                        elseif type(part) == "table" and part.type == "text" then
+                            text = text .. (part.text or "")
+                        elseif type(part) == "table" and part.type == "thinking" then
+                            local t = part.thinking or ""
+                            if t ~= "" then
+                                thinking_parts[#thinking_parts + 1] = t
+                            end
+                        elseif type(part) == "table" and part.type == "toolCall" then
+                            tool_calls[#tool_calls + 1] = {
+                                id = part.toolCallId or part.id or "",
+                                name = part.toolName or part.name or "tool",
+                                args = normalize_tool_args(part.arguments or part.args or part.input),
+                            }
+                        end
+                    end
+                end
+                -- Replay thinking as a single block (session files store at most
+                -- one thinking part per assistant message).
+                local thinking_text = table.concat(thinking_parts, "\n")
+                if text ~= "" or #tool_calls > 0 or thinking_text ~= "" then
+                    -- Suppress agent header for tool-only continuation turns:
+                    -- if previous turn was tool-only and this turn is also tool-only,
+                    -- skip the header to keep consecutive tool calls visually grouped.
+                    -- A turn with thinking is NOT tool-only — the thinking block
+                    -- needs the agent header above it.
+                    local tool_only = text == "" and #tool_calls > 0 and thinking_text == ""
+                    if not (tool_only and pending_agent_end) then
+                        if pending_agent_end then
+                            session.chat:on_agent_end()
+                            pending_agent_end = false
+                        end
+                        session.chat:on_agent_start(msg.timestamp)
+                    end
+                    if thinking_text ~= "" then
+                        -- Replayed blocks have no timing data; don't fabricate a duration.
+                        session.chat:on_thinking_start({ unmeasured = true })
+                        session.chat:on_thinking_delta(thinking_text)
+                        session.chat:on_thinking_end()
+                    end
+                    if text ~= "" then
+                        session.chat:on_text_delta(text)
+                    end
+                    -- Don't call on_agent_end yet — tool results follow as separate messages.
+                    -- Store pending tool calls so on_tool_end can fire before on_agent_end.
+                    for _, tc in ipairs(tool_calls) do
+                        session.chat:on_tool_start(tc.name, tc.id, tc.args)
+                        if tc.args then
+                            tool_call_args[tc.id] = tc.args
+                        end
+                    end
+                    if #tool_calls == 0 then
                         session.chat:on_agent_end()
-                        pending_agent_end = false
-                    end
-                    session.chat:on_agent_start(msg.timestamp)
-                end
-                if thinking_text ~= "" then
-                    -- Replayed blocks have no timing data; don't fabricate a duration.
-                    session.chat:on_thinking_start({ unmeasured = true })
-                    session.chat:on_thinking_delta(thinking_text)
-                    session.chat:on_thinking_end()
-                end
-                if text ~= "" then
-                    session.chat:on_text_delta(text)
-                end
-                -- Don't call on_agent_end yet — tool results follow as separate messages.
-                -- Store pending tool calls so on_tool_end can fire before on_agent_end.
-                for _, tc in ipairs(tool_calls) do
-                    session.chat:on_tool_start(tc.name, tc.id, tc.args)
-                    if tc.args then
-                        tool_call_args[tc.id] = tc.args
+                    else
+                        pending_agent_end = true
                     end
                 end
-                if #tool_calls == 0 then
+                local stop = msg.stopReason
+                if stop ~= "aborted" and stop ~= "error" and type(msg.usage) == "table" then
+                    session.chat:add_usage(msg.usage)
+                end
+            elseif role == "toolResult" then
+                local tool_call_id = msg.toolCallId or msg.toolUseId or ""
+                local tool_name = msg.toolName or "tool"
+                local is_error = msg.isError == true
+                -- msg itself has .content, matching what on_tool_end expects as result
+                session.chat:on_tool_end(tool_name, tool_call_id, msg, is_error)
+                -- Track files changed by edit/write tools during replay.
+                local tc_args = not is_error and tool_call_args[tool_call_id]
+                if tc_args then
+                    track_changed_file(session, tc_args)
+                end
+            elseif role == "compactionSummary" then
+                if pending_agent_end then
                     session.chat:on_agent_end()
-                else
-                    pending_agent_end = true
+                    pending_agent_end = false
                 end
+                session.chat:append_compaction_summary(msg.summary or "", tonumber(msg.tokensBefore) or 0)
+            elseif role == "bashExecution" then
+                if pending_agent_end then
+                    session.chat:on_agent_end()
+                    pending_agent_end = false
+                end
+                session.chat:on_bash_replay(msg)
             end
-            local stop = msg.stopReason
-            if stop ~= "aborted" and stop ~= "error" and type(msg.usage) == "table" then
-                session.chat:add_usage(msg.usage)
+            if
+                opts
+                and opts.asynchronous
+                and index <= #messages
+                and (processed >= REPLAY_SLICE_MESSAGES or vim.uv.hrtime() - started >= REPLAY_SLICE_NS)
+            then
+                vim.defer_fn(run_slice, 1)
+                return
             end
-        elseif role == "toolResult" then
-            local tool_call_id = msg.toolCallId or msg.toolUseId or ""
-            local tool_name = msg.toolName or "tool"
-            local is_error = msg.isError == true
-            -- msg itself has .content, matching what on_tool_end expects as result
-            session.chat:on_tool_end(tool_name, tool_call_id, msg, is_error)
-            -- Track files changed by edit/write tools during replay.
-            local tc_args = not is_error and tool_call_args[tool_call_id]
-            if tc_args then
-                track_changed_file(session, tc_args)
-            end
-        elseif role == "compactionSummary" then
-            if pending_agent_end then
-                session.chat:on_agent_end()
-                pending_agent_end = false
-            end
-            session.chat:append_compaction_summary(msg.summary or "", tonumber(msg.tokensBefore) or 0)
-        elseif role == "bashExecution" then
-            if pending_agent_end then
-                session.chat:on_agent_end()
-                pending_agent_end = false
-            end
-            session.chat:on_bash_replay(msg)
+        end
+        if pending_agent_end then
+            session.chat:on_agent_end()
+        end
+        if opts and opts.before_finish then
+            opts.before_finish()
+        end
+        session.chat:finish_replaying()
+        if opts and opts.on_complete then
+            opts.on_complete()
         end
     end
-    -- Flush any remaining pending agent_end
-    if pending_agent_end then
-        session.chat:on_agent_end()
+
+    run_slice = function()
+        if sessions[session.id] ~= session then
+            return
+        end
+        local ok, err = xpcall(replay_slice, debug.traceback)
+        if ok then
+            return
+        end
+        session.chat:set_replaying(false)
+        if opts and opts.on_error then
+            opts.on_error(tostring(err))
+            return
+        end
+        error(err)
     end
-    session.chat:finish_replaying()
+    run_slice()
 end
 
 ---@param session agent_workbench.Session
@@ -1071,7 +1115,7 @@ function M.open_uri(uri, requested_buf)
     if existing then
         local live = sessions_by_component[existing]
         if live then
-            activate(live)
+            M.activate(live)
         end
         if requested_buf and vim.api.nvim_buf_is_valid(requested_buf) and requested_buf ~= existing then
             vim.api.nvim_buf_delete(requested_buf, { force = true })
@@ -1092,37 +1136,45 @@ function M.open_uri(uri, requested_buf)
     return true
 end
 
---- Load a session by path: render a local read-only preview immediately, then
---- let RPC switch sessions and replace the preview with authoritative messages.
+--- Load a session through the authoritative backend, rebuild History behind a
+--- stable loading view, then reveal the completed transcript.
 ---@param session agent_workbench.Session
 ---@param session_path string
 load_session = function(session, session_path)
     session._switching_session = true
     Attention.begin_session_transition(session)
-
-    local preview = require("agent-workbench.sessions.history").load_messages(session_path)
-    if preview then
-        session.changed_files = {}
-        session._pending_file_change_args = nil
-        session.chat:clear()
-        replay_messages(session, preview.messages)
-    end
+    session.changed_files = {}
+    session._pending_file_change_args = nil
+    session.chat:clear()
+    session.chat:show_loading()
     session.chat:focus_for_session_entry()
+
+    ---@param message string
+    ---@param end_transition boolean
+    local function fail_load(message, end_transition)
+        session._switching_session = false
+        vim.schedule(function()
+            if end_transition then
+                Attention.end_session_transition(session, false)
+            end
+            session.chat:clear_placeholder()
+            Notify.error(message)
+            session.chat:on_error(message, { pad_top = true, pad_bottom = true })
+        end)
+    end
 
     local sent_switch = session.rpc:send({ type = "switch_session", sessionPath = session_path }, function(msg)
         local data = msg.data or {}
         if not msg.success then
-            session._switching_session = false
-            vim.schedule(function()
-                Attention.end_session_transition(session, false)
-                Notify.error(msg.error or "Failed to switch session")
-            end)
+            fail_load(msg.error or "Failed to switch session", true)
             return
         end
         if data.cancelled then
             session._switching_session = false
             vim.schedule(function()
                 Attention.end_session_transition(session, false)
+                session.chat:clear()
+                show_startup_block(session, CommandsCache.list())
                 Notify.warn("Session switch was cancelled")
             end)
             return
@@ -1136,50 +1188,42 @@ load_session = function(session, session_path)
         -- core; adopt it as this tab's pin.
         refresh_state_and_pin(session)
 
-        vim.schedule(function()
-            session.changed_files = {}
-            session._pending_file_change_args = nil
-            if not preview then
-                session.chat:clear()
-                session.chat:show_loading()
-            end
-        end)
-
         local sent_messages = session.rpc:send({ type = "get_messages" }, function(res)
             vim.schedule(function()
-                session.chat:clear_placeholder()
                 if not res.success then
-                    session._switching_session = false
-                    local err = res.error or "Failed to load session messages"
-                    Notify.error(err)
-                    session.chat:on_error(err, { pad_top = true, pad_bottom = true })
+                    fail_load(res.error or "Failed to load session messages", false)
                     return
                 end
 
-                local messages = (res.data or {}).messages or {}
-                if not (preview and messages_equal(preview.messages, messages)) then
-                    session.chat:clear()
-                    replay_messages(session, messages)
-                end
-                session._switching_session = false
-                CommandsCache.fetch(session.rpc, function(commands)
-                    show_startup_block(session, commands)
-                end)
+                session.chat:begin_staged_replay()
+                session.chat:clear()
+                replay_messages(session, (res.data or {}).messages or {}, {
+                    asynchronous = true,
+                    before_finish = function()
+                        session.chat:end_staged_replay()
+                    end,
+                    on_complete = function()
+                        session._switching_session = false
+                        CommandsCache.fetch(session.rpc, function(commands)
+                            show_startup_block(session, commands)
+                        end)
+                    end,
+                    on_error = function(err)
+                        session.chat:end_staged_replay()
+                        session.chat:clear()
+                        local reason = tostring(err):match("^[^\n]+") or tostring(err)
+                        fail_load("Failed to render session messages: " .. reason, false)
+                    end,
+                })
             end)
         end)
         if not sent_messages then
-            session._switching_session = false
-            vim.schedule(function()
-                session.chat:clear()
-                Notify.error("Failed to load session messages")
-                session.chat:on_error("Failed to load session messages", { pad_top = true, pad_bottom = true })
-            end)
+            fail_load("Failed to load session messages", false)
         end
     end)
 
     if not sent_switch then
-        session._switching_session = false
-        Attention.end_session_transition(session, false)
+        fail_load("Failed to switch session", true)
     end
 end
 
@@ -1378,7 +1422,7 @@ function M.resume_session(opts)
         local existing = Workspace.buffer(uri)
         local live = existing and sessions_by_component[existing]
         if live then
-            activate(live)
+            M.activate(live)
             return
         end
         opts = vim.tbl_extend("force", opts or {}, { new = true })
@@ -1546,6 +1590,7 @@ function M.setup_autocmds()
             local session = M.get()
             if session then
                 require("agent-workbench.ui.sessions").clear_flags(session)
+                require("agent-workbench.ui.render").refresh_history(session.history_buf)
             elseif Config.options.auto_start_session then
                 vim.schedule(function()
                     M.get_or_create()

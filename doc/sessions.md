@@ -17,7 +17,7 @@ Use normal buffer commands to switch sessions. Sessions start lazily by default:
 :buffer <session-history-buffer>
 ```
 
-Entering a session History buffer switches the active chat view in the current tab, including prompt and attachments, while leaving focus on History in Normal mode. Press `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` from History to focus the prompt and enter Insert mode. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive; background output continues in that session's own hidden History buffer and never replaces the active session view. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view.
+Entering a session History buffer switches the active chat view in the current tab, including prompt and attachments, while leaving focus on History in Normal mode. Press `i`, `I`, `a`, `A`, `o`, `O`, `c`, or `C` from History to focus the prompt and enter Insert mode. One session has at most one active view. Hiding or leaving a session buffer keeps its RPC process alive; background output continues in that session's own History buffer and never replaces the active session view. Scroll, fold, and Markdown rendering work is deferred while its workspace tab is inactive, then refreshed when you return. `:bdelete` / `:bwipeout` on its History buffer stops that session and its RPC process. Closing a tab only detaches its view; explicitly selecting that still-live session later attaches it to the current workspace.
 
 ## Workspaces
 
@@ -51,7 +51,7 @@ require("agent-workbench").setup({
 
 ## Session history as a buffer
 
-Sessions are loaded in two phases: Agent Workbench first reads active-branch messages directly from JSONL, renders them without intermediate scrolling, and reveals the final message once. Prompt submissions stay blocked, with draft text preserved, until RPC `switch_session` and `get_messages` complete so preview text cannot be sent to the previous backend session. An identical authoritative response keeps the preview in place; only changed state triggers a rebuild. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view. Unsupported or damaged files fall back to RPC-only loading.
+Persisted sessions keep the History area on `Loading session…` while the backend performs RPC `switch_session` and returns its authoritative `get_messages` result. Agent Workbench rebuilds the real History buffer offscreen in bounded timer slices, returning control to Neovim between slices; partial messages never replace the loading view. Once replay finishes, the complete History buffer is restored, native folds are finalized once, and Markdown rendering runs separately so it cannot block transcript installation. Prompt submissions stay blocked, with draft text preserved, until the completed transcript is visible. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view.
 
 The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 
@@ -59,7 +59,7 @@ The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal o
 agent://<project>/<session-id>/transcript
 ```
 
-The URI starts as `agent://<project>/new-<id>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. The listed History buffer uses a readable `π session <session-id>` name for bufferline and file-tree plugins; if one session temporarily owns multiple transcript resources, later buffers add their buffer ID to keep Neovim names unique. Its `agent://...` URI remains in the buffer-local `pi_session_uri` field and workspace registry. `:edit agent://.../transcript` reuses an existing resource or activates its session in the current tab. History remains separate from prompt and attachment buffers. In buffer layout, opening a normal file replaces the current view and hides chat layout without stopping session; switching back to `π session <session-id>` buffer restores History and prompt.
+The URI starts as `agent://<project>/new-<id>/transcript` for a new session and changes to persisted session ID once RPC state provides its session file. Each URI owns its transcript buffer and History renderer state. The listed History buffer uses a readable `π session <session-id>` name for bufferline and file-tree plugins; if one session temporarily owns multiple transcript resources, later buffers add their buffer ID to keep Neovim names unique. Its `agent://...` URI remains in the buffer-local `pi_session_uri` field and workspace registry. `:edit agent://.../transcript` reuses an existing resource and activates its session in the owning workspace, or attaches it to the current workspace when the owner was closed. History remains separate from prompt and attachment buffers. In buffer layout, opening a normal file replaces the current view and hides chat layout without stopping session; switching back to `π session <session-id>` buffer restores History and prompt.
 
 ## Storage and scoping
 
@@ -122,7 +122,7 @@ Requires a pi version whose extension API exposes `ctx.navigateTree` — on olde
 
 ## Sessions overview (:AgentWorkbenchSessions)
 
-When you run several sessions, `:AgentWorkbenchSessions` gives you a single dashboard of everything live. It lists active session buffers, including multiple sessions in one tab. Selecting a row activates that session in current tab. First entry focuses the prompt in Normal mode with History at latest output; later entries restore History at its last moved cursor.
+When you run several sessions, `:AgentWorkbenchSessions` gives you a single dashboard of everything live. It lists active session buffers, including multiple sessions in one tab. Selecting a row switches to that session's owning workspace tab and activates it there; if that workspace was closed, the session attaches to the current workspace instead. First entry focuses the prompt in Normal mode with History at latest output; later entries restore History at its last moved cursor.
 
 - a single **status dot** at the left edge, colored and animated per state: blinking yellow while the agent works (in a background tab), slow-blinking in the compaction color while compacting, steady warning color when the session needs your attention, blinking green when a turn finished while you were in another tab, blinking red when the last turn errored (both consumed — back to idle — when you enter the tab), steady dim when idle, steady error color if the process died,
 - the **session name** right after the dot: the backend session name (`:AgentWorkbenchSessionName`), falling back to the first user message, then `(unnamed)`,

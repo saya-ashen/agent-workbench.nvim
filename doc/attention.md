@@ -6,8 +6,8 @@ Extensions can ask the user for input mid-turn — selects, confirms, free-form 
 
 When a request arrives, Agent Workbench decides between showing it immediately and queueing it:
 
-- **Immediate** — if no request is already active, the request opens without requiring focus in the π prompt. Selects and confirms move focus to Prompt and replace its visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
-- **Queued** — when that session already has an active request, or when a free-form input/editor would take over a non-empty compose draft, the request is added to a per-session FIFO queue. An attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
+- **Immediate** — if no request is already active and that session's π window has focus, the request opens immediately. Selects and confirms move focus to Prompt and replace visible compose text without losing its draft; diffs and text inputs open their dedicated UI.
+- **Queued** — when the session is in another workspace, its π window is not focused, another request is active, or a free-form input/editor would take over a non-empty compose draft, the request is added to a per-session FIFO queue. An attention indicator lights up in the statusline, and a notification appears so you don't lose track of it. Agent stays blocked on that request regardless.
 
 Queued requests can be opened on demand with:
 

@@ -2,7 +2,10 @@
 
 ## 2026-08-17
 
-- **FIXED:** Session activation and workspace-sidebar session creation now keep focus inside the owning workspace instead of rebinding another workspace's editor view. History rendering also keeps the current cursor line in source form while surrounding Markdown stays rendered.
+- **FIXED:** Persisted sessions now keep `Loading session…` visible while backend-authoritative messages rebuild in an offscreen History buffer through bounded timer slices, then reveal the complete transcript at once. Replay yields to Neovim between slices, native folds finalize once, and Markdown rendering runs after transcript installation, preventing both segmented History display and long main-thread freezes.
+- **FIXED:** Background streaming now updates only its owning History buffer; scroll, fold, and Markview rendering no longer enter windows in inactive tabs, preventing visible buffer and workspace flicker when focus is elsewhere.
+- **FIXED:** Explicit session activation and workspace-sidebar session creation now stay inside the owning workspace, while passive background History `BufEnter` events can no longer switch workspaces or rebind the foreground editor. History rendering also keeps the current cursor line in source form while surrounding Markdown stays rendered.
+- **FIXED:** Attention requests from background sessions now stay queued instead of focusing that session's prompt and switching workspaces.
 - **ADDED:** Reproducible VHS demo commands now generate overview and Shell Worksheet recordings for the README from the fixed Demo Neovim profile.
 - **CHANGED:** README recordings now use descriptive sections and cache-safe asset names instead of opening with two unlabeled animations.
 

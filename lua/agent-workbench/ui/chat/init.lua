@@ -38,6 +38,7 @@
 ---@field _worksheet agent_workbench.ShellWorksheet
 ---@field _compose_keymaps table[]?
 ---@field _worksheet_overridden_keymaps table[]?
+---@field _replay_loading_buf? integer
 local Chat = {}
 Chat.__index = Chat
 
@@ -107,6 +108,7 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._worksheet = Worksheet.new(self._cwd)
     self._compose_keymaps = nil
     self._worksheet_overridden_keymaps = nil
+    self._replay_loading_buf = nil
     self._layout:set_command_mode(self._prompt:command_mode())
     self._prompt:set_on_command_mode_change(function(command_mode)
         self._layout:set_command_mode(command_mode)
@@ -706,6 +708,59 @@ function Chat:show_loading()
     })
 end
 
+--- Keep a stable loading view while History is rebuilt in time-sliced callbacks.
+function Chat:begin_staged_replay()
+    if self._replay_loading_buf and vim.api.nvim_buf_is_valid(self._replay_loading_buf) then
+        return
+    end
+    local buf = vim.api.nvim_create_buf(false, true)
+    self._replay_loading_buf = buf
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].bufhidden = "wipe"
+    vim.bo[buf].swapfile = false
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "  Loading session…" })
+    vim.bo[buf].modifiable = false
+    self._layout:set_content_buffer(buf, "Loading session…")
+end
+
+--- Reveal completed History without replacing a view the user changed meanwhile.
+function Chat:end_staged_replay()
+    local buf = self._replay_loading_buf
+    self._replay_loading_buf = nil
+    if not buf then
+        return
+    end
+    local history_win = self._layout:history_win()
+    local current_win = vim.api.nvim_get_current_win()
+    local restore_win
+    if
+        current_win == history_win
+        or current_win == self._layout:prompt_win()
+        or current_win == self._layout:attachments_win()
+    then
+        restore_win = current_win
+    end
+    if self._layout:content_buf() == buf then
+        self._layout:set_content_buffer(nil)
+    end
+    if vim.api.nvim_buf_is_valid(buf) then
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end
+    local function restore_focus()
+        current_win = vim.api.nvim_get_current_win()
+        if
+            restore_win
+            and vim.api.nvim_win_is_valid(restore_win)
+            and vim.api.nvim_win_get_tabpage(restore_win) == vim.api.nvim_get_current_tabpage()
+            and (current_win == history_win or current_win == restore_win)
+        then
+            vim.api.nvim_set_current_win(restore_win)
+        end
+    end
+    restore_focus()
+    vim.defer_fn(restore_focus, 1)
+end
+
 function Chat:hide()
     if self._zen:is_active() then
         self._zen:exit()
@@ -718,6 +773,10 @@ function Chat:hide()
 end
 
 function Chat:destroy()
+    if self._replay_loading_buf and self:is_visible() then
+        self:hide()
+    end
+    self:end_staged_replay()
     self._worksheet:stop()
 end
 
@@ -900,7 +959,10 @@ end
 ---@param buf integer
 ---@return boolean
 function Chat:owns_buffer(buf)
-    return buf == self:history_buf() or buf == self:prompt_buf() or buf == self:attachments_buf()
+    return buf == self:history_buf()
+        or buf == self:prompt_buf()
+        or buf == self:attachments_buf()
+        or buf == self._replay_loading_buf
 end
 
 ---@return "history"|"prompt"|"attachments"|nil
@@ -956,6 +1018,11 @@ end
 ---@param request agent_workbench.PromptRequest
 ---@return boolean opened
 function Chat:present_prompt_request(request)
+    -- A background session must queue attention instead of opening its prompt
+    -- in whatever tab currently has focus.
+    if self._tab and vim.api.nvim_get_current_tabpage() ~= self._tab then
+        return false
+    end
     if not self:is_visible() then
         self:show()
     end
@@ -1584,7 +1651,7 @@ function Chat:_show_command_mode(mode)
     if self._prompt:is_terminal_display() then
         return
     end
-    if mode ~= "terminal" then
+    if mode ~= "terminal" and not self._replay_loading_buf then
         self._layout:set_content_buffer(nil)
     end
 end
@@ -1695,10 +1762,9 @@ end
 ---@param replaying boolean
 function Chat:set_replaying(replaying)
     self._history._replaying = replaying
-    -- Pause render-markdown while replaying: it would otherwise re-render the
-    -- whole buffer on every edit (hundreds of edits during a large session
-    -- load), which is O(n^2) and hangs loading. On completion, re-enable and
-    -- render once.
+    -- Pause Markdown rendering while replaying: it would otherwise re-render
+    -- the whole buffer on every edit. Replay completion schedules one render
+    -- after complete History becomes visible.
     local buf = self._history:buf()
     if replaying then
         Render.pause_history(buf)
@@ -1707,13 +1773,21 @@ function Chat:set_replaying(replaying)
     end
 end
 
---- Finish asynchronous replay writes, then reveal the final message once.
+--- Finish replay after the last time-sliced batch installs complete History.
 function Chat:finish_replaying()
-    vim.schedule(function()
-        self:set_replaying(false)
-        self._history:finish_replaying()
-        self._history:scroll_to_bottom()
-    end)
+    local buf = self._history:buf()
+    self._history._replaying = false
+    self._history:finish_replaying()
+    self._history:scroll_to_bottom()
+    local win = self._layout:history_win()
+    if
+        win
+        and vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
+        and vim.api.nvim_win_get_buf(win) == buf
+    then
+        vim.cmd("redraw")
+    end
+    Render.resume_history(buf)
 end
 
 ---@param timestamp? number
@@ -1846,7 +1920,7 @@ function Chat:on_agent_end()
         self:_show_aborted_notice()
     end
 
-    if not self:has_prompt_focus() then
+    if not self._history._replaying and not self:has_prompt_focus() then
         local attention_config = Config.options.attention
         if attention_config and attention_config.notify_on_completion then
             Notify.dispatch("Agent finished - waiting for your input", vim.log.levels.INFO, { timeout = 3000 })

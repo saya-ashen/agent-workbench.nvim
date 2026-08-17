@@ -1,6 +1,7 @@
 local Attention = require("agent-workbench.attention")
 
-local function session(tab)
+local function session(tab, opts)
+    opts = opts or {}
     return {
         id = 1,
         tab = tab,
@@ -11,8 +12,8 @@ local function session(tab)
             end,
         },
         chat = {
-            has_prompt_focus = function()
-                return false
+            has_focus = function()
+                return opts.focus == true
             end,
             has_prompt_request = function()
                 return false
@@ -103,8 +104,32 @@ describe("cross-tab attention", function()
         assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
     end)
 
+    it("queues blocking requests from a background session", function()
+        local owner = session(second_tab)
+        local opened = false
+        owner.chat.has_draft = function()
+            return false
+        end
+        owner.chat.present_prompt_request = function()
+            opened = true
+            return true
+        end
+
+        assert.is_true(Attention.present(owner, {
+            type = "extension_ui_request",
+            id = "background-select",
+            method = "select",
+            title = "Choose",
+            options = { "A", "B" },
+        }))
+
+        assert.is_false(opened)
+        assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(1, #owner.attention.pending)
+    end)
+
     it("maps structured select metadata without parsing the title", function()
-        local owner = session(start_tab)
+        local owner = session(start_tab, { focus = true })
         local request
         owner.chat.has_draft = function()
             return false

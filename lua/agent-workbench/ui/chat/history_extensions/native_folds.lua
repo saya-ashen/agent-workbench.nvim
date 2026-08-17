@@ -2,6 +2,27 @@
 
 local M = {}
 
+---@param history agent_workbench.ChatHistory
+---@param win integer
+---@return boolean
+local function window_in_current_tab(history, win)
+    return vim.api.nvim_win_is_valid(win)
+        and vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
+        and vim.api.nvim_win_get_buf(win) == history._buf
+end
+
+---@param history agent_workbench.ChatHistory
+---@return integer[]
+local function current_tab_windows(history)
+    local windows = {}
+    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+        if window_in_current_tab(history, win) then
+            windows[#windows + 1] = win
+        end
+    end
+    return windows
+end
+
 ---@param values table<integer, string|integer>
 ---@param start_row integer 0-indexed
 ---@param end_row integer 0-indexed, inclusive
@@ -115,7 +136,7 @@ end
 
 ---@param history agent_workbench.ChatHistory
 function M.refresh(history)
-    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+    for _, win in ipairs(current_tab_windows(history)) do
         vim.api.nvim_win_call(win, function()
             local view = vim.fn.winsaveview()
             local message_states = {}
@@ -354,7 +375,7 @@ function M.activate_output(history, anchor, level, status_anchor)
     if close_previous and previous ~= anchor then
         local row = history:_extmark_row(previous)
         if row then
-            for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+            for _, win in ipairs(current_tab_windows(history)) do
                 vim.api.nvim_win_call(win, function()
                     vim.cmd("silent! " .. (row + 1) .. "foldclose")
                 end)
@@ -367,7 +388,7 @@ function M.activate_output(history, anchor, level, status_anchor)
         if child then
             local row = history:_extmark_row(child)
             if row then
-                for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+                for _, win in ipairs(current_tab_windows(history)) do
                     vim.api.nvim_win_call(win, function()
                         vim.cmd("silent! " .. (row + 1) .. "foldclose")
                     end)
@@ -396,7 +417,7 @@ function M.age_outputs(history, keep)
             if seen > keep and not block.output_aged then
                 local row = history:_extmark_row(block.anchor)
                 if row then
-                    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+                    for _, win in ipairs(current_tab_windows(history)) do
                         vim.api.nvim_win_call(win, function()
                             vim.cmd("silent! " .. (row + 1) .. "foldclose")
                         end)
@@ -411,7 +432,7 @@ end
 ---@param history agent_workbench.ChatHistory
 ---@param keep integer
 function M.finish_replaying(history, keep)
-    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+    for _, win in ipairs(current_tab_windows(history)) do
         vim.api.nvim_win_call(win, function()
             for _, block in ipairs(history._message_blocks) do
                 if block.role == "assistant" then
@@ -432,7 +453,7 @@ function M.open_active(history)
         local anchor = history._active_fold_anchors[level]
         local row = anchor and history:_extmark_row(anchor) or nil
         if row then
-            for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+            for _, win in ipairs(current_tab_windows(history)) do
                 vim.api.nvim_win_call(win, function()
                     if vim.fn.foldclosed(row + 1) ~= -1 then
                         vim.cmd("silent! " .. (row + 1) .. "foldopen")
@@ -455,7 +476,7 @@ function M.close_active(history)
         end
         table.insert(turn_blocks, 1, block)
     end
-    for _, win in ipairs(vim.fn.win_findbuf(history._buf)) do
+    for _, win in ipairs(current_tab_windows(history)) do
         vim.api.nvim_win_call(win, function()
             if child_row then
                 vim.cmd("silent! " .. (child_row + 1) .. "foldclose")
@@ -476,7 +497,7 @@ end
 ---@param history agent_workbench.ChatHistory
 ---@param win integer
 function M.capture_state(history, win)
-    if not history._fold_state_initialized or not vim.api.nvim_win_is_valid(win) then
+    if not history._fold_state_initialized or not window_in_current_tab(history, win) then
         return
     end
     local states = {}
@@ -510,7 +531,7 @@ end
 ---@param history agent_workbench.ChatHistory
 ---@param win integer
 function M.restore_state(history, win)
-    if not vim.api.nvim_win_is_valid(win) then
+    if not window_in_current_tab(history, win) then
         return
     end
     vim.api.nvim_win_call(win, function()

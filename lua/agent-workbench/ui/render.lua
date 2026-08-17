@@ -86,7 +86,38 @@ end
 ---@param buf integer
 ---@return boolean
 local function is_visible(buf)
-    return vim.api.nvim_buf_is_valid(buf) and #vim.fn.win_findbuf(buf) > 0
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return false
+    end
+    local current_tab = vim.api.nvim_get_current_tabpage()
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+        if vim.api.nvim_win_get_tabpage(win) == current_tab then
+            return true
+        end
+    end
+    return false
+end
+
+---@param buf integer
+local function render_markview_now(buf)
+    if markview_paused[buf] or not markview_dirty[buf] or not is_visible(buf) then
+        return
+    end
+    local markview = ensure_markview()
+    if not markview or type(markview.render) ~= "function" then
+        return
+    end
+    local clear_ok = true
+    if type(markview.clear) == "function" then
+        clear_ok = pcall(markview.clear, buf)
+    end
+    local render_ok = pcall(markview.render, buf, MARKVIEW_RENDER_STATE, MARKVIEW_RENDER_CONFIG)
+    local ok = clear_ok and render_ok
+    vim.b[buf].pi_markview = ok
+    if ok then
+        markview_rendered_tick[buf] = vim.b[buf].changedtick
+        markview_dirty[buf] = nil
+    end
 end
 
 ---@param buf integer
@@ -97,24 +128,7 @@ local function render_markview(buf)
     markview_scheduled[buf] = true
     vim.schedule(function()
         markview_scheduled[buf] = nil
-        if markview_paused[buf] or not markview_dirty[buf] or not is_visible(buf) then
-            return
-        end
-        local markview = ensure_markview()
-        if not markview or type(markview.render) ~= "function" then
-            return
-        end
-        local clear_ok = true
-        if type(markview.clear) == "function" then
-            clear_ok = pcall(markview.clear, buf)
-        end
-        local render_ok = pcall(markview.render, buf, MARKVIEW_RENDER_STATE, MARKVIEW_RENDER_CONFIG)
-        local ok = clear_ok and render_ok
-        vim.b[buf].pi_markview = ok
-        if ok then
-            markview_rendered_tick[buf] = vim.b[buf].changedtick
-            markview_dirty[buf] = nil
-        end
+        render_markview_now(buf)
     end)
 end
 
@@ -214,11 +228,13 @@ function M.resume_history(buf)
     if M.engine() == "markview" then
         markview_paused[buf] = nil
         markview_dirty[buf] = true
-        render_markview(buf)
+        vim.defer_fn(function()
+            render_markview(buf)
+        end, 1)
         return
     end
     if M.engine() == "render-markdown" then
-        vim.schedule(function()
+        vim.defer_fn(function()
             if not vim.api.nvim_buf_is_valid(buf) then
                 return
             end
@@ -226,7 +242,7 @@ function M.resume_history(buf)
             if manager then
                 pcall(manager.set_buf, buf, true)
             end
-        end)
+        end, 1)
     end
 end
 

@@ -50,6 +50,32 @@ describe("stream coalescing", function()
         require("agent-workbench.ui.render")._reset()
     end)
 
+    it("applies replay-slice mutations without nested schedules", function()
+        local h = History.new(TAB)
+        local real_schedule = vim.schedule
+        local schedule_calls = 0
+        vim.schedule = function(fn)
+            schedule_calls = schedule_calls + 1
+            real_schedule(fn)
+        end
+
+        local ok, err = pcall(function()
+            h._replaying = true
+            h:add_user_message("question", 1786438920000)
+            h:on_agent_start(1786438920001)
+            h:on_text_delta("complete answer")
+            h:on_agent_end()
+
+            assert.is_not_nil(text_of(h:buf()):find("question", 1, true))
+            assert.is_not_nil(text_of(h:buf()):find("complete answer", 1, true))
+            assert.are.equal(0, schedule_calls)
+        end)
+        h._replaying = false
+        h:clear()
+        vim.schedule = real_schedule
+        assert.is_true(ok, err)
+    end)
+
     it("keeps the agent label above the first text when the block opens lazily", function()
         -- Chat opens the assistant block lazily: the first non-whitespace
         -- text_delta calls History:on_agent_start and History:on_text_delta
