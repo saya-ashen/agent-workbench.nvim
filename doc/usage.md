@@ -801,7 +801,7 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 
 ## Markdown rendering
 
-By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim): headings, list bullets, code blocks, links, and inline Markdown. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
+By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim): headings, list bullets, code blocks, links, and inline Markdown. The current cursor line stays in source form while surrounding lines stay rendered. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
 
 ```lua
 require("agent-workbench").setup({

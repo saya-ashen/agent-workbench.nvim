@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-exec nvim \
+repo=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+nvim_bin=${NVIM_BIN:-nvim}
+exec "$nvim_bin" \
     --cmd "set runtimepath^=${repo}" \
     --cmd "set packpath^=${repo}" \
     --cmd "lua require('agent-workbench').setup()" \

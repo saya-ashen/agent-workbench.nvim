@@ -11,6 +11,15 @@ local markview_paused = {}
 local markview_dirty = {}
 local markview_rendered_tick = {}
 
+local MARKVIEW_RENDER_STATE = { enable = true, hybrid_mode = true }
+local MARKVIEW_RENDER_CONFIG = {
+    preview = {
+        hybrid_modes = { "n", "no", "c" },
+        linewise_hybrid_mode = true,
+        edit_range = { 0, 0 },
+    },
+}
+
 ---@return string engine "builtin"|"markview"|"render-markdown"
 function M.engine()
     local render = Config.options.render
@@ -99,7 +108,7 @@ local function render_markview(buf)
         if type(markview.clear) == "function" then
             clear_ok = pcall(markview.clear, buf)
         end
-        local render_ok = pcall(markview.render, buf)
+        local render_ok = pcall(markview.render, buf, MARKVIEW_RENDER_STATE, MARKVIEW_RENDER_CONFIG)
         local ok = clear_ok and render_ok
         vim.b[buf].pi_markview = ok
         if ok then
@@ -110,8 +119,9 @@ local function render_markview(buf)
 end
 
 ---@param buf integer
-local function refresh_markview(buf)
-    if vim.api.nvim_buf_is_valid(buf) and markview_rendered_tick[buf] ~= vim.b[buf].changedtick then
+---@param force? boolean
+local function refresh_markview(buf, force)
+    if force or vim.api.nvim_buf_is_valid(buf) and markview_rendered_tick[buf] ~= vim.b[buf].changedtick then
         markview_dirty[buf] = true
     end
     render_markview(buf)
@@ -142,6 +152,12 @@ function M.attach_history(buf)
             buffer = buf,
             callback = function()
                 render_markview(buf)
+            end,
+        })
+        vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+            buffer = buf,
+            callback = function()
+                refresh_markview(buf, true)
             end,
         })
         render_markview(buf)

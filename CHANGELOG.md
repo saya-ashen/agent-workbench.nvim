@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-17
+
+- **FIXED:** Session activation and workspace-sidebar session creation now keep focus inside the owning workspace instead of rebinding another workspace's editor view. History rendering also keeps the current cursor line in source form while surrounding Markdown stays rendered.
+- **ADDED:** Reproducible VHS demo commands now generate overview and Shell Worksheet recordings for the README from the fixed Demo Neovim profile.
+
 ## 2026-08-16
 
 - **ADDED:** Shell Worksheet now detects standard alternate-screen output and automatically opens the existing persistent PTY at its latest screen in a native terminal float for full-screen applications such as `btop`, `htop`, `fzf`, and `lazygit`. Leaving the alternate screen or ending the outer command restores the worksheet without restarting Fish; `<C-g>c` interrupts, `<C-g>p` returns early while leaving the program running, and Normal-mode `q` interrupts the program before closing the float.
