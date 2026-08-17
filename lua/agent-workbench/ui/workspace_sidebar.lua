@@ -443,6 +443,7 @@ local function create_session_under_cursor()
         return
     end
     switch_workspace(item.workspace.tab)
+    focus_editor(item.workspace.tab)
     require("agent-workbench.sessions.manager").new_session()
 end
 

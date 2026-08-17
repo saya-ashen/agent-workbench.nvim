@@ -637,6 +637,12 @@ activate = function(session)
         return
     end
     activating = true
+    local owner_tab = session.workspace_tab
+    if owner_tab and vim.api.nvim_tabpage_is_valid(owner_tab) and owner_tab ~= current_tab() then
+        -- Keep chat view takeover inside session's workspace. Background sessions
+        -- must not rebind another workspace's windows when selected globally.
+        vim.api.nvim_set_current_tabpage(owner_tab)
+    end
     local tab = current_tab()
     local entered_history = current_buf() == session.history_buf
     local previous = active_by_tab[tab]

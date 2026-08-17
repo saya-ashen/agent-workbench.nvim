@@ -18,6 +18,7 @@ describe("workspace sidebar", function()
     local activated
     local focused_session
     local created_session
+    local created_session_win
     local created_workspace
 
     local function session(id, tab, state)
@@ -110,6 +111,7 @@ describe("workspace sidebar", function()
             end,
             new_session = function()
                 created_session = vim.api.nvim_get_current_tabpage()
+                created_session_win = vim.api.nvim_get_current_win()
             end,
         }
         package.loaded["agent-workbench.attention"] = {
@@ -148,6 +150,7 @@ describe("workspace sidebar", function()
         activated = nil
         focused_session = nil
         created_session = nil
+        created_session_win = nil
         created_workspace = nil
     end)
 
@@ -332,15 +335,19 @@ describe("workspace sidebar", function()
         assert.are.equal("  󰄬 Review release", lines[4])
     end)
 
-    it("creates sessions and workspaces with tree-style keys", function()
+    it("creates a session from the active workspace in an editor window", function()
         Sidebar.open()
-        local win = vim.api.nvim_get_current_win()
-        local buf = vim.api.nvim_win_get_buf(win)
-        vim.api.nvim_win_set_cursor(win, { 2, 0 })
-        callback_for(buf, "a")()
-        assert.are.equal(second_tab, created_session)
+        local sidebar_win = vim.api.nvim_get_current_win()
+        local buf = vim.api.nvim_win_get_buf(sidebar_win)
+        vim.api.nvim_win_set_cursor(sidebar_win, { 1, 0 })
         callback_for(buf, "A")()
         assert.is_true(created_workspace)
+
+        callback_for(buf, "a")()
+
+        assert.are.equal(start_tab, created_session)
+        assert.are_not.equal(sidebar_win, created_session_win)
+        assert.is_false(vim.wo[created_session_win].winfixbuf)
     end)
 
     it("toggles a help overlay with question mark and escape", function()

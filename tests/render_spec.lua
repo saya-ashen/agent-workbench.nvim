@@ -85,6 +85,34 @@ describe("markview history visibility", function()
         assert.are.equal(2, renders, "re-entry must not render unchanged History again")
     end)
 
+    it("uses linewise hybrid rendering and refreshes after cursor movement", function()
+        local renders = 0
+        local render_state
+        local render_config
+        package.loaded.markview = {
+            clear = function() end,
+            render = function(_, state, config)
+                renders = renders + 1
+                render_state = state
+                render_config = config
+            end,
+        }
+        history_buf = vim.api.nvim_create_buf(true, true)
+        vim.api.nvim_win_set_buf(0, history_buf)
+
+        Render.attach_history(history_buf)
+        vim.wait(20)
+        assert.are.equal(1, renders)
+        assert.are.same({ enable = true, hybrid_mode = true }, render_state)
+        assert.are.same({ "n", "no", "c" }, render_config.preview.hybrid_modes)
+        assert.is_true(render_config.preview.linewise_hybrid_mode)
+        assert.are.same({ 0, 0 }, render_config.preview.edit_range)
+
+        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
+        vim.wait(20)
+        assert.are.equal(2, renders)
+    end)
+
     it("retries an unchanged History after markview clear fails", function()
         local clears = 0
         local renders = 0

@@ -137,6 +137,33 @@ describe("buffer-owned sessions", function()
         assert.is_true(second.rpc:is_running())
     end)
 
+    it("activates a session in its owning workspace", function()
+        local owner_tab = vim.api.nvim_get_current_tabpage()
+        local first = assert(Sessions.get_or_create({ layout = "buffer" }))
+
+        vim.cmd("tabnew")
+        local other_tab = vim.api.nvim_get_current_tabpage()
+        local second = assert(Sessions.get_or_create({ layout = "buffer" }))
+        vim.wait(20)
+        assert.are.equal(other_tab, vim.api.nvim_get_current_tabpage())
+        local second_history_win = second.chat._layout:history_win()
+        assert.is_not_nil(second_history_win)
+        assert.are.equal(second.history_buf, vim.api.nvim_win_get_buf(second_history_win))
+
+        Sessions.activate(first)
+        vim.wait(20)
+
+        assert.are.equal(owner_tab, vim.api.nvim_get_current_tabpage())
+        assert.are.equal(first, Sessions.get_for_tab(owner_tab))
+        assert.are.equal(second, Sessions.get_for_tab(other_tab))
+        local first_history_win = first.chat._layout:history_win()
+        local second_history_win_after = second.chat._layout:history_win()
+        assert.is_not_nil(first_history_win)
+        assert.is_not_nil(second_history_win_after)
+        assert.are.equal(first.history_buf, vim.api.nvim_win_get_buf(first_history_win))
+        assert.are.equal(second.history_buf, vim.api.nvim_win_get_buf(second_history_win_after))
+    end)
+
     it("replaces an idle session in the same view", function()
         local first = assert(Sessions.get_or_create({ layout = "buffer" }))
         local old_history_buf = first.history_buf
