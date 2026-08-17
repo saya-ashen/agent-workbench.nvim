@@ -10,14 +10,14 @@ Usage: scripts/record-demo.sh [overview|shell]
 
 Environment:
   DEMO_NVIM_BIN Neovim wrapper (default: agent-workbench-demo-nvim)
-  OUTPUT        GIF destination (scenario default: assets/demo.gif or assets/shell-worksheet.gif)
+  OUTPUT        GIF destination (scenario default: assets/overview-demo.gif or assets/shell-worksheet.gif)
   SOURCE_VIDEO MP4 destination (default: /tmp/agent-workbench-vhs/<scenario>.mp4)
 EOF
 }
 
 scenario=${1:-overview}
 case "$scenario" in
-overview) default_output=$repo/assets/demo.gif ;;
+overview) default_output=$repo/assets/overview-demo.gif ;;
 shell) default_output=$repo/assets/shell-worksheet.gif ;;
 -h | --help)
     usage

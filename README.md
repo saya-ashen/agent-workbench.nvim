@@ -20,10 +20,6 @@ require("agent-workbench").setup()
 
 Legacy `require("pi")` remains as a deprecated compatibility entry until `2.0.0`. New configuration should use the canonical namespace. This repository is not an official new version of `pi.nvim`.
 
-![Agent Workbench overview demo](assets/demo.gif)
-
-![Persistent shell worksheet demo](assets/shell-worksheet.gif)
-
 ## Why It Exists
 
 Most agent integrations treat one Neovim process, one project, and one chat as one global context. That breaks down when work spans several projects, tabs, sessions, or editor windows.
@@ -36,6 +32,22 @@ This frontend treats agent work as stateful editor work:
 - agent edits remain reviewable before they reach files;
 - local shell work stays available without entering model context;
 - normal Neovim buffers and navigation remain first-class.
+
+## See It In Action
+
+Agent Workbench keeps agent sessions, workspace state, and local shell work visible inside Neovim.
+
+### Workspace And Session Flow
+
+The overview recording shows buffer chat, independent sessions, background work, and workspace switching. Each workspace keeps its own session and editor view.
+
+![Workspace and session flow](assets/overview-demo.gif)
+
+### Local Shell Work Without Leaving Neovim
+
+The Shell Worksheet recording shows `!!` opening persistent Fish, state surviving across cells, and `btop` opening in a terminal float before returning to the worksheet.
+
+![Persistent shell worksheet](assets/shell-worksheet.gif)
 
 ## Core Features
 
@@ -288,7 +300,7 @@ just demo-shell
 
 When outside the development shell, use `nix develop -c just demo-overview` or `nix develop -c just demo-shell`.
 
-VHS runs the fixed `agent-workbench-demo-nvim` profile from `flake.nix`, using `scripts/demo/init.lua` as its config. Recordings keep their own deterministic Agent Workbench setup without loading user configuration, while still showing the bundled theme, statusline, icons, and Markdown renderer. `overview` opens a buffer chat through `:Pi`, creates and switches workspaces, runs multiple sessions, and shows their live status dashboard. `shell` opens the buffer chat, enters the persistent Fish worksheet, and runs `btop` in its terminal float before returning to the worksheet. It atomically replaces `assets/demo.gif` or `assets/shell-worksheet.gif`; both keep an MP4 source under `/tmp/agent-workbench-vhs`. Set `DEMO_NVIM_BIN`, `OUTPUT`, or `SOURCE_VIDEO` to override the demo Neovim wrapper or either destination.
+VHS runs the fixed `agent-workbench-demo-nvim` profile from `flake.nix`, using `scripts/demo/init.lua` as its config. Recordings keep their own deterministic Agent Workbench setup without loading user configuration, while still showing the bundled theme, statusline, icons, and Markdown renderer. `overview` opens a buffer chat through `:Pi`, creates and switches workspaces, runs multiple sessions, and shows their live status dashboard. `shell` opens the buffer chat, enters the persistent Fish worksheet, and runs `btop` in its terminal float before returning to the worksheet. It atomically replaces `assets/overview-demo.gif` or `assets/shell-worksheet.gif`; both keep an MP4 source under `/tmp/agent-workbench-vhs`. Set `DEMO_NVIM_BIN`, `OUTPUT`, or `SOURCE_VIDEO` to override the demo Neovim wrapper or either destination.
 
 Direct Neovim test commands are documented in `.agents/skills/develop/` for environments without Nix or Make.
 
