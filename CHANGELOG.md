@@ -3,6 +3,7 @@
 ## 2026-08-17
 
 - **FIXED:** Session activation and workspace-sidebar session creation now keep focus inside the owning workspace instead of rebinding another workspace's editor view. History rendering also keeps the current cursor line in source form while surrounding Markdown stays rendered.
+- **ADDED:** Reproducible VHS demo commands now generate overview and Shell Worksheet recordings for the README from the fixed Demo Neovim profile.
 
 ## 2026-08-16
 

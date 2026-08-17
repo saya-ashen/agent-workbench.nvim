@@ -17,15 +17,38 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          demoNvim = pkgs.wrapNeovim pkgs.neovim-unwrapped {
+            extraName = "-agent-workbench-demo";
+            configure = {
+              packages.demo.start = [
+                pkgs.vimPlugins.catppuccin-nvim
+                pkgs.vimPlugins.lualine-nvim
+                pkgs.vimPlugins.markview-nvim
+                pkgs.vimPlugins.nvim-treesitter
+                pkgs.vimPlugins.nvim-treesitter-parsers.markdown
+                pkgs.vimPlugins.nvim-web-devicons
+              ];
+              customLuaRC = ''
+                dofile(assert(vim.env.AGENT_WORKBENCH_REPO) .. "/scripts/demo/init.lua")
+              '';
+            };
+          };
+          demoNvimBin = pkgs.writeShellScriptBin "agent-workbench-demo-nvim" ''
+            exec ${demoNvim}/bin/nvim "$@"
+          '';
         in
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
+              demoNvimBin
+              btop
+              ffmpeg
               fish
               git
               github-cli
               gnumake
               i3
+              just
               lsof
               lua-language-server
               maim
@@ -37,6 +60,8 @@
               ripgrep
               stylua
               tea
+              ttyd
+              vhs
               wezterm
               wmctrl
               xdotool

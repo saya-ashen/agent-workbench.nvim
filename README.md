@@ -20,7 +20,9 @@ require("agent-workbench").setup()
 
 Legacy `require("pi")` remains as a deprecated compatibility entry until `2.0.0`. New configuration should use the canonical namespace. This repository is not an official new version of `pi.nvim`.
 
-![Agent Workbench demo](assets/demo.gif)
+![Agent Workbench overview demo](assets/demo.gif)
+
+![Persistent shell worksheet demo](assets/shell-worksheet.gif)
 
 ## Why It Exists
 
@@ -256,23 +258,37 @@ Enter the reproducible Linux development shell:
 nix develop
 ```
 
-It provides Neovim, pi, Fish, Plenary, StyleLua, LuaLS, Python, Node.js, Make, Git, and the Linux GUI-automation tools. `PLENARY_PATH` points at the packaged Plenary checkout, so tests do not depend on a user plugin installation.
+It provides Neovim, a fixed Demo Neovim profile, pi, Fish, btop, VHS, ttyd, ffmpeg, Plenary, StyleLua, LuaLS, Just, Python, Node.js, Make, Git, and the Linux GUI-automation tools. The Demo profile bundles Catppuccin, Lualine, web-devicons, Markview, and the Markdown Treesitter grammar. `PLENARY_PATH` points at the packaged Plenary checkout, so tests do not depend on a user plugin installation.
 
-Run the standard checks:
+Run local checks through `just`:
 
 ```sh
-make test
-make smoke
-make style
-make lint
-make docs-links
+just test
+just smoke
+just style
+just lint
+just docs-links
+just check
 ```
+
+`just` is available inside `nix develop`; Makefile targets remain available for CI and existing workflows.
 
 Run Neovim from this checkout:
 
 ```sh
 ./scripts/nvim-dev
 ```
+
+Record deterministic README demos with VHS:
+
+```sh
+just demo-overview
+just demo-shell
+```
+
+When outside the development shell, use `nix develop -c just demo-overview` or `nix develop -c just demo-shell`.
+
+VHS runs the fixed `agent-workbench-demo-nvim` profile from `flake.nix`, using `scripts/demo/init.lua` as its config. Recordings keep their own deterministic Agent Workbench setup without loading user configuration, while still showing the bundled theme, statusline, icons, and Markdown renderer. `overview` opens a buffer chat through `:Pi`, creates and switches workspaces, runs multiple sessions, and shows their live status dashboard. `shell` opens the buffer chat, enters the persistent Fish worksheet, and runs `btop` in its terminal float before returning to the worksheet. It atomically replaces `assets/demo.gif` or `assets/shell-worksheet.gif`; both keep an MP4 source under `/tmp/agent-workbench-vhs`. Set `DEMO_NVIM_BIN`, `OUTPUT`, or `SOURCE_VIDEO` to override the demo Neovim wrapper or either destination.
 
 Direct Neovim test commands are documented in `.agents/skills/develop/` for environments without Nix or Make.
 
