@@ -58,6 +58,7 @@ Each tab acts as an independent workspace with its own working directory, buffer
 - `:AgentWorkbenchNewWorkspace` creates a workspace rooted at a selected directory.
 - `:AgentWorkbenchWorkspaces` switches workspaces through a searchable picker.
 - `:AgentWorkbenchWorkspaceSidebar` shows workspaces, sessions, and ordinary buffers together.
+- Press `p` on a sidebar session row to preview live output without switching workspace or changing cwd.
 - `:AgentWorkbenchMoveBuffer` moves ordinary buffers between workspaces.
 - Workspace buffers stay scoped to the current tab instead of leaking across projects.
 - Changing workspace cwd starts a fresh session only when the current session is idle.

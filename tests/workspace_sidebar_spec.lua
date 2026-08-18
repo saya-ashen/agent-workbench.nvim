@@ -20,12 +20,18 @@ describe("workspace sidebar", function()
     local created_session
     local created_session_win
     local created_workspace
+    local history_buffers
 
     local function session(id, tab, state)
+        local history_buf = vim.api.nvim_create_buf(true, false)
+        vim.bo[history_buf].filetype = "pi-chat-history"
+        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "session " .. id .. " output" })
+        history_buffers[#history_buffers + 1] = history_buf
         return {
             id = id,
             workspace_tab = tab,
             cwd = dirs[tab == start_tab and 1 or 2],
+            history_buf = history_buf,
             rpc = {
                 is_running = function()
                     return state ~= "exited"
@@ -74,6 +80,7 @@ describe("workspace sidebar", function()
         original_workspace_buffers = package.loaded["agent-workbench.workspace_buffers"]
         original_devicons = package.loaded["nvim-web-devicons"]
         original_confirm = require("agent-workbench.ui.dialog").confirm
+        history_buffers = {}
         local sessions = { session(11, start_tab, "busy"), session(22, second_tab, "idle") }
         SessionsUi.on_session_info_changed(sessions[1], "Build authentication flow")
         SessionsUi.on_session_info_changed(sessions[2], "Review release")
@@ -125,6 +132,7 @@ describe("workspace sidebar", function()
             end,
         }
         Config.setup({ workspace_sidebar = { position = "right", width = 32 } })
+        Sidebar.setup()
     end)
 
     after_each(function()
@@ -143,6 +151,11 @@ describe("workspace sidebar", function()
             vim.api.nvim_set_current_tabpage(start_tab)
         end
         vim.cmd("tcd " .. vim.fn.fnameescape(start_cwd))
+        for _, history_buf in ipairs(history_buffers) do
+            if vim.api.nvim_buf_is_valid(history_buf) then
+                vim.api.nvim_buf_delete(history_buf, { force = true })
+            end
+        end
         for _, dir in ipairs(dirs) do
             vim.fn.delete(dir, "rf")
         end
@@ -316,6 +329,58 @@ describe("workspace sidebar", function()
         vim.api.nvim_win_set_cursor(win, { 3, 0 })
         callback_for(buf, "d")()
         assert.is_false(vim.api.nvim_buf_is_valid(file))
+    end)
+
+    it("previews live background output without changing workspace or activation", function()
+        Sidebar.open()
+        local sidebar_win = vim.api.nvim_get_current_win()
+        local sidebar_buf = vim.api.nvim_win_get_buf(sidebar_win)
+        callback_for(sidebar_buf, "l")()
+        vim.api.nvim_win_set_cursor(sidebar_win, { 3, 0 })
+        callback_for(sidebar_buf, "l")()
+        vim.api.nvim_win_set_cursor(sidebar_win, { 4, 0 })
+        callback_for(sidebar_buf, "p")()
+
+        assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
+        assert.is_nil(activated)
+        local preview_win
+        for _, win in ipairs(vim.api.nvim_tabpage_list_wins(start_tab)) do
+            if vim.api.nvim_win_get_config(win).relative ~= "" then
+                preview_win = win
+                break
+            end
+        end
+        assert.is_not_nil(preview_win)
+        assert.are.equal(history_buffers[2], vim.api.nvim_win_get_buf(preview_win))
+        assert.is_true(vim.api.nvim_win_get_config(preview_win).focusable == false)
+
+        vim.api.nvim_buf_set_lines(history_buffers[2], -1, -1, false, { "new background output" })
+        vim.wait(1000, function()
+            local ok, cursor = pcall(vim.api.nvim_win_get_cursor, preview_win)
+            return ok and cursor[1] == vim.api.nvim_buf_line_count(history_buffers[2])
+        end, 10)
+        assert.is_true(vim.api.nvim_win_is_valid(preview_win))
+        assert.are.equal(vim.api.nvim_buf_line_count(history_buffers[2]), vim.api.nvim_win_get_cursor(preview_win)[1])
+
+        vim.api.nvim_win_set_width(sidebar_win, 20)
+        vim.api.nvim_exec_autocmds("VimResized", {})
+        vim.wait(1000, function()
+            local ok, config = pcall(vim.api.nvim_win_get_config, preview_win)
+            if not ok then
+                return false
+            end
+            local sidebar_width = vim.api.nvim_win_get_width(sidebar_win)
+            local expected =
+                math.min(90, math.max(1, vim.o.columns - 4), math.max(20, vim.o.columns - sidebar_width - 4))
+            return config.width == expected
+        end, 10)
+        assert.is_true(vim.api.nvim_win_is_valid(preview_win))
+        local sidebar_width = vim.api.nvim_win_get_width(sidebar_win)
+        local expected = math.min(90, math.max(1, vim.o.columns - 4), math.max(20, vim.o.columns - sidebar_width - 4))
+        assert.are.equal(expected, vim.api.nvim_win_get_config(preview_win).width)
+
+        callback_for(sidebar_buf, "p")()
+        assert.is_false(vim.api.nvim_win_is_valid(preview_win))
     end)
 
     it("shows session titles, state icons, and full running state", function()
