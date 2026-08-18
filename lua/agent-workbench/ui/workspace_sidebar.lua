@@ -24,12 +24,17 @@ local line_items = {}
 local refresh_scheduled = false
 ---@type table<integer, integer>
 local help_wins = {}
+---@type table<integer, { win: integer, session: agent_workbench.Session }>
+local preview_wins = {}
+---@type table<integer, table<integer, integer>> history buffer -> sidebar window -> preview window
+local preview_watchers = {}
 
 ---@type [string, string][]
 local HELP_ENTRIES = {
     { "<CR>", "Switch workspace or open item" },
     { "h / l", "Toggle workspace; collapse/open item" },
     { "e, <Tab>", "Toggle workspace" },
+    { "p", "Preview session without switching workspace" },
     { "d", "Delete buffer / stop session" },
     { "a", "Create session in workspace" },
     { "A", "Create workspace" },
@@ -242,6 +247,208 @@ local function item_under_cursor()
     return line_items[vim.api.nvim_win_get_cursor(0)[1]]
 end
 
+---@param list_win integer
+---@return { win: integer, session: agent_workbench.Session }?
+local function preview_for(list_win)
+    local preview = preview_wins[list_win]
+    if not preview then
+        return nil
+    end
+    if vim.api.nvim_win_is_valid(preview.win) then
+        return preview
+    end
+    preview_wins[list_win] = nil
+    return nil
+end
+
+---@param list_win integer
+local function close_preview(list_win)
+    local preview = preview_for(list_win)
+    preview_wins[list_win] = nil
+    if preview then
+        local watchers = preview_watchers[preview.session.history_buf]
+        if watchers then
+            watchers[list_win] = nil
+        end
+        pcall(vim.api.nvim_win_close, preview.win, true)
+    end
+end
+
+---@param session agent_workbench.Session
+---@return string
+local function preview_title(session)
+    return (" %s [%s] "):format(session_title(session), status_label(session_status(session)))
+end
+
+---@param list_win integer
+---@return { row: integer, col: integer, width: integer, height: integer }
+local function preview_geometry(list_win)
+    local sidebar_width = vim.api.nvim_win_get_width(list_win)
+    local max_width = math.max(1, vim.o.columns - 4)
+    local width = math.min(90, max_width, math.max(20, vim.o.columns - sidebar_width - 4))
+    local max_height = math.max(1, vim.o.lines - vim.o.cmdheight - 3)
+    local height = math.min(24, max_height)
+    local row = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - height) / 2))
+    local col
+    if Config.options.workspace_sidebar.position == "left" then
+        col = math.min(vim.o.columns - width, sidebar_width + 1)
+    else
+        col = math.max(0, vim.o.columns - sidebar_width - width - 2)
+    end
+    return { row = row, col = col, width = width, height = height }
+end
+
+---@param list_win integer
+local function update_preview(list_win)
+    local preview = preview_for(list_win)
+    if not preview then
+        return
+    end
+    local history_buf = preview.session.history_buf
+    if not history_buf or not vim.api.nvim_buf_is_valid(history_buf) then
+        close_preview(list_win)
+        return
+    end
+    if vim.api.nvim_win_get_buf(preview.win) ~= history_buf then
+        local ok = pcall(vim.api.nvim_win_set_buf, preview.win, history_buf)
+        if not ok then
+            close_preview(list_win)
+            return
+        end
+    end
+    local config = vim.api.nvim_win_get_config(preview.win)
+    local geometry = preview_geometry(list_win)
+    config.row = geometry.row
+    config.col = geometry.col
+    config.width = geometry.width
+    config.height = geometry.height
+    config.title = preview_title(preview.session)
+    local ok, err = pcall(vim.api.nvim_win_set_config, preview.win, config)
+    if not ok then
+        close_preview(list_win)
+        require("agent-workbench.notify").warn("Failed to update session preview: " .. tostring(err))
+        return
+    end
+    pcall(vim.api.nvim_win_set_cursor, preview.win, { vim.api.nvim_buf_line_count(history_buf), 0 })
+end
+
+---@param history_buf integer
+---@param list_win integer
+---@param preview_win integer
+---@return boolean
+local function watch_preview(history_buf, list_win, preview_win)
+    local watchers = preview_watchers[history_buf]
+    if not watchers then
+        watchers = {}
+        preview_watchers[history_buf] = watchers
+        local attached = vim.api.nvim_buf_attach(history_buf, false, {
+            on_lines = function()
+                if preview_watchers[history_buf] == nil then
+                    return true
+                end
+                vim.schedule(function()
+                    local current_watchers = preview_watchers[history_buf]
+                    if not current_watchers then
+                        return
+                    end
+                    for current_list_win, current_preview_win in pairs(current_watchers) do
+                        local preview = preview_for(current_list_win)
+                        if preview and preview.win == current_preview_win then
+                            update_preview(current_list_win)
+                        else
+                            current_watchers[current_list_win] = nil
+                        end
+                    end
+                end)
+            end,
+            on_detach = function()
+                local detached_watchers = preview_watchers[history_buf]
+                preview_watchers[history_buf] = nil
+                vim.schedule(function()
+                    for current_list_win, current_preview_win in pairs(detached_watchers or {}) do
+                        local preview = preview_wins[current_list_win]
+                        if preview and preview.win == current_preview_win then
+                            close_preview(current_list_win)
+                        end
+                    end
+                end)
+            end,
+        })
+        if not attached then
+            preview_watchers[history_buf] = nil
+            return false
+        end
+    end
+    watchers[list_win] = preview_win
+    return true
+end
+
+local function preview_under_cursor()
+    local list_win = vim.api.nvim_get_current_win()
+    local item = item_under_cursor()
+    if not item or item.kind ~= "session" or not item.session then
+        close_preview(list_win)
+        return
+    end
+
+    local existing = preview_for(list_win)
+    if existing and existing.session == item.session then
+        close_preview(list_win)
+        return
+    end
+    close_preview(list_win)
+
+    local history_buf = item.session.history_buf
+    if not history_buf or not vim.api.nvim_buf_is_valid(history_buf) then
+        require("agent-workbench.notify").warn("Session has no History buffer to preview")
+        return
+    end
+
+    local geometry = preview_geometry(list_win)
+    local ok, preview_win = pcall(vim.api.nvim_open_win, history_buf, false, {
+        relative = "editor",
+        row = geometry.row,
+        col = geometry.col,
+        width = geometry.width,
+        height = geometry.height,
+        style = "minimal",
+        border = Config.options.dialog.border,
+        title = preview_title(item.session),
+        title_pos = "center",
+        focusable = false,
+    })
+    if not ok then
+        require("agent-workbench.notify").warn("Failed to open session preview: " .. tostring(preview_win))
+        return
+    end
+
+    preview_wins[list_win] = { win = preview_win, session = item.session }
+    vim.wo[preview_win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
+    vim.wo[preview_win].number = false
+    vim.wo[preview_win].relativenumber = false
+    vim.wo[preview_win].signcolumn = "no"
+    vim.wo[preview_win].cursorline = false
+    vim.wo[preview_win].winfixbuf = true
+    pcall(vim.api.nvim_win_set_cursor, preview_win, { vim.api.nvim_buf_line_count(history_buf), 0 })
+
+    if not watch_preview(history_buf, list_win, preview_win) then
+        close_preview(list_win)
+        require("agent-workbench.notify").warn("Failed to watch session History buffer")
+        return
+    end
+
+    vim.api.nvim_create_autocmd("WinClosed", {
+        pattern = tostring(preview_win),
+        once = true,
+        callback = function()
+            local current = preview_wins[list_win]
+            if current and current.win == preview_win then
+                preview_wins[list_win] = nil
+            end
+        end,
+    })
+end
+
 local function toggle_under_cursor()
     local item = item_under_cursor()
     if not item or item.kind ~= "workspace" or not item.workspace then
@@ -320,6 +527,7 @@ local function open_under_cursor_tree()
     if not item then
         return
     end
+    close_preview(vim.api.nvim_get_current_win())
     if item.kind == "session" and item.session then
         local tab = item.workspace and item.workspace.tab or current_tab()
         switch_workspace(tab)
@@ -345,6 +553,7 @@ local function open_under_cursor(close_after)
     if not item then
         return
     end
+    close_preview(vim.api.nvim_get_current_win())
     if item.kind == "session" and item.session then
         local tab = item.workspace and item.workspace.tab or current_tab()
         if close_after then
@@ -524,6 +733,12 @@ local function ensure_buf()
     vim.keymap.set("n", "e", toggle_under_cursor, vim.tbl_extend("force", opts, { desc = "Toggle workspace" }))
     vim.keymap.set(
         "n",
+        "p",
+        preview_under_cursor,
+        vim.tbl_extend("force", opts, { desc = "Preview session without switching workspace" })
+    )
+    vim.keymap.set(
+        "n",
         "d",
         delete_under_cursor,
         vim.tbl_extend("force", opts, { desc = "Delete buffer / stop session" })
@@ -655,6 +870,13 @@ function M._render()
         vim.api.nvim_buf_set_extmark(buf, ns, hl.line, hl.start_col, opts)
     end
     vim.bo[buf].modifiable = false
+    for list_win in pairs(preview_wins) do
+        if vim.api.nvim_win_is_valid(list_win) then
+            update_preview(list_win)
+        else
+            close_preview(list_win)
+        end
+    end
 end
 
 function M.request_refresh()
@@ -672,13 +894,20 @@ end
 
 function M.setup()
     local group = vim.api.nvim_create_augroup("PiWorkspaceSidebar", { clear = true })
-    vim.api.nvim_create_autocmd(
-        { "BufAdd", "BufDelete", "BufEnter", "BufModifiedSet", "BufWipeout", "TabEnter", "TabClosed", "DirChanged" },
-        {
-            group = group,
-            callback = M.request_refresh,
-        }
-    )
+    vim.api.nvim_create_autocmd({
+        "BufAdd",
+        "BufDelete",
+        "BufEnter",
+        "BufModifiedSet",
+        "BufWipeout",
+        "TabEnter",
+        "TabClosed",
+        "DirChanged",
+        "VimResized",
+    }, {
+        group = group,
+        callback = M.request_refresh,
+    })
 end
 
 function M.open()
@@ -695,6 +924,16 @@ function M.open()
     vim.api.nvim_win_set_buf(win, ensure_buf())
     set_win_opts(win)
     wins[tab] = win
+    vim.api.nvim_create_autocmd("WinClosed", {
+        pattern = tostring(win),
+        once = true,
+        callback = function()
+            close_preview(win)
+            if wins[tab] == win then
+                wins[tab] = nil
+            end
+        end,
+    })
     M._render()
 end
 
@@ -705,6 +944,7 @@ function M.close()
         return
     end
     close_help(win)
+    close_preview(win)
     wins[tab] = nil
     pcall(vim.api.nvim_win_close, win, false)
 end
@@ -718,6 +958,9 @@ function M.toggle()
 end
 
 function M._reset()
+    for list_win in pairs(preview_wins) do
+        close_preview(list_win)
+    end
     for _, win in pairs(wins) do
         close_help(win)
         if vim.api.nvim_win_is_valid(win) then
@@ -732,6 +975,8 @@ function M._reset()
     expanded = {}
     line_items = {}
     help_wins = {}
+    preview_wins = {}
+    preview_watchers = {}
     refresh_scheduled = false
 end
 

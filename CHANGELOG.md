@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-18
+
+- **ADDED:** Workspace sidebar session rows now support `p` to open a live History preview without switching workspaces or triggering `direnv` rebuilds.
+
 ## 2026-08-17
 
 - **FIXED:** Persisted sessions now keep `Loading session…` visible while backend-authoritative messages rebuild in an offscreen History buffer through bounded timer slices, then reveal the complete transcript at once. Replay yields to Neovim between slices, native folds finalize once, and Markdown rendering runs after transcript installation, preventing both segmented History display and long main-thread freezes.

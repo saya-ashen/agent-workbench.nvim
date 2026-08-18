@@ -14,7 +14,7 @@ What the plugin does bind on its own:
 - The [diff review](diff-review.md) keys inside the diff tab.
 - The `:AgentWorkbenchDiff` session diff review: in the panel's file list, moving the cursor previews the file's diff, `<CR>`/`o` jumps to its first changed line, `<C-f>`/`<C-b>`/`<C-d>`/`<C-u>` scroll the diff on the right; in the diff area, `<CR>`/`o` jumps to the line under the cursor; `q` closes the whole review (see [Session diff review](diff-review.md#session-diff-review-agentworkbenchdiff)).
 - The [sessions overview](sessions.md#sessions-overview-agentworkbenchsessions) keys inside the list.
-- The workspace sidebar uses tree-style keys: on workspace rows, both `h` and `l` toggle expansion; on session rows, `h` collapses the parent and `l` activates the session; on buffer rows, `<CR>`/`l` switches to that buffer. `e` / `<Tab>` also toggles, `<CR>` switches workspace or buffer, `d` deletes the selected buffer, `a` creates a session, `A` creates a workspace, `o` switches and closes, `R` refreshes, `?` shows help, and `q` closes.
+- The workspace sidebar uses tree-style keys: on workspace rows, both `h` and `l` toggle expansion; on session rows, `h` collapses the parent, `l` activates the session, and `p` opens or closes a live History preview without switching workspace; on buffer rows, `<CR>`/`l` switches to that buffer. `e` / `<Tab>` also toggles, `<CR>` switches workspace or buffer, `d` deletes the selected buffer, `a` creates a session, `A` creates a workspace, `o` switches and closes, `R` refreshes, `?` shows help, and `q` closes.
 
 ## Key specs
 
