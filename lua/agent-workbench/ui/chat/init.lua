@@ -39,6 +39,7 @@
 ---@field _compose_keymaps table[]?
 ---@field _worksheet_overridden_keymaps table[]?
 ---@field _replay_loading_buf? integer
+---@field _replay_restore_win? integer
 local Chat = {}
 Chat.__index = Chat
 
@@ -109,6 +110,7 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._compose_keymaps = nil
     self._worksheet_overridden_keymaps = nil
     self._replay_loading_buf = nil
+    self._replay_restore_win = nil
     self._layout:set_command_mode(self._prompt:command_mode())
     self._prompt:set_on_command_mode_change(function(command_mode)
         self._layout:set_command_mode(command_mode)
@@ -715,6 +717,16 @@ function Chat:begin_staged_replay()
     end
     local buf = vim.api.nvim_create_buf(false, true)
     self._replay_loading_buf = buf
+    local current_win = vim.api.nvim_get_current_win()
+    if
+        current_win == self._layout:history_win()
+        or current_win == self._layout:prompt_win()
+        or current_win == self._layout:attachments_win()
+    then
+        self._replay_restore_win = current_win
+    else
+        self._replay_restore_win = nil
+    end
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
     vim.bo[buf].swapfile = false
@@ -732,14 +744,18 @@ function Chat:end_staged_replay()
     end
     local history_win = self._layout:history_win()
     local current_win = vim.api.nvim_get_current_win()
-    local restore_win
+    local restore_win = self._replay_restore_win
     if
-        current_win == history_win
-        or current_win == self._layout:prompt_win()
-        or current_win == self._layout:attachments_win()
+        not restore_win
+        and (
+            current_win == history_win
+            or current_win == self._layout:prompt_win()
+            or current_win == self._layout:attachments_win()
+        )
     then
         restore_win = current_win
     end
+    self._replay_restore_win = restore_win
     if self._layout:content_buf() == buf then
         self._layout:set_content_buffer(nil)
     end
@@ -1776,6 +1792,8 @@ end
 --- Finish replay after the last time-sliced batch installs complete History.
 function Chat:finish_replaying()
     local buf = self._history:buf()
+    local focus_win = self._replay_restore_win or vim.api.nvim_get_current_win()
+    self._replay_restore_win = nil
     self._history._replaying = false
     self._history:finish_replaying()
     self._history:scroll_to_bottom()
@@ -1788,6 +1806,18 @@ function Chat:finish_replaying()
         vim.cmd("redraw")
     end
     Render.resume_history(buf)
+    local function restore_focus()
+        local current_win = vim.api.nvim_get_current_win()
+        if
+            vim.api.nvim_win_is_valid(focus_win)
+            and vim.api.nvim_win_get_tabpage(focus_win) == vim.api.nvim_get_current_tabpage()
+            and (current_win == win or current_win == focus_win)
+        then
+            vim.api.nvim_set_current_win(focus_win)
+        end
+    end
+    restore_focus()
+    vim.defer_fn(restore_focus, 1)
 end
 
 ---@param timestamp? number

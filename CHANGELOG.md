@@ -5,6 +5,7 @@
 - **ADDED:** History buffer titles now show the backend session name or first user message, stay synced after renames, and keep a bounded single-line fallback for bufferline and file-tree integrations.
 - **FIXED:** Chat layout refreshes now skip unchanged window options and preserve configured expression folds, avoiding repeated full-History fold rebuilds.
 - **FIXED:** Markview cursor refreshes now debounce rapid movement and drop pending work once History becomes hidden, avoiding redundant full-buffer renders.
+- **FIXED:** Completing a staged History replay now restores the active chat component after deferred Markdown rendering without stealing focus from another view.
 
 ## 2026-08-18
 
