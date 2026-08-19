@@ -105,21 +105,32 @@ local function set_terminal_win_opts(win)
     vim.wo[win].cursorline = false
 end
 
-local function set_win_opts(win, extra)
-    vim.wo[win].wrap = true
-    vim.wo[win].linebreak = true
-    vim.wo[win].signcolumn = "no"
-    vim.wo[win].foldcolumn = editor_foldcolumn
-    vim.wo[win].foldenable = false
-    vim.wo[win].list = false
-    vim.wo[win].conceallevel = 2
-    vim.wo[win].winfixbuf = false
+local function set_win_option(win, name, value)
+    if vim.wo[win][name] ~= value then
+        vim.wo[win][name] = value
+    end
+end
+
+---@param win integer
+---@param extra? fun(win: integer)
+---@param preserve_folds? boolean
+local function set_win_opts(win, extra, preserve_folds)
+    set_win_option(win, "wrap", true)
+    set_win_option(win, "linebreak", true)
+    set_win_option(win, "signcolumn", "no")
+    set_win_option(win, "foldcolumn", editor_foldcolumn)
+    if not preserve_folds then
+        set_win_option(win, "foldenable", false)
+    end
+    set_win_option(win, "list", false)
+    set_win_option(win, "conceallevel", 2)
+    set_win_option(win, "winfixbuf", false)
     -- These options form the fingerprint used by pi.ui.winfix to detect
     -- windows inherited from pi. Keep in sync with has_pi_fingerprint().
-    vim.wo[win].concealcursor = "nvic"
-    vim.wo[win].number = false
-    vim.wo[win].relativenumber = false
-    vim.wo[win].cursorline = false
+    set_win_option(win, "concealcursor", "nvic")
+    set_win_option(win, "number", false)
+    set_win_option(win, "relativenumber", false)
+    set_win_option(win, "cursorline", false)
     if extra then
         extra(win)
     end
@@ -337,23 +348,31 @@ function Layout:_configure_content_window(win, number, relativenumber)
         end
         return
     end
+    local foldexpr = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldexpr(v:lnum)"
+    local foldtext = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldtext()"
+    local folds_configured = self._mode == "buffer"
+        and vim.wo[win].foldmethod == "expr"
+        and vim.wo[win].foldexpr == foldexpr
+        and vim.wo[win].foldtext == foldtext
     set_win_opts(win, function(target)
         if self._mode == "buffer" then
-            vim.wo[target].number = number == true
-            vim.wo[target].relativenumber = relativenumber == true
-            vim.wo[target].foldenable = true
-            vim.wo[target].foldmethod = "expr"
-            vim.wo[target].foldexpr = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldexpr(v:lnum)"
-            vim.wo[target].foldtext = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldtext()"
-            vim.wo[target].foldlevel = 0
-            vim.wo[target].foldcolumn = "1"
+            set_win_option(target, "number", number == true)
+            set_win_option(target, "relativenumber", relativenumber == true)
+            set_win_option(target, "foldmethod", "expr")
+            set_win_option(target, "foldexpr", foldexpr)
+            set_win_option(target, "foldtext", foldtext)
+            set_win_option(target, "foldlevel", 0)
+            set_win_option(target, "foldcolumn", "1")
+            -- Configure expression folds while disabled; enabling first makes
+            -- Neovim rebuild the full History once per option assignment.
+            set_win_option(target, "foldenable", true)
         elseif self._mode == "side" then
-            vim.wo[target].winfixwidth = true
+            set_win_option(target, "winfixwidth", true)
         end
         if Render.engine() == "builtin" then
-            vim.wo[target].conceallevel = 0
+            set_win_option(target, "conceallevel", 0)
         end
-    end)
+    end, folds_configured)
     if self._mode == "side" and Config.resolve_side_layout().panels.history.winbar then
         set_winbar(win, Config.options.panels.history.title, "PiChatHistoryWinbar")
     elseif self._mode == "float" then
@@ -705,20 +724,6 @@ function Layout:_open_in_buffer_layout()
             end
         end
     end
-    set_win_opts(self._history_win, function(win)
-        vim.wo[win].winfixbuf = false
-        vim.wo[win].number = global_number
-        vim.wo[win].relativenumber = global_relativenumber
-        vim.wo[win].foldenable = true
-        vim.wo[win].foldmethod = "expr"
-        vim.wo[win].foldexpr = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldexpr(v:lnum)"
-        vim.wo[win].foldtext = "v:lua.require'agent-workbench.ui.chat.history'.nvim_foldtext()"
-        vim.wo[win].foldlevel = 0
-        vim.wo[win].foldcolumn = "1"
-        if Render.engine() == "builtin" then
-            vim.wo[win].conceallevel = 0
-        end
-    end)
     self:_configure_content_window(self._history_win, global_number, global_relativenumber)
     if not self._content_buf then
         self._history:set_win(self._history_win)
@@ -745,15 +750,6 @@ function Layout:_open_in_side_layout()
 
     self._history_win = vim.api.nvim_get_current_win()
     set_win_buf(self._history_win, self:content_buf())
-    set_win_opts(self._history_win, function(win)
-        vim.wo[win].winfixwidth = true
-        -- Builtin engine: conceallevel=0 because treesitter markdown can't
-        -- conceal brackets/bold in tool output.  render-markdown engine needs
-        -- conceallevel=2 (set by set_win_opts) to hide syntax markers.
-        if Render.engine() == "builtin" then
-            vim.wo[win].conceallevel = 0
-        end
-    end)
     self:_configure_content_window(self._history_win)
     if not self._content_buf then
         self._history:set_win(self._history_win)
@@ -800,9 +796,6 @@ function Layout:_open_in_float_layout()
             title_pos = "center",
         }, user_win)
     )
-    set_win_opts(self._history_win)
-    vim.wo[self._history_win].winbar = ""
-    vim.wo[self._history_win].winhighlight = Highlights.CHAT_HISTORY_WINHIGHLIGHT
     self:_configure_content_window(self._history_win)
     if not self._content_buf then
         self._history:set_win(self._history_win)
