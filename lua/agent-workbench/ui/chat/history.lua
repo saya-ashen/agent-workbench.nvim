@@ -3,6 +3,7 @@
 ---@class agent_workbench.ChatHistory
 ---@field _buf integer
 ---@field _name string
+---@field _buffer_id string
 ---@field _win integer?
 ---@field _tab agent_workbench.TabId
 ---@field _scroll_scheduled boolean
@@ -427,6 +428,31 @@ local function highlight_table_pipes(buf, ns_id, row, line)
     end
 end
 
+---@param title string?
+---@return string?
+local function clean_buffer_title(title)
+    if type(title) ~= "string" then
+        return nil
+    end
+    title = title:gsub("%c+", " "):gsub("/", " "):gsub("\\", " ")
+    title = vim.trim(title):gsub("%s+", " ")
+    if title == "" or title == "(unnamed)" then
+        return nil
+    end
+    return vim.fn.strcharpart(title, 0, 80)
+end
+
+---@param id string
+---@param title string?
+---@return string
+local function buffer_name(id, title)
+    title = clean_buffer_title(title)
+    if title then
+        return ("π %s [%s]"):format(title, id)
+    end
+    return ("π session %s"):format(id)
+end
+
 ---@param tab agent_workbench.TabId
 ---@param name? string
 ---@param session_id? integer
@@ -509,14 +535,8 @@ function History.new(tab, name, session_id)
     vim.bo[self._buf].modifiable = false
     -- Keep listed History buffers readable to bufferline and file trees. The
     -- agent:// URI stays in `pi_session_uri` and workspace resource registry.
-    local buffer_name = ("π session %s"):format(session_id or tab)
-    local ok, err = pcall(vim.api.nvim_buf_set_name, self._buf, buffer_name)
-    if not ok then
-        if not tostring(err):find("E95", 1, true) then
-            error(err)
-        end
-        vim.api.nvim_buf_set_name(self._buf, ("%s [%d]"):format(buffer_name, self._buf))
-    end
+    self._buffer_id = tostring(session_id or tab)
+    self:set_buffer_title(nil)
     histories[self._buf] = self
     WorkspaceHistory.attach(self, name)
     vim.api.nvim_create_autocmd("BufWipeout", {
@@ -606,6 +626,26 @@ end
 ---@return boolean renamed
 function History:set_name(name)
     return WorkspaceHistory.rename(self, name)
+end
+
+---@param title string?
+---@return boolean changed
+function History:set_buffer_title(title)
+    local next_name = buffer_name(self._buffer_id, title)
+    local fallback_name = ("%s [%d]"):format(next_name, self._buf)
+    local current_name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(self._buf), ":t")
+    if current_name == next_name or current_name == fallback_name then
+        return false
+    end
+    local ok, err = pcall(vim.api.nvim_buf_set_name, self._buf, next_name)
+    if ok then
+        return true
+    end
+    if not tostring(err):find("E95", 1, true) then
+        error(err)
+    end
+    vim.api.nvim_buf_set_name(self._buf, fallback_name)
+    return true
 end
 
 ---@param fn fun()

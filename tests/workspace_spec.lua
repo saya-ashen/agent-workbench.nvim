@@ -46,6 +46,22 @@ describe("agent workspace", function()
         assert.is_nil(Workspace.buffer("agent://project/session-123"))
     end)
 
+    it("uses session details in the history buffer title", function()
+        local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/title/transcript", 7)
+
+        assert.is_true(history:set_buffer_title("run\nnotes/path\\draft"))
+        assert.are.equal(
+            "π run notes path draft [7]",
+            vim.fn.fnamemodify(vim.api.nvim_buf_get_name(history:buf()), ":t")
+        )
+        assert.is_false(history:set_buffer_title("run\nnotes/path\\draft"))
+
+        assert.is_true(history:set_buffer_title("(unnamed)"))
+        assert.are.equal("π session 7", vim.fn.fnamemodify(vim.api.nvim_buf_get_name(history:buf()), ":t"))
+
+        vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
     it("keeps concurrent transcript buffer names unique", function()
         local first = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/first/transcript", 42)
         local second = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/second/transcript", 42)

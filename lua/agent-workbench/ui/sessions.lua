@@ -234,6 +234,61 @@ local function resolve_name(session)
     return "(unnamed)"
 end
 
+---@param data table
+---@return string|false name, string|false first_message
+local function name_from_state(data)
+    local name = type(data.sessionName) == "string" and data.sessionName ~= "" and data.sessionName or false
+    ---@type string|false
+    local first_message = false
+    if not name and type(data.sessionFile) == "string" then
+        local info = require("agent-workbench.sessions.history").parse(data.sessionFile)
+        if info then
+            first_message = info.first_message ~= "" and info.first_message or false
+        end
+    end
+    return name, first_message
+end
+
+---@param session agent_workbench.Session
+---@param name string?
+local function set_buffer_title(session, name)
+    if type(session.chat) ~= "table" or type(session.chat.history) ~= "function" then
+        return
+    end
+    local history = session.chat:history()
+    if not history or type(history.set_buffer_title) ~= "function" then
+        return
+    end
+    if history:set_buffer_title(name) then
+        vim.cmd("redrawtabline")
+    end
+end
+
+---@param session agent_workbench.Session
+---@param name string|false
+---@param first_message string|false
+local function apply_buffer_title(session, name, first_message)
+    set_buffer_title(session, name or first_message or nil)
+end
+
+--- Apply name information returned by the session's initial get_state.
+---@param session agent_workbench.Session
+---@param data table
+function M.on_session_state_changed(session, data)
+    local name, first_message = name_from_state(data)
+    local current = name_cache[session]
+    if type(current) == "table" and current.name then
+        -- session_info_changed is newer than an already in-flight get_state.
+        apply_buffer_title(session, current.name, current.first_message)
+        return
+    end
+    if name or first_message then
+        name_cache[session] = { name = name, first_message = first_message }
+        apply_buffer_title(session, name, first_message)
+        M.request_refresh()
+    end
+end
+
 --- Ask the backend for the session's display name (and fall back to the first
 --- user message from its session file). Successful non-empty results are
 --- cached; lifecycle transitions invalidate the cache (M.invalidate).
@@ -263,15 +318,7 @@ fetch_name = function(session)
     local sent = session.rpc:send({ type = "get_state" }, function(res)
         vim.schedule(function()
             local data = res.success and res.data or {}
-            local name = type(data.sessionName) == "string" and data.sessionName ~= "" and data.sessionName or false
-            ---@type string|false
-            local first_message = false
-            if not name and type(data.sessionFile) == "string" then
-                local info = require("agent-workbench.sessions.history").parse(data.sessionFile)
-                if info and info.first_message ~= "" then
-                    first_message = info.first_message
-                end
-            end
+            local name, first_message = name_from_state(data)
             local current = name_cache[session]
             if type(current) == "table" and current.name then
                 -- A name arrived via session_info_changed while this fetch was
@@ -282,6 +329,7 @@ fetch_name = function(session)
                 return
             end
             name_cache[session] = { name = name, first_message = first_message }
+            apply_buffer_title(session, name, first_message)
             M.request_refresh()
         end)
     end)
@@ -298,6 +346,7 @@ end
 ---@param session agent_workbench.Session
 function M.invalidate(session)
     name_cache[session] = nil
+    set_buffer_title(session, nil)
 end
 
 --- Backend reports the session name changed (e.g. :AgentWorkbenchSessionName).
@@ -310,6 +359,7 @@ function M.on_session_info_changed(session, name)
         name_cache[session] = entry
     end
     entry.name = type(name) == "string" and name ~= "" and name or false
+    apply_buffer_title(session, entry.name, entry.first_message)
     M.request_refresh()
 end
 

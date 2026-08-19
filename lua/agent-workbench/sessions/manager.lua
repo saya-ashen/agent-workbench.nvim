@@ -260,6 +260,7 @@ local function refresh_state_and_pin(session)
             vim.schedule(function()
                 update_identity(session, res.data)
                 capture_model_pin(session, res.data)
+                require("agent-workbench.ui.sessions").on_session_state_changed(session, res.data)
                 session.chat:update_state(res.data)
             end)
         end

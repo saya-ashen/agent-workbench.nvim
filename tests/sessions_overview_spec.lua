@@ -202,6 +202,36 @@ describe("sessions overview", function()
             assert.are.equal("(unnamed)", SessionList._name_of(s))
         end)
 
+        it("keeps the history buffer title in sync with session names", function()
+            local s = fetchable_session()
+            local title_calls = {}
+            local history = {
+                set_buffer_title = function(_, title)
+                    title_calls[#title_calls + 1] = title or false
+                    return true
+                end,
+            }
+            s.chat.history = function()
+                return history
+            end
+
+            SessionList.on_session_state_changed(s, { sessionName = "initial name" })
+            assert.are.equal("initial name", SessionList._name_of(s))
+            assert.are.equal("initial name", title_calls[#title_calls])
+
+            SessionList.on_session_info_changed(s, "renamed")
+            SessionList.on_session_state_changed(s, { sessionName = "stale name" })
+            assert.are.equal("renamed", SessionList._name_of(s))
+            assert.are.equal("renamed", title_calls[#title_calls])
+
+            SessionList.invalidate(s)
+            assert.is_false(title_calls[#title_calls])
+
+            SessionList._fetch_name(s)
+            s.respond({ sessionName = "fetched name" })
+            assert.are.equal("fetched name", title_calls[#title_calls])
+        end)
+
         it("keeps (unnamed) on screen while an unresolved name is retried", function()
             local s = fetchable_session()
             SessionList._fetch_name(s)

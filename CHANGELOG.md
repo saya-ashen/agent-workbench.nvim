@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-19
+
+- **ADDED:** History buffer titles now show the backend session name or first user message, stay synced after renames, and keep a bounded single-line fallback for bufferline and file-tree integrations.
+
 ## 2026-08-18
 
 - **ADDED:** Workspace sidebar session rows now support `p` to open a live History preview without switching workspaces or triggering `direnv` rebuilds.
