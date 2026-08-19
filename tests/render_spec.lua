@@ -146,7 +146,7 @@ describe("markview history visibility", function()
         vim.api.nvim_set_current_tabpage(owner_tab)
     end)
 
-    it("uses linewise hybrid rendering and refreshes after cursor movement", function()
+    it("uses linewise hybrid rendering and debounces cursor movement", function()
         local renders = 0
         local render_state
         local render_config
@@ -169,9 +169,19 @@ describe("markview history visibility", function()
         assert.is_true(render_config.preview.linewise_hybrid_mode)
         assert.are.same({ 0, 0 }, render_config.preview.edit_range)
 
+        for _ = 1, 3 do
+            vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
+        end
+        vim.wait(10)
+        assert.are.equal(1, renders)
+        assert.is_true(vim.wait(100, function()
+            return renders == 2
+        end))
+
         vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(2, renders)
+        vim.api.nvim_win_set_buf(0, original_buf)
+        vim.wait(50)
+        assert.are.equal(2, renders, "hidden History must drop a pending cursor render")
     end)
 
     it("retries an unchanged History after markview clear fails", function()

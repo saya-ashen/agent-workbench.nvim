@@ -10,7 +10,9 @@ local markview_scheduled = {}
 local markview_paused = {}
 local markview_dirty = {}
 local markview_rendered_tick = {}
+local markview_cursor_generation = {}
 
+local MARKVIEW_CURSOR_DEBOUNCE_MS = 30
 local MARKVIEW_RENDER_STATE = { enable = true, hybrid_mode = true }
 local MARKVIEW_RENDER_CONFIG = {
     preview = {
@@ -142,6 +144,18 @@ local function refresh_markview(buf, force)
 end
 
 ---@param buf integer
+local function refresh_markview_cursor(buf)
+    local generation = (markview_cursor_generation[buf] or 0) + 1
+    markview_cursor_generation[buf] = generation
+    vim.defer_fn(function()
+        if markview_cursor_generation[buf] ~= generation or not is_visible(buf) then
+            return
+        end
+        refresh_markview(buf, true)
+    end, MARKVIEW_CURSOR_DEBOUNCE_MS)
+end
+
+---@param buf integer
 function M.refresh_history(buf)
     if M.engine() == "markview" then
         refresh_markview(buf)
@@ -171,7 +185,7 @@ function M.attach_history(buf)
         vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
             buffer = buf,
             callback = function()
-                refresh_markview(buf, true)
+                refresh_markview_cursor(buf)
             end,
         })
         render_markview(buf)
@@ -252,6 +266,7 @@ function M._reset()
     markview_paused = {}
     markview_dirty = {}
     markview_rendered_tick = {}
+    markview_cursor_generation = {}
 end
 
 return M
