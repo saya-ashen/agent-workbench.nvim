@@ -214,6 +214,61 @@ describe("history queue status rendering", function()
         vim.api.nvim_win_set_height(0, original_height)
     end)
 
+    it("does not follow streamed text when the cursor leaves the final line", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:_scroll_to_bottom()
+        vim.api.nvim_win_set_cursor(0, { 45, 0 })
+
+        assert.are.equal(50, vim.fn.line("w$"), "the latest output is still visible")
+        h:_append_text("\nstreamed")
+
+        assert.are.equal(45, vim.api.nvim_win_get_cursor(0)[1])
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
+    it("cancels a queued auto-scroll after the cursor moves", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:_scroll_to_bottom()
+
+        h:_maybe_scroll()
+        vim.api.nvim_win_set_cursor(0, { 45, 0 })
+        pump()
+
+        assert.are.equal(45, vim.api.nvim_win_get_cursor(0)[1])
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
+    it("keeps following structural output when the cursor remains at the end", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:_scroll_to_bottom()
+
+        h:_append_lines({ "structural one", "structural two" })
+        pump()
+
+        assert.are.equal(52, vim.api.nvim_win_get_cursor(0)[1])
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
+    it("does not force the cursor down for a compaction summary", function()
+        local h = setup_history(50)
+        local original_height = vim.api.nvim_win_get_height(0)
+        vim.api.nvim_win_set_height(0, 10)
+        h:_scroll_to_bottom()
+        vim.api.nvim_win_set_cursor(0, { 45, 0 })
+
+        h:_append_compaction_summary("summary", 100)
+        pump()
+
+        assert.are.equal(45, vim.api.nvim_win_get_cursor(0)[1])
+        vim.api.nvim_win_set_height(0, original_height)
+    end)
+
     it("scrolls to the final screen row of wrapped output", function()
         local h = setup_history(1)
         local text = string.rep("wrapped output ", 20)
