@@ -50,10 +50,13 @@ local user_defaults = {}
 ---@param win integer
 ---@return boolean
 local function has_pi_fingerprint(win)
-    return vim.wo[win].concealcursor == "nvic"
-        and not vim.wo[win].number
-        and not vim.wo[win].relativenumber
-        and not vim.wo[win].cursorline
+    return vim.w[win].agent_workbench_managed == true
+        or (
+            vim.wo[win].concealcursor == "nvic"
+            and not vim.wo[win].number
+            and not vim.wo[win].relativenumber
+            and not vim.wo[win].cursorline
+        )
 end
 
 --- Capture user defaults and set up the BufEnter autocmd. Must be called
@@ -75,6 +78,7 @@ function M.setup()
             for name, default in pairs(user_defaults) do
                 pcall(vim.api.nvim_set_option_value, name, default, { win = win })
             end
+            vim.w[win].agent_workbench_managed = nil
         end,
     })
 end

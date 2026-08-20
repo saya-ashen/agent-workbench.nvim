@@ -801,7 +801,7 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 
 ## Markdown rendering
 
-By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim): headings, list bullets, code blocks, links, and inline Markdown. The current cursor line stays in source form while surrounding lines stay rendered. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
+By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim) with your global Markview configuration unchanged: headings, list bullets, code blocks, links, and inline Markdown. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
 
 ```lua
 require("agent-workbench").setup({
@@ -811,9 +811,28 @@ require("agent-workbench").setup({
 })
 ```
 
+To override Markview only for Agent Workbench History buffers, set `render.markview`. These values deep-merge over the active global Markview configuration without changing other buffers. For example, this keeps the current cursor line in source form while surrounding lines stay rendered:
+
+```lua
+require("agent-workbench").setup({
+    render = {
+        engine = "markview",
+        markview = {
+            preview = {
+                enable_hybrid_mode = true,
+                hybrid_modes = { "n", "no", "c" },
+                linewise_hybrid_mode = true,
+                edit_range = { 0, 0 },
+            },
+        },
+    },
+})
+```
+
 Notes:
 
 - markview.nvim is dependency of default renderer; add it to plugin spec (see [Installation](../README.md#installation)). Missing markview triggers one warning and builtin fallback.
+- `render.markview = {}` is the default and passes neither state nor config overrides to Markview. History also applies Markview's configured enable/hybrid preview callbacks to its window, so cursor-line conceal matches ordinary Markdown buffers.
 - `render-markdown` remains supported for existing configurations.
 - pi only appends its `pi-chat-history` filetype to render-markdown's active `file_types`; your existing render-markdown configuration is left untouched.
 - render-markdown drives the rendering through its standard event hooks, so it stays in sync as the agent streams. The `markdown`/`markdown_inline` treesitter parsers it needs ship with Neovim ≥ 0.10.

@@ -28,13 +28,15 @@ end)
 
 describe("markview history visibility", function()
     local original_markview
+    local original_markview_spec
     local original_buf
     local history_buf
 
     before_each(function()
         original_markview = package.loaded.markview
+        original_markview_spec = package.loaded["markview.spec"]
         original_buf = vim.api.nvim_get_current_buf()
-        Config.options.render = { engine = "markview" }
+        Config.options.render = { engine = "markview", markview = {} }
     end)
 
     after_each(function()
@@ -45,6 +47,7 @@ describe("markview history visibility", function()
             vim.api.nvim_buf_delete(history_buf, { force = true })
         end
         package.loaded.markview = original_markview
+        package.loaded["markview.spec"] = original_markview_spec
         Config.options.render = { engine = "builtin" }
         Render._reset()
     end)
@@ -146,16 +149,14 @@ describe("markview history visibility", function()
         vim.api.nvim_set_current_tabpage(owner_tab)
     end)
 
-    it("uses linewise hybrid rendering and debounces cursor movement", function()
+    it("uses Markview's global config by default and debounces cursor movement", function()
         local renders = 0
-        local render_state
-        local render_config
+        local render_arg_count
         package.loaded.markview = {
             clear = function() end,
-            render = function(_, state, config)
+            render = function(_, ...)
                 renders = renders + 1
-                render_state = state
-                render_config = config
+                render_arg_count = select("#", ...)
             end,
         }
         history_buf = vim.api.nvim_create_buf(true, true)
@@ -164,10 +165,7 @@ describe("markview history visibility", function()
         Render.attach_history(history_buf)
         vim.wait(20)
         assert.are.equal(1, renders)
-        assert.are.same({ enable = true, hybrid_mode = true }, render_state)
-        assert.are.same({ "n", "no", "c" }, render_config.preview.hybrid_modes)
-        assert.is_true(render_config.preview.linewise_hybrid_mode)
-        assert.are.same({ 0, 0 }, render_config.preview.edit_range)
+        assert.are.equal(0, render_arg_count, "no state or config override should bypass Markview globals")
 
         for _ = 1, 3 do
             vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
@@ -182,6 +180,99 @@ describe("markview history visibility", function()
         vim.api.nvim_win_set_buf(0, original_buf)
         vim.wait(50)
         assert.are.equal(2, renders, "hidden History must drop a pending cursor render")
+    end)
+
+    it("applies Markview's global preview callbacks to History windows", function()
+        local global_config = {
+            preview = {
+                enable = true,
+                enable_hybrid_mode = true,
+                callbacks = {
+                    on_enable = function(_, windows)
+                        vim.wo[windows[1]].conceallevel = 3
+                    end,
+                    on_hybrid_enable = function(_, windows)
+                        vim.wo[windows[1]].concealcursor = "c"
+                    end,
+                },
+            },
+        }
+        package.loaded["markview.spec"] = {
+            config = global_config,
+            get = function(keys, opts)
+                local value = global_config
+                for _, key in ipairs(keys) do
+                    value = type(value) == "table" and value[key] or nil
+                end
+                return value == nil and opts.fallback or value
+            end,
+        }
+        package.loaded.markview = {
+            clear = function() end,
+            render = function() end,
+        }
+        history_buf = vim.api.nvim_create_buf(true, true)
+        vim.api.nvim_win_set_buf(0, history_buf)
+        vim.wo[0].conceallevel = 2
+        vim.wo[0].concealcursor = "nvic"
+
+        Render.configure_history_window(history_buf, 0)
+
+        assert.are.equal(3, vim.wo[0].conceallevel)
+        assert.are.equal("c", vim.wo[0].concealcursor)
+    end)
+
+    it("deep-merges History overrides over Markview's global config", function()
+        local global_config = {
+            preview = {
+                enable = true,
+                hybrid_modes = { "i" },
+                linewise_hybrid_mode = false,
+            },
+            markdown = {
+                headings = { enable = true, shift_width = 1 },
+            },
+        }
+        package.loaded["markview.spec"] = { config = global_config }
+        Config.options.render.markview = {
+            preview = {
+                hybrid_modes = { "n", "no", "c" },
+                linewise_hybrid_mode = true,
+            },
+            markdown = {
+                headings = { shift_width = 2 },
+            },
+        }
+
+        local render_state
+        local render_config
+        package.loaded.markview = {
+            clear = function() end,
+            render = function(_, state, config)
+                render_state = state
+                render_config = config
+            end,
+        }
+        history_buf = vim.api.nvim_create_buf(true, true)
+        vim.api.nvim_win_set_buf(0, history_buf)
+
+        Render.attach_history(history_buf)
+        vim.wait(20)
+
+        assert.is_nil(render_state)
+        assert.are.same({
+            preview = {
+                enable = true,
+                hybrid_modes = { "n", "no", "c" },
+                linewise_hybrid_mode = true,
+            },
+            markdown = {
+                headings = { enable = true, shift_width = 2 },
+            },
+        }, render_config)
+        assert.are.same({ "i" }, global_config.preview.hybrid_modes, "global Markview config must remain unchanged")
+        assert.is_false(global_config.preview.linewise_hybrid_mode)
+        assert.are.equal(1, global_config.markdown.headings.shift_width)
     end)
 
     it("retries an unchanged History after markview clear fails", function()

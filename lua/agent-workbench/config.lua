@@ -67,6 +67,7 @@
 
 ---@class agent_workbench.RenderConfig
 ---@field engine? string Markdown renderer for chat history: "markview" (default), "render-markdown", or "builtin"
+---@field markview? table Markview config overrides for chat History, deep-merged over the global Markview config (default: {})
 
 ---@class agent_workbench.DiffKeys
 ---@field accept agent_workbench.KeySpecs
@@ -499,6 +500,7 @@ local defaults = {
     },
     render = {
         engine = "markview",
+        markview = {},
     },
     verbs = {
         use_defaults = true,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-20
+
+- **FIXED:** Markview rendering and cursor-line conceal behavior now inherit the user's global configuration by default; optional `render.markview` values deep-merge over it only for Agent Workbench History buffers.
+
 ## 2026-08-19
 
 - **ADDED:** History buffer titles now show the backend session name or first user message, stay synced after renames, and keep a bounded single-line fallback for bufferline and file-tree integrations.
