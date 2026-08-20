@@ -1463,6 +1463,7 @@ end
 ---@param win integer
 function History:_configure_window(win)
     NativeFolds.configure_window(self, win)
+    Render.configure_history_window(self._buf, win)
 end
 
 ---@param win integer?

@@ -13,14 +13,6 @@ local markview_rendered_tick = {}
 local markview_cursor_generation = {}
 
 local MARKVIEW_CURSOR_DEBOUNCE_MS = 30
-local MARKVIEW_RENDER_STATE = { enable = true, hybrid_mode = true }
-local MARKVIEW_RENDER_CONFIG = {
-    preview = {
-        hybrid_modes = { "n", "no", "c" },
-        linewise_hybrid_mode = true,
-        edit_range = { 0, 0 },
-    },
-}
 
 ---@return string engine "builtin"|"markview"|"render-markdown"
 function M.engine()
@@ -100,6 +92,62 @@ local function is_visible(buf)
     return false
 end
 
+---@return table?
+local function markview_render_config()
+    local overrides = Config.options.render and Config.options.render.markview
+    if type(overrides) ~= "table" or next(overrides) == nil then
+        return nil
+    end
+    local ok, spec = pcall(require, "markview.spec")
+    if not ok or type(spec.config) ~= "table" then
+        return vim.deepcopy(overrides)
+    end
+    return vim.tbl_deep_extend("force", vim.deepcopy(spec.config), overrides)
+end
+
+---@param buf integer
+---@param win integer
+function M.configure_history_window(buf, win)
+    if
+        M.engine() ~= "markview"
+        or not vim.api.nvim_buf_is_valid(buf)
+        or not vim.api.nvim_win_is_valid(win)
+        or not ensure_markview()
+    then
+        return
+    end
+    vim.w[win].agent_workbench_managed = true
+    local render_config = markview_render_config()
+    local ok, spec = pcall(require, "markview.spec")
+    if not ok or type(spec.get) ~= "function" then
+        return
+    end
+    local temporary = render_config and type(spec.tmp_setup) == "function" and type(spec.tmp_reset) == "function"
+    if temporary then
+        spec.tmp_setup(render_config)
+    end
+    pcall(function()
+        local callbacks = spec.get({ "preview", "callbacks" }, { fallback = {}, ignore_enable = true })
+        if type(callbacks) ~= "table" then
+            return
+        end
+        local enabled = spec.get({ "preview", "enable" }, { fallback = true, ignore_enable = true }) ~= false
+        local hybrid = spec.get({ "preview", "enable_hybrid_mode" }, { fallback = true, ignore_enable = true })
+        local windows = { win }
+        local callback = enabled and callbacks.on_enable or callbacks.on_disable
+        if type(callback) == "function" then
+            callback(buf, windows)
+        end
+        callback = hybrid == false and callbacks.on_hybrid_disable or callbacks.on_hybrid_enable
+        if enabled and type(callback) == "function" then
+            callback(buf, windows)
+        end
+    end)
+    if temporary then
+        spec.tmp_reset()
+    end
+end
+
 ---@param buf integer
 local function render_markview_now(buf)
     if markview_paused[buf] or not markview_dirty[buf] or not is_visible(buf) then
@@ -113,7 +161,13 @@ local function render_markview_now(buf)
     if type(markview.clear) == "function" then
         clear_ok = pcall(markview.clear, buf)
     end
-    local render_ok = pcall(markview.render, buf, MARKVIEW_RENDER_STATE, MARKVIEW_RENDER_CONFIG)
+    local render_config = markview_render_config()
+    local render_ok
+    if render_config then
+        render_ok = pcall(markview.render, buf, nil, render_config)
+    else
+        render_ok = pcall(markview.render, buf)
+    end
     local ok = clear_ok and render_ok
     vim.b[buf].pi_markview = ok
     if ok then

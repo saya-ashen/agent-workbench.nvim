@@ -326,6 +326,9 @@ require("agent-workbench").setup({
     render = {
         -- "markview" (default), "render-markdown", or "builtin".
         engine = "markview",
+        -- Markview config for chat History only. Empty means use the global
+        -- Markview config unchanged; values here deep-merge over it.
+        markview = {},
     },
 
     -- Verb pairs for status messages, picked randomly per run.
