@@ -324,10 +324,11 @@ It will:
 - Complete `@path` mentions against project files (resolved relative to the current working directory), plus [dynamic mention providers](#dynamic-mentions) (`@git-diff`, `@git-log`, `@lsp-errors`, `@quickfix`, and any custom `mention_providers`) ahead of file matches.
 - Complete `/commands` against the backend's command list — but only when the cursor is on the first line of the prompt and that line starts with `/`.
 - After `/model`, fetch available models once from the current RPC session, then filter the cached list as you type. Items show model ID and provider; accepting one inserts canonical `provider/model-id`.
+- After `/thinking`, fetch the levels supported by the current model, then filter the model-aware cache as you type. Switching models refreshes the available levels.
 
 The completion popup shows source metadata for `/commands` (`extension`, `prompt`, `skill`) and the command description when available.
 
-**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `agent-workbench.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, `.`, and the argument space after `/model`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
+**2. `blink.cmp` source (optional).** If you use [blink.cmp](https://github.com/Saghen/blink.cmp), Agent Workbench ships a source at `agent-workbench.completion.blink` that integrates natively with the blink popup, including auto-trigger on `@`, `/`, `.`, and the argument space after `/model` or `/thinking`. Scope it to the π prompt filetype with `per_filetype` so it doesn't interfere with completion in your regular files:
 
 ```lua
 require("blink.cmp").setup({

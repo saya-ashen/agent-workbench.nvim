@@ -27,6 +27,10 @@ local builtin = {
 local model_cache = setmetatable({}, { __mode = "k" })
 ---@type table<agent_workbench.Session, fun(models: table[])[]>
 local model_waiters = setmetatable({}, { __mode = "k" })
+---@type table<agent_workbench.Session, table<string, string[]>>
+local thinking_cache = setmetatable({}, { __mode = "k" })
+---@type table<agent_workbench.Session, table<string, fun(levels: string[])[]>>
+local thinking_waiters = setmetatable({}, { __mode = "k" })
 
 ---@return agent_workbench.SlashCommand[]
 function M.list()
@@ -91,7 +95,7 @@ end
 function M.argument_context(line, cursor)
     local before = line:sub(1, cursor)
     local name, prefix = before:match("^/([%w_:%-]+)%s+(.*)$")
-    if name ~= "model" then
+    if name ~= "model" and name ~= "thinking" then
         return nil
     end
     return { name = name, prefix = prefix, start = #before - #prefix }
@@ -134,35 +138,62 @@ local function model_completions(models, prefix)
     return direct
 end
 
----@param name string
+---@param levels string[]
 ---@param prefix string
----@return agent_workbench.SlashArgumentCompletion[]?
-function M.cached_argument_completions(name, prefix)
-    if name ~= "model" then
-        return nil
+---@return agent_workbench.SlashArgumentCompletion[]
+local function thinking_completions(levels, prefix)
+    local Matcher = require("agent-workbench.completion")
+    local query = prefix:lower()
+    local direct = {}
+    local fuzzy = {}
+    for _, level in ipairs(levels) do
+        local lower = level:lower()
+        local item = { value = level, label = level, description = "thinking level" }
+        if query == "" or lower:sub(1, #query) == query then
+            direct[#direct + 1] = item
+        elseif Matcher.fuzzy_match(query, lower) then
+            fuzzy[#fuzzy + 1] = item
+        end
     end
-    local session = require("agent-workbench.sessions.manager").get()
-    local models = session and model_cache[session] or nil
-    return models and model_completions(models, prefix) or nil
+    vim.list_extend(direct, fuzzy)
+    return direct
+end
+
+---@param session agent_workbench.Session
+---@return string
+local function thinking_model_key(session)
+    local model = session.pinned_model
+    if type(model) == "table" and type(model.provider) == "string" and type(model.id) == "string" then
+        return model.provider .. "/" .. model.id
+    end
+    return ""
 end
 
 ---@param name string
 ---@param prefix string
----@param callback fun(items: agent_workbench.SlashArgumentCompletion[])
----@return boolean supported
-function M.request_argument_completions(name, prefix, callback)
-    if name ~= "model" then
-        return false
-    end
+---@return agent_workbench.SlashArgumentCompletion[]?
+function M.cached_argument_completions(name, prefix)
     local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        callback({})
-        return true
+    if name == "model" then
+        local models = session and model_cache[session] or nil
+        return models and model_completions(models, prefix) or nil
     end
+    if name == "thinking" and session then
+        local cache = thinking_cache[session]
+        local levels = cache and cache[thinking_model_key(session)] or nil
+        return levels and thinking_completions(levels, prefix) or nil
+    end
+    return nil
+end
+
+---@param session agent_workbench.Session
+---@param prefix string
+---@param callback fun(items: agent_workbench.SlashArgumentCompletion[])
+local function request_model_completions(session, prefix, callback)
     local cached = model_cache[session]
     if cached then
         callback(model_completions(cached, prefix))
-        return true
+        return
     end
 
     local waiters = model_waiters[session]
@@ -174,7 +205,7 @@ function M.request_argument_completions(name, prefix, callback)
         callback(model_completions(models, prefix))
     end
     if #waiters > 1 then
-        return true
+        return
     end
 
     local sent = session.rpc:send({ type = "get_available_models" }, function(res)
@@ -197,12 +228,97 @@ function M.request_argument_completions(name, prefix, callback)
             waiter({})
         end
     end
+end
+
+---@param session agent_workbench.Session
+---@param key string
+---@param levels string[]
+local function finish_thinking_request(session, key, levels)
+    local by_model = thinking_waiters[session] or {}
+    local pending = by_model[key] or {}
+    by_model[key] = nil
+    if next(by_model) == nil then
+        thinking_waiters[session] = nil
+    end
+    for _, waiter in ipairs(pending) do
+        waiter(levels)
+    end
+end
+
+---@param session agent_workbench.Session
+---@param prefix string
+---@param callback fun(items: agent_workbench.SlashArgumentCompletion[])
+local function request_thinking_completions(session, prefix, callback)
+    local key = thinking_model_key(session)
+    local cache = thinking_cache[session]
+    local cached = cache and cache[key] or nil
+    if cached then
+        callback(thinking_completions(cached, prefix))
+        return
+    end
+
+    local by_model = thinking_waiters[session]
+    if not by_model then
+        by_model = {}
+        thinking_waiters[session] = by_model
+    end
+    local waiters = by_model[key]
+    if not waiters then
+        waiters = {}
+        by_model[key] = waiters
+    end
+    waiters[#waiters + 1] = function(levels)
+        callback(thinking_completions(levels, prefix))
+    end
+    if #waiters > 1 then
+        return
+    end
+
+    local sent = session.rpc:send({ type = "get_available_thinking_levels" }, function(res)
+        vim.schedule(function()
+            local levels = res.success and (res.data or {}).levels or nil
+            if levels then
+                cache = thinking_cache[session]
+                if not cache then
+                    cache = {}
+                    thinking_cache[session] = cache
+                end
+                cache[key] = levels
+            end
+            finish_thinking_request(session, key, levels or {})
+        end)
+    end)
+    if not sent then
+        finish_thinking_request(session, key, {})
+    end
+end
+
+---@param name string
+---@param prefix string
+---@param callback fun(items: agent_workbench.SlashArgumentCompletion[])
+---@return boolean supported
+function M.request_argument_completions(name, prefix, callback)
+    if name ~= "model" and name ~= "thinking" then
+        return false
+    end
+    local session = require("agent-workbench.sessions.manager").get()
+    if not session or not session.rpc:is_running() then
+        callback({})
+        return true
+    end
+    if name == "model" then
+        request_model_completions(session, prefix, callback)
+    else
+        request_thinking_completions(session, prefix, callback)
+    end
     return true
 end
 
 function M._reset_argument_cache()
     model_cache = setmetatable({}, { __mode = "k" })
     model_waiters = setmetatable({}, { __mode = "k" })
+    thinking_cache = setmetatable({}, { __mode = "k" })
+    thinking_waiters = setmetatable({}, { __mode = "k" })
 end
 
 ---@param text string
