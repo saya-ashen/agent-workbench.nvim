@@ -124,6 +124,104 @@ describe("local slash commands", function()
         assert.is_true(ok, err)
     end)
 
+    it("completes /thinking arguments supported by the current model", function()
+        local context = assert(SlashCommands.argument_context("/thinking ", 10))
+        assert.are.same({ name = "thinking", prefix = "", start = 10 }, context)
+        context = assert(SlashCommands.argument_context("/thinking hi", 12))
+        assert.are.same({ name = "thinking", prefix = "hi", start = 10 }, context)
+
+        local old_manager = package.loaded["agent-workbench.sessions.manager"]
+        local responses = {}
+        local sends = 0
+        local session = {
+            pinned_model = { provider = "openai", id = "gpt-5.3-codex" },
+            rpc = {
+                is_running = function()
+                    return true
+                end,
+                send = function(_, msg, callback)
+                    sends = sends + 1
+                    assert.are.equal("get_available_thinking_levels", msg.type)
+                    responses[sends] = callback
+                    return true
+                end,
+            },
+        }
+        package.loaded["agent-workbench.sessions.manager"] = {
+            get = function()
+                return session
+            end,
+        }
+
+        local ok, err = pcall(function()
+            local all
+            local filtered
+            SlashCommands.request_argument_completions("thinking", "", function(items)
+                all = items
+            end)
+            SlashCommands.request_argument_completions("thinking", "hi", function(items)
+                filtered = items
+            end)
+            assert.are.equal(1, sends)
+            assert.is_nil(all)
+            assert.is_nil(filtered)
+
+            assert(responses[1])({
+                success = true,
+                data = { levels = { "off", "minimal", "low", "medium", "high", "xhigh", "max" } },
+            })
+            vim.wait(100, function()
+                return all ~= nil and filtered ~= nil
+            end)
+
+            assert.are.equal(7, #all)
+            assert.are.same({ value = "high", label = "high", description = "thinking level" }, filtered[1])
+            local xhigh
+            SlashCommands.request_argument_completions("thinking", "xh", function(items)
+                xhigh = items
+            end)
+            assert.are.equal(1, sends)
+            assert.are.equal("xhigh", xhigh[1].value)
+
+            local buf = vim.api.nvim_get_current_buf()
+            local original = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
+            vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "/thinking hi" })
+            vim.api.nvim_win_set_cursor(0, { 1, #"/thinking hi" })
+            local Omnifunc = require("agent-workbench.completion.omnifunc")
+            assert.are.equal(10, Omnifunc.completefunc(1, ""))
+            local omni_items = Omnifunc.completefunc(0, "hi")
+            assert.are.equal("high", omni_items[1].word)
+            assert.are.equal("high", omni_items[1].abbr)
+            vim.api.nvim_buf_set_lines(buf, 0, 1, false, { original })
+            vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+            local blink_result
+            require("agent-workbench.completion.blink")
+                .new()
+                :get_completions({ line = "/thinking hi", cursor = { 1, #"/thinking hi" } }, function(result)
+                    blink_result = result
+                end)
+            assert.are.equal("high", blink_result.items[1].insertText)
+            assert.are.equal("high", blink_result.items[1].label)
+
+            session.pinned_model = { provider = "anthropic", id = "claude-sonnet" }
+            local switched
+            SlashCommands.request_argument_completions("thinking", "", function(items)
+                switched = items
+            end)
+            assert.are.equal(2, sends)
+            assert.is_nil(switched)
+            assert(responses[2])({ success = true, data = { levels = { "off" } } })
+            vim.wait(100, function()
+                return switched ~= nil
+            end)
+            assert.are.equal(1, #switched)
+            assert.are.equal("off", switched[1].value)
+        end)
+        package.loaded["agent-workbench.sessions.manager"] = old_manager
+        assert.is_true(ok, err)
+    end)
+
     it("dispatches picker and lifecycle commands locally", function()
         local called = {}
         local old_pi = package.loaded["agent-workbench"]
