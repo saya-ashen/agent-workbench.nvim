@@ -15,6 +15,7 @@ describe("workspace sidebar", function()
     local original_workspace_buffers
     local original_devicons
     local original_confirm
+    local original_notify
     local activated
     local focused_session
     local created_session
@@ -80,6 +81,7 @@ describe("workspace sidebar", function()
         original_workspace_buffers = package.loaded["agent-workbench.workspace_buffers"]
         original_devicons = package.loaded["nvim-web-devicons"]
         original_confirm = require("agent-workbench.ui.dialog").confirm
+        original_notify = vim.notify
         history_buffers = {}
         local sessions = { session(11, start_tab, "busy"), session(22, second_tab, "idle") }
         SessionsUi.on_session_info_changed(sessions[1], "Build authentication flow")
@@ -143,6 +145,7 @@ describe("workspace sidebar", function()
         package.loaded["agent-workbench.workspace_buffers"] = original_workspace_buffers
         package.loaded["nvim-web-devicons"] = original_devicons
         require("agent-workbench.ui.dialog").confirm = original_confirm
+        vim.notify = original_notify
         if vim.api.nvim_tabpage_is_valid(second_tab) and #vim.api.nvim_list_tabpages() > 1 then
             vim.api.nvim_set_current_tabpage(second_tab)
             vim.cmd("tabclose!")
@@ -329,6 +332,57 @@ describe("workspace sidebar", function()
         vim.api.nvim_win_set_cursor(win, { 3, 0 })
         callback_for(buf, "d")()
         assert.is_false(vim.api.nvim_buf_is_valid(file))
+    end)
+
+    it("confirms before closing a workspace and stops its sessions", function()
+        Sidebar.open()
+        local win = vim.api.nvim_get_current_win()
+        local buf = vim.api.nvim_win_get_buf(win)
+        vim.api.nvim_win_set_cursor(win, { 2, 0 })
+        local confirm_opts
+        local confirm_callback
+        require("agent-workbench.ui.dialog").confirm = function(opts, callback)
+            confirm_opts = opts
+            confirm_callback = callback
+        end
+        local session_buf = history_buffers[2]
+
+        callback_for(buf, "d")()
+
+        assert.are.equal("Close workspace " .. vim.fs.basename(dirs[2]), confirm_opts.title)
+        assert.matches("stops all 1 session %(1 running%)", confirm_opts.message)
+        assert.is_true(vim.api.nvim_tabpage_is_valid(second_tab))
+        assert.is_true(vim.api.nvim_buf_is_valid(session_buf))
+
+        confirm_callback(true)
+
+        assert.is_false(vim.api.nvim_tabpage_is_valid(second_tab))
+        assert.is_false(vim.api.nvim_buf_is_valid(session_buf))
+        assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
+    end)
+
+    it("refuses to close the last workspace", function()
+        vim.api.nvim_set_current_tabpage(second_tab)
+        vim.cmd("tabclose!")
+        assert.are.equal(start_tab, vim.api.nvim_get_current_tabpage())
+        Sidebar.open()
+        local win = vim.api.nvim_get_current_win()
+        local buf = vim.api.nvim_win_get_buf(win)
+        vim.api.nvim_win_set_cursor(win, { 1, 0 })
+        local confirmed = false
+        local notified
+        require("agent-workbench.ui.dialog").confirm = function()
+            confirmed = true
+        end
+        vim.notify = function(message)
+            notified = message
+        end
+
+        callback_for(buf, "d")()
+
+        assert.is_false(confirmed)
+        assert.is_true(vim.api.nvim_tabpage_is_valid(start_tab))
+        assert.matches("Cannot close the last workspace", notified)
     end)
 
     it("previews live background output without changing workspace or activation", function()

@@ -35,7 +35,7 @@ local HELP_ENTRIES = {
     { "h / l", "Toggle workspace; collapse/open item" },
     { "e, <Tab>", "Toggle workspace" },
     { "p", "Preview session without switching workspace" },
-    { "d", "Delete buffer / stop session" },
+    { "d", "Close workspace / delete item" },
     { "a", "Create session in workspace" },
     { "A", "Create workspace" },
     { "o", "Open and close sidebar" },
@@ -665,9 +665,80 @@ local function delete_buffer(target)
     M._render()
 end
 
+---@param workspace agent_workbench.WorkspaceRow
+local function close_workspace(workspace)
+    if #vim.api.nvim_list_tabpages() <= 1 then
+        require("agent-workbench.notify").warn("Cannot close the last workspace")
+        return
+    end
+    if not vim.api.nvim_tabpage_is_valid(workspace.tab) then
+        M._render()
+        return
+    end
+    local sessions = sessions_for(workspace)
+    local running = 0
+    for _, session in ipairs(sessions) do
+        if session.rpc:is_running() then
+            running = running + 1
+        end
+    end
+    local message = "Open buffers remain available."
+    if #sessions > 0 then
+        message = ("This stops all %d session%s (%d running). Open buffers remain available."):format(
+            #sessions,
+            #sessions == 1 and "" or "s",
+            running
+        )
+    end
+    Dialog.confirm({ title = "Close workspace " .. workspace.name, message = message }, function(confirmed)
+        if not confirmed or not vim.api.nvim_tabpage_is_valid(workspace.tab) then
+            return
+        end
+        local tabs = vim.api.nvim_list_tabpages()
+        if #tabs <= 1 then
+            require("agent-workbench.notify").warn("Cannot close the last workspace")
+            return
+        end
+        local tab_number
+        for index, tab in ipairs(tabs) do
+            if tab == workspace.tab then
+                tab_number = index
+                break
+            end
+        end
+        if not tab_number then
+            return
+        end
+        local closed, close_err = pcall(vim.cmd, "tabclose " .. tab_number)
+        if not closed then
+            require("agent-workbench.notify").warn("Could not close workspace: " .. tostring(close_err))
+            return
+        end
+        for _, session in ipairs(sessions) do
+            local target = session.history_buf
+            if target and vim.api.nvim_buf_is_valid(target) then
+                local stopped, stop_err = pcall(vim.api.nvim_buf_delete, target, { force = true })
+                if not stopped then
+                    require("agent-workbench.notify").warn(
+                        ("Workspace closed, but session %d could not be stopped: %s"):format(
+                            session.id,
+                            tostring(stop_err)
+                        )
+                    )
+                end
+            end
+        end
+        M._render()
+    end)
+end
+
 local function delete_under_cursor()
     local item = item_under_cursor()
     if not item then
+        return
+    end
+    if item.kind == "workspace" and item.workspace then
+        close_workspace(item.workspace)
         return
     end
     local target = item.kind == "session" and item.session and item.session.history_buf or item.buf
@@ -741,7 +812,7 @@ local function ensure_buf()
         "n",
         "d",
         delete_under_cursor,
-        vim.tbl_extend("force", opts, { desc = "Delete buffer / stop session" })
+        vim.tbl_extend("force", opts, { desc = "Close workspace / delete buffer / stop session" })
     )
     vim.keymap.set("n", "R", refresh, vim.tbl_extend("force", opts, { desc = "Refresh workspaces" }))
     vim.keymap.set("n", "a", create_session_under_cursor, vim.tbl_extend("force", opts, { desc = "Create session" }))

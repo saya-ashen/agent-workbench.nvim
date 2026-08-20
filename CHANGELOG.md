@@ -2,6 +2,7 @@
 
 ## 2026-08-20
 
+- **ADDED:** Workspace sidebar `d` now confirms before closing a workspace tab, stops all sessions owned by it, preserves ordinary buffers, and refuses to close the last workspace.
 - **FIXED:** Markview rendering and cursor-line conceal behavior now inherit the user's global configuration by default; optional `render.markview` values deep-merge over it only for Agent Workbench History buffers.
 
 ## 2026-08-19
