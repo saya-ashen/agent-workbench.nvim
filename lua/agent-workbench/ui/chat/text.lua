@@ -12,6 +12,162 @@ function M.thinking_flat(lines)
     return s
 end
 
+---@class agent_workbench.ThinkingPreviewChunk
+---@field text string
+---@field style? "strong"|"emphasis"|"strikethrough"|"inline_code"
+
+local inline_patterns = {
+    { pattern = "%*%*(.-)%*%*", style = "strong" },
+    { pattern = "__(.-)__", style = "strong" },
+    { pattern = "~~(.-)~~", style = "strikethrough" },
+    { pattern = "`([^`]-)`", style = "inline_code" },
+    { pattern = "%*([^*]-)%*", style = "emphasis" },
+    { pattern = "_([^_]-)_", style = "emphasis" },
+}
+
+---@param chunks agent_workbench.ThinkingPreviewChunk[]
+---@param text string
+---@param style? "strong"|"emphasis"|"strikethrough"|"inline_code"
+local function append_preview_chunk(chunks, text, style)
+    if text == "" then
+        return
+    end
+    local previous = chunks[#chunks]
+    if previous and previous.style == style then
+        previous.text = previous.text .. text
+    else
+        chunks[#chunks + 1] = { text = text, style = style }
+    end
+end
+
+--- Parse the small inline-Markdown subset used by model thinking summaries.
+--- Thinking stays a structural block and never enters the Markdown parser.
+---@param text string
+---@return agent_workbench.ThinkingPreviewChunk[]
+function M.thinking_inline_chunks(text)
+    local chunks = {}
+    local cursor = 1
+    while cursor <= #text do
+        local best_start, best_end, best_inner, best_style
+        for _, candidate in ipairs(inline_patterns) do
+            local start_col, end_col, inner = text:find(candidate.pattern, cursor)
+            if
+                start_col
+                and inner ~= ""
+                and (not best_start or start_col < best_start or (start_col == best_start and end_col > best_end))
+            then
+                best_start, best_end, best_inner, best_style = start_col, end_col, inner, candidate.style
+            end
+        end
+        if not best_start then
+            append_preview_chunk(chunks, text:sub(cursor))
+            break
+        end
+        append_preview_chunk(chunks, text:sub(cursor, best_start - 1))
+        append_preview_chunk(chunks, best_inner, best_style)
+        cursor = best_end + 1
+    end
+    return chunks
+end
+
+---@param chunks agent_workbench.ThinkingPreviewChunk[]
+---@return integer
+local function preview_width(chunks)
+    local width = 0
+    for _, chunk in ipairs(chunks) do
+        width = width + vim.fn.strdisplaywidth(chunk.text)
+    end
+    return width
+end
+
+---@param chunks agent_workbench.ThinkingPreviewChunk[]
+---@param w integer
+---@return agent_workbench.ThinkingPreviewChunk[]
+local function preview_head(chunks, w)
+    if preview_width(chunks) <= w then
+        return chunks
+    end
+    if w <= 1 then
+        return { { text = "…" } }
+    end
+    local result = {}
+    local remaining = w - 1
+    for _, chunk in ipairs(chunks) do
+        local kept = ""
+        local index = 1
+        while index <= #chunk.text do
+            local length = M.utf8_len(chunk.text:byte(index))
+            local char = chunk.text:sub(index, index + length - 1)
+            local char_width = vim.fn.strdisplaywidth(char)
+            if char_width > remaining then
+                break
+            end
+            kept = kept .. char
+            remaining = remaining - char_width
+            index = index + length
+        end
+        append_preview_chunk(result, kept, chunk.style)
+        if index <= #chunk.text or remaining <= 0 then
+            break
+        end
+    end
+    append_preview_chunk(result, "…")
+    return result
+end
+
+---@param chunks agent_workbench.ThinkingPreviewChunk[]
+---@param w integer
+---@return agent_workbench.ThinkingPreviewChunk[]
+local function preview_tail(chunks, w)
+    if w <= 0 then
+        return {}
+    end
+    if preview_width(chunks) <= w then
+        return chunks
+    end
+    local result = {}
+    local remaining = w
+    for chunk_index = #chunks, 1, -1 do
+        local chunk = chunks[chunk_index]
+        local start_byte = #chunk.text + 1
+        local index = #chunk.text
+        while index >= 1 do
+            local char_start = index
+            while char_start > 1 and chunk.text:byte(char_start) >= 0x80 and chunk.text:byte(char_start) <= 0xbf do
+                char_start = char_start - 1
+            end
+            local char_width = vim.fn.strdisplaywidth(chunk.text:sub(char_start, index))
+            if char_width > remaining then
+                break
+            end
+            remaining = remaining - char_width
+            start_byte = char_start
+            index = char_start - 1
+        end
+        if start_byte <= #chunk.text then
+            table.insert(result, 1, { text = chunk.text:sub(start_byte), style = chunk.style })
+        end
+        if index >= 1 or remaining <= 0 then
+            break
+        end
+    end
+    return result
+end
+
+---@param text string
+---@param w integer
+---@return agent_workbench.ThinkingPreviewChunk[]
+function M.thinking_preview_head(text, w)
+    return preview_head(M.thinking_inline_chunks(text), w)
+end
+
+---@param text string
+---@param w integer
+---@return agent_workbench.ThinkingPreviewChunk[]
+function M.thinking_preview_tail(text, w)
+    return preview_tail(M.thinking_inline_chunks(text), w)
+end
+
 --- Length in bytes of the utf-8 char starting at byte index i.
 ---@param b integer
 ---@return integer

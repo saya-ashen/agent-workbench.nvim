@@ -71,17 +71,17 @@ local function clear_pending(pending)
 end
 
 describe("buffer-owned sessions", function()
-    local original_render_engine
+    local original_render
 
     before_each(function()
-        original_render_engine = Config.options.render.engine
-        Config.options.render.engine = "builtin"
+        original_render = vim.deepcopy(Config.options.render)
+        Config.options.render = { markdown = { enabled = false } }
         install_stub()
         Sessions.setup_autocmds()
     end)
 
     after_each(function()
-        Config.options.render.engine = original_render_engine
+        Config.options.render = original_render
         WorkspaceBuffers._reset()
         restore_stub()
     end)
@@ -573,9 +573,10 @@ describe("buffer-owned sessions", function()
         local history_win
         local staged_ok, staged_err = pcall(function()
             assert.are.equal("loading", session.chat._history._placeholder_mode)
-            assert.is_true(vim.wait(200, function()
-                return #deferred > 0
-            end))
+            -- Let the first scheduled replay slice run while defer_fn is
+            -- captured; it must queue a continuation instead of completing.
+            vim.wait(50)
+            assert.is_true(#deferred > 0)
 
             history_win = assert(session.chat._layout:history_win())
             local loading_buf = assert(session.chat._replay_loading_buf)

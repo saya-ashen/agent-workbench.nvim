@@ -33,11 +33,11 @@ end
 
 describe("pi-web-access tool renderers (issue #51)", function()
     before_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
     end)
 
     after_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 

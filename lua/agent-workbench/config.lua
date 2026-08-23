@@ -65,9 +65,37 @@
 ---@class agent_workbench.PromptDraftConfig
 ---@field enabled? boolean Persist unsent prompts per workspace and restore stale drafts after restart (default: true)
 
+---@class agent_workbench.MarkdownFeatures
+---@field headings boolean
+---@field emphasis boolean
+---@field strikethrough boolean
+---@field links boolean
+---@field inline_code boolean
+---@field lists boolean
+---@field checkboxes boolean
+---@field block_quotes boolean
+---@field code_blocks boolean
+---@field tables boolean
+---@field horizontal_rules boolean
+
+---@class agent_workbench.MarkdownSymbols
+---@field bullet string
+---@field checked string
+---@field unchecked string
+---@field block_quote string
+---@field link string
+---@field horizontal_rule string
+
+---@class agent_workbench.MarkdownConfig
+---@field enabled boolean Render user/assistant Markdown blocks with Extmarks (default: true)
+---@field debounce_ms integer Delay before recompiling streamed Markdown (default: 30)
+---@field features agent_workbench.MarkdownFeatures
+---@field symbols agent_workbench.MarkdownSymbols
+
 ---@class agent_workbench.RenderConfig
----@field engine? string Markdown renderer for chat history: "markview" (default), "render-markdown", or "builtin"
----@field markview? table Markview config overrides for chat History, deep-merged over the global Markview config (default: {})
+---@field markdown agent_workbench.MarkdownConfig
+---@field engine? string Deprecated compatibility key; only "markview" is accepted temporarily
+---@field markview? table Deprecated and ignored; use markdown instead
 
 ---@class agent_workbench.DiffKeys
 ---@field accept agent_workbench.KeySpecs
@@ -499,8 +527,31 @@ local defaults = {
         },
     },
     render = {
-        engine = "markview",
-        markview = {},
+        markdown = {
+            enabled = true,
+            debounce_ms = 30,
+            features = {
+                headings = true,
+                emphasis = true,
+                strikethrough = true,
+                links = true,
+                inline_code = true,
+                lists = true,
+                checkboxes = true,
+                block_quotes = true,
+                code_blocks = true,
+                tables = true,
+                horizontal_rules = true,
+            },
+            symbols = {
+                bullet = "•",
+                checked = "󰄲",
+                unchecked = "󰄱",
+                block_quote = "│",
+                link = "󰌹 ",
+                horizontal_rule = "─",
+            },
+        },
     },
     verbs = {
         use_defaults = true,

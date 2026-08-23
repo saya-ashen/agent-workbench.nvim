@@ -1591,7 +1591,6 @@ function M.setup_autocmds()
             local session = M.get()
             if session then
                 require("agent-workbench.ui.sessions").clear_flags(session)
-                require("agent-workbench.ui.render").refresh_history(session.history_buf)
             elseif Config.options.auto_start_session then
                 vim.schedule(function()
                     M.get_or_create()

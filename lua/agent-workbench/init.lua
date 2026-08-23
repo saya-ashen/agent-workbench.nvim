@@ -28,7 +28,6 @@ function M.setup(opts)
 
     is_initialized = true
 
-    vim.treesitter.language.register("markdown", require("agent-workbench.filetypes").history)
     require("agent-workbench.ui.highlights").setup()
     require("agent-workbench.attention").setup_autocmds()
     require("agent-workbench.sessions.manager").setup_autocmds()

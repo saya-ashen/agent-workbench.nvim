@@ -11,8 +11,8 @@ The health check verifies:
   - minimum supported: `0.65.2`
   - last validated: `0.79.3`
   - older versions are a hard error; newer versions are reported as unvalidated (warning), not hard-failed.
-- **Treesitter parsers** — `markdown` and `markdown_inline` (info-only; chat highlighting is limited without them).
-- **Optional plugins** — `img-clip.nvim` (clipboard image paste), `render-markdown.nvim` (warned when it's the configured engine but missing), `blink.cmp` (info-only).
+- **Markdown renderer dependencies** — the `markdown` / `markdown_inline` Tree-sitter parsers and the documented `markview.parser.init()` API. Missing the root parser or Markview API is an error when `render.markdown.enabled` is on; chat remains usable with raw Markdown.
+- **Optional plugins** — `img-clip.nvim` (clipboard image paste) and `blink.cmp` (info-only).
 - **The bundled tree extension** — `extensions/tree.ts` exists when `tree.enabled` is on (`:AgentWorkbenchTree` depends on it).
 - **Image compression tools** — when `prompt.image_compress` is enabled, at least one of `sips` / `magick` / `ffmpeg` is found (warns if you pinned a specific `tool` that's missing).
 
@@ -70,6 +70,8 @@ A rough triage checklist for common symptoms:
 | Diff review doesn't open on edit/write | Is a permission extension loaded? See [Diff review](diff-review.md). |
 | Extension UI request ignored | Check the extension's `widgetKey` / method — is it something Agent Workbench knows how to route? See [Extensions](extensions.md). |
 | Slash command not highlighted | The command cache may not be populated yet (fetched on first chat open, refreshed every 30 seconds). |
+| Markdown stays raw | Run `:checkhealth agent-workbench`; install/update Markview and the Markdown Tree-sitter parsers, and confirm `render.markdown.enabled` is not `false`. A parser error affects decorations only, not transcript text. |
+| One malformed reply changes later Markdown | Restart Neovim to load the current plugin code. Current History rendering parses every message/assistant segment independently; if later messages are still affected, include the raw block text and `:checkhealth` output in a bug report. |
 | Session doesn't continue with `:AgentWorkbenchContinue` | Are you in the same cwd as when the session was started? Sessions are cwd-scoped — see [Sessions](sessions.md). |
 | Statusline component shows stale data | The statusline is pushed from RPC events; if they stopped flowing, `rpc.log` will show the gap. |
 | Unhandled event warning | Agent Workbench doesn't yet know about a new event type the backend is sending. Please [open an issue](https://github.com/saya-ashen/agent-workbench.nvim/issues) with the event name and a snippet of `rpc.log`. |

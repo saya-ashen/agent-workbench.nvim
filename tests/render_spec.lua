@@ -1,309 +1,265 @@
--- Unit tests for pi.ui.render engine resolution (pure config logic, no plugin).
-
 local Config = require("agent-workbench.config")
 local Render = require("agent-workbench.ui.render")
 
-describe("render engine resolution", function()
-    after_each(function()
-        -- restore the default so tests don't leak state
-        Config.options.render = { engine = "builtin" }
-        Render._reset()
-    end)
+local function markdown_config(extra)
+    return vim.tbl_deep_extend("force", {
+        markdown = {
+            enabled = true,
+            debounce_ms = 1,
+            features = {},
+            symbols = {},
+        },
+    }, extra or {})
+end
 
-    it("defaults to builtin", function()
-        Config.options.render = nil
-        assert.are.equal("builtin", Render.engine())
-    end)
+local function parser_stub(on_parse)
+    return {
+        init = function(buf)
+            if on_parse then
+                on_parse(buf)
+            end
+            return { markdown = {}, markdown_inline = {} }, {}
+        end,
+    }
+end
 
-    it("reads an explicit engine", function()
-        Config.options.render = { engine = "render-markdown" }
-        assert.are.equal("render-markdown", Render.engine())
-    end)
+local function details(buf)
+    local marks = vim.api.nvim_buf_get_extmarks(buf, Render._namespace, 0, -1, { details = true })
+    local out = {}
+    for _, mark in ipairs(marks) do
+        out[#out + 1] = mark[4]
+    end
+    return out
+end
 
-    it("treats a missing engine key as builtin", function()
-        Config.options.render = {}
-        assert.are.equal("builtin", Render.engine())
-    end)
-end)
+local function has_hl(buf, expected)
+    for _, detail in ipairs(details(buf)) do
+        if detail.hl_group == expected then
+            return true
+        end
+    end
+    return false
+end
 
-describe("markview history visibility", function()
-    local original_markview
-    local original_markview_spec
+describe("message-level Markdown rendering", function()
+    local original_parser
+    local original_preload
+    local original_notify
     local original_buf
-    local history_buf
+    local buffers
 
     before_each(function()
-        original_markview = package.loaded.markview
-        original_markview_spec = package.loaded["markview.spec"]
+        original_parser = package.loaded["markview.parser"]
+        original_preload = package.preload["markview.parser"]
+        original_notify = vim.notify
         original_buf = vim.api.nvim_get_current_buf()
-        Config.options.render = { engine = "markview", markview = {} }
+        buffers = {}
+        Config.options.render = markdown_config()
+        package.loaded["markview.parser"] = parser_stub()
+        Render._reset()
     end)
 
     after_each(function()
         if original_buf and vim.api.nvim_buf_is_valid(original_buf) then
             vim.api.nvim_win_set_buf(0, original_buf)
         end
-        if history_buf and vim.api.nvim_buf_is_valid(history_buf) then
-            vim.api.nvim_buf_delete(history_buf, { force = true })
+        for _, buf in ipairs(buffers) do
+            if vim.api.nvim_buf_is_valid(buf) then
+                vim.api.nvim_buf_delete(buf, { force = true })
+            end
         end
-        package.loaded.markview = original_markview
-        package.loaded["markview.spec"] = original_markview_spec
-        Config.options.render = { engine = "builtin" }
+        package.loaded["markview.parser"] = original_parser
+        package.preload["markview.parser"] = original_preload
+        vim.notify = original_notify
+        Config.options.render = markdown_config()
         Render._reset()
     end)
 
-    it("renders only after a hidden History buffer becomes visible", function()
-        local renders = 0
-        package.loaded.markview = {
-            clear = function() end,
-            render = function()
-                renders = renders + 1
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
+    local function new_buffer(lines)
+        local buf = vim.api.nvim_create_buf(true, true)
+        buffers[#buffers + 1] = buf
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        Render.attach_history(buf)
+        return buf
+    end
 
-        Render.attach_history(history_buf)
-        Render.refresh_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(0, renders)
-
-        vim.api.nvim_win_set_buf(0, history_buf)
-        vim.api.nvim_exec_autocmds("BufWinEnter", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(1, renders)
-
-        vim.api.nvim_exec_autocmds("BufWinEnter", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(1, renders, "unchanged History must keep its cached render")
-
-        vim.bo[history_buf].modifiable = true
-        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "changed" })
-        vim.bo[history_buf].modifiable = false
-        Render.refresh_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(2, renders)
-
-        vim.api.nvim_exec_autocmds("BufWinEnter", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(2, renders, "re-entry must not render unchanged History again")
+    it("uses the isolated renderer by default and raw mode when disabled", function()
+        assert.are.equal("markdown", Render.engine())
+        Config.options.render.markdown.enabled = false
+        assert.are.equal("raw", Render.engine())
     end)
 
-    it("defers rendering when replay resumes", function()
-        local renders = 0
-        package.loaded.markview = {
-            clear = function() end,
-            render = function()
-                renders = renders + 1
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
-
-        Render.attach_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(1, renders)
-
-        Render.pause_history(history_buf)
-        vim.bo[history_buf].modifiable = true
-        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "complete replay" })
-        vim.bo[history_buf].modifiable = false
-        Render.refresh_history(history_buf)
-        Render.resume_history(history_buf)
-        assert.are.equal(1, renders, "resume must not block on Markdown rendering")
-        vim.wait(20)
-        assert.are.equal(2, renders)
+    it("accepts legacy markview but rejects removed engines", function()
+        Config.options.render.engine = "markview"
+        assert.are.equal("markdown", Render.engine())
+        Config.options.render.engine = "builtin"
+        assert.are.equal("raw", Render.engine())
+        Config.options.render.engine = "render-markdown"
+        assert.are.equal("raw", Render.engine())
     end)
 
-    it("defers rendering in a background tab until that workspace is current", function()
-        local renders = 0
-        package.loaded.markview = {
-            clear = function() end,
-            render = function()
-                renders = renders + 1
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
-        local owner_tab = vim.api.nvim_get_current_tabpage()
-
-        Render.attach_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(1, renders)
-
-        vim.cmd("tabnew")
-        local foreground_tab = vim.api.nvim_get_current_tabpage()
-        vim.bo[history_buf].modifiable = true
-        vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, { "background change" })
-        vim.bo[history_buf].modifiable = false
-        Render.refresh_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(1, renders)
-
-        vim.api.nvim_set_current_tabpage(owner_tab)
-        Render.refresh_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(2, renders)
-
-        vim.api.nvim_set_current_tabpage(foreground_tab)
-        vim.cmd("tabclose!")
-        vim.api.nvim_set_current_tabpage(owner_tab)
+    it("applies Tree-sitter captures to one block without changing its text", function()
+        local source = "# Heading **bold**"
+        local buf = new_buffer({ source })
+        vim.api.nvim_win_set_buf(0, buf)
+        local block = assert(Render.start_block(buf, "assistant", 0, source, 0, true))
+        assert.is_true(block.complete)
+        assert.is_true(has_hl(buf, "AgentWorkbenchMarkdownStrong"))
+        assert.are.same({ source }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     end)
 
-    it("uses Markview's global config by default and debounces cursor movement", function()
-        local renders = 0
-        local render_arg_count
-        package.loaded.markview = {
-            clear = function() end,
-            render = function(_, ...)
-                renders = renders + 1
-                render_arg_count = select("#", ...)
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
+    it("keeps an unclosed fence in one block from poisoning the next heading", function()
+        local buf = new_buffer({ "```lua", "local x = 1", "### Next" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.start_block(buf, "assistant", 0, "```lua\nlocal x = 1", 0, true)
+        Render.start_block(buf, "assistant", 2, "### Next", 0, true)
+        assert.is_true(has_hl(buf, "AgentWorkbenchMarkdownHeading3"))
+    end)
 
-        Render.attach_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(1, renders)
-        assert.are.equal(0, render_arg_count, "no state or config override should bypass Markview globals")
-
-        for _ = 1, 3 do
-            vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
+    it("offsets user-message captures past the two-column body prefix", function()
+        local buf = new_buffer({ "  **bold**" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.start_block(buf, "user", 0, "**bold**", 2, true)
+        local found = false
+        for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, Render._namespace, 0, -1, { details = true })) do
+            if mark[4].hl_group == "AgentWorkbenchMarkdownStrong" then
+                found = mark[3] == 2
+            end
         end
-        vim.wait(10)
-        assert.are.equal(1, renders)
+        assert.is_true(found)
+    end)
+
+    it("translates multiline user capture start and end columns", function()
+        local source = "[multi\nline](url)"
+        local buf = new_buffer({ "  [multi", "  line](url)" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.start_block(buf, "user", 0, source, 2, true)
+        local found = false
+        for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, Render._namespace, 0, -1, { details = true })) do
+            local detail = mark[4]
+            if detail.hl_group == "AgentWorkbenchMarkdownLink" and mark[2] == 0 and mark[3] == 3 then
+                found = detail.end_row == 1 and detail.end_col == 6
+            end
+        end
+        assert.is_true(found)
+    end)
+
+    it("coalesces streamed recompiles and renders the final source", function()
+        local parses = 0
+        package.loaded["markview.parser"] = parser_stub(function()
+            parses = parses + 1
+        end)
+        local buf = new_buffer({ "" })
+        vim.api.nvim_win_set_buf(0, buf)
+        local block = assert(Render.start_block(buf, "assistant", 0, "**bo", 0, false))
+        Render.append_block(block, "ld")
+        Render.append_block(block, "**")
         assert.is_true(vim.wait(100, function()
-            return renders == 2
+            return parses == 1
         end))
-
-        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = history_buf })
-        vim.api.nvim_win_set_buf(0, original_buf)
-        vim.wait(50)
-        assert.are.equal(2, renders, "hidden History must drop a pending cursor render")
+        assert.is_true(has_hl(buf, "AgentWorkbenchMarkdownStrong"))
     end)
 
-    it("applies Markview's global preview callbacks to History windows", function()
-        local global_config = {
-            preview = {
-                enable = true,
-                enable_hybrid_mode = true,
-                callbacks = {
-                    on_enable = function(_, windows)
-                        vim.wo[windows[1]].conceallevel = 3
-                    end,
-                    on_hybrid_enable = function(_, windows)
-                        vim.wo[windows[1]].concealcursor = "c"
-                    end,
-                },
-            },
-        }
-        package.loaded["markview.spec"] = {
-            config = global_config,
-            get = function(keys, opts)
-                local value = global_config
-                for _, key in ipairs(keys) do
-                    value = type(value) == "table" and value[key] or nil
+    it("defers replay blocks until resume and compiles each dirty block once", function()
+        local parses = 0
+        package.loaded["markview.parser"] = parser_stub(function()
+            parses = parses + 1
+        end)
+        local buf = new_buffer({ "# one", "# two" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.pause_history(buf)
+        Render.start_block(buf, "user", 0, "# one", 0, true)
+        Render.start_block(buf, "user", 1, "# two", 0, true)
+        assert.are.equal(0, parses)
+        Render.resume_history(buf)
+        assert.is_true(vim.wait(100, function()
+            return parses == 2
+        end))
+    end)
+
+    it("reports a missing parser once and preserves raw text", function()
+        package.loaded["markview.parser"] = nil
+        package.preload["markview.parser"] = function()
+            error("missing")
+        end
+        local notifications = 0
+        vim.notify = function(message)
+            if message:find("Markview parser is unavailable", 1, true) then
+                notifications = notifications + 1
+            end
+        end
+        Render._reset()
+        local buf = new_buffer({ "# raw", "# still raw" })
+        Render.start_block(buf, "assistant", 0, "# raw", 0, true)
+        Render.start_block(buf, "assistant", 1, "# still raw", 0, true)
+        assert.are.equal(1, notifications)
+        assert.are.same({ "# raw", "# still raw" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+        assert.are.equal(0, #Render._states()[buf].blocks)
+    end)
+
+    it("recompiles only visible width-dependent blocks after a width change", function()
+        local parses = 0
+        package.loaded["markview.parser"] = {
+            init = function(buf)
+                parses = parses + 1
+                local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
+                local markdown = {}
+                if line == "---" then
+                    markdown[1] = {
+                        class = "markdown_hr",
+                        range = { row_start = 0, col_start = 0, row_end = 1, col_end = 0 },
+                    }
                 end
-                return value == nil and opts.fallback or value
+                return { markdown = markdown, markdown_inline = {} }, {}
             end,
         }
-        package.loaded.markview = {
-            clear = function() end,
-            render = function() end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
-        vim.wo[0].conceallevel = 2
-        vim.wo[0].concealcursor = "nvic"
-
-        Render.configure_history_window(history_buf, 0)
-
-        assert.are.equal(3, vim.wo[0].conceallevel)
-        assert.are.equal("c", vim.wo[0].concealcursor)
+        local buf = new_buffer({ "---", "plain" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.start_block(buf, "assistant", 0, "---", 0, true)
+        Render.start_block(buf, "assistant", 1, "plain", 0, true)
+        assert.are.equal(2, parses)
+        local original_columns = vim.o.columns
+        vim.o.columns = original_columns + 10
+        Render.configure_history_window(buf, 0)
+        assert.is_true(vim.wait(100, function()
+            return parses == 3
+        end))
+        vim.o.columns = original_columns
     end)
 
-    it("deep-merges History overrides over Markview's global config", function()
-        local global_config = {
-            preview = {
-                enable = true,
-                hybrid_modes = { "i" },
-                linewise_hybrid_mode = false,
-            },
-            markdown = {
-                headings = { enable = true, shift_width = 1 },
-            },
-        }
-        package.loaded["markview.spec"] = { config = global_config }
-        Config.options.render.markview = {
-            preview = {
-                hybrid_modes = { "n", "no", "c" },
-                linewise_hybrid_mode = true,
-            },
-            markdown = {
-                headings = { shift_width = 2 },
-            },
-        }
-
-        local render_state
-        local render_config
-        package.loaded.markview = {
-            clear = function() end,
-            render = function(_, state, config)
-                render_state = state
-                render_config = config
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
-
-        Render.attach_history(history_buf)
-        vim.wait(20)
-
-        assert.is_nil(render_state)
-        assert.are.same({
-            preview = {
-                enable = true,
-                hybrid_modes = { "n", "no", "c" },
-                linewise_hybrid_mode = true,
-            },
-            markdown = {
-                headings = { enable = true, shift_width = 2 },
-            },
-        }, render_config)
-        assert.are.same({ "i" }, global_config.preview.hybrid_modes, "global Markview config must remain unchanged")
-        assert.is_false(global_config.preview.linewise_hybrid_mode)
-        assert.are.equal(1, global_config.markdown.headings.shift_width)
+    it("keeps the anchor but removes partial decorations after an apply failure", function()
+        local buf = new_buffer({ "**bold**" })
+        vim.api.nvim_win_set_buf(0, buf)
+        local original_set_extmark = vim.api.nvim_buf_set_extmark
+        local calls = 0
+        local notified = 0
+        vim.notify = function(message)
+            if message:find("Markdown decoration failed", 1, true) then
+                notified = notified + 1
+            end
+        end
+        ---@diagnostic disable-next-line: duplicate-set-field
+        vim.api.nvim_buf_set_extmark = function(...)
+            calls = calls + 1
+            if calls == 2 then
+                error("apply boom")
+            end
+            return original_set_extmark(...)
+        end
+        local ok, block = pcall(Render.start_block, buf, "assistant", 0, "**bold**", 0, true)
+        vim.api.nvim_buf_set_extmark = original_set_extmark
+        assert.is_true(ok)
+        assert.is_not_nil(block)
+        assert.are.equal(0, #block.decoration_ids)
+        assert.is_not_nil(vim.api.nvim_buf_get_extmark_by_id(buf, Render._namespace, block.anchor, {})[1])
+        assert.are.equal(1, notified)
     end)
 
-    it("retries an unchanged History after markview clear fails", function()
-        local clears = 0
-        local renders = 0
-        package.loaded.markview = {
-            clear = function()
-                clears = clears + 1
-                if clears == 1 then
-                    error("clear failed")
-                end
-            end,
-            render = function()
-                renders = renders + 1
-            end,
-        }
-        history_buf = vim.api.nvim_create_buf(true, true)
-        vim.api.nvim_win_set_buf(0, history_buf)
-
-        Render.attach_history(history_buf)
-        vim.wait(20)
-        assert.are.equal(1, renders)
-        assert.is_false(vim.b[history_buf].pi_markview)
-
-        vim.api.nvim_exec_autocmds("BufWinEnter", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(2, renders)
-        assert.is_true(vim.b[history_buf].pi_markview)
-
-        vim.api.nvim_exec_autocmds("BufWinEnter", { buffer = history_buf })
-        vim.wait(20)
-        assert.are.equal(2, renders)
+    it("configures History windows for stable conceal without Markview callbacks", function()
+        local buf = new_buffer({ "text" })
+        vim.api.nvim_win_set_buf(0, buf)
+        Render.configure_history_window(buf, 0)
+        assert.are.equal(2, vim.wo[0].conceallevel)
+        assert.are.equal("nvic", vim.wo[0].concealcursor)
     end)
 end)

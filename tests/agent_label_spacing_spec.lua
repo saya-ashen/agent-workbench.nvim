@@ -48,14 +48,14 @@ local ts = os.time({ year = 2026, month = 8, day = 4, hour = 16, min = 49, sec =
 
 describe("agent label spacing rhythm", function()
     before_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         Config.options.show_thinking = true
         require("agent-workbench.ui.render")._reset()
     end)
 
     after_each(function()
         Config.options.show_thinking = true
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 

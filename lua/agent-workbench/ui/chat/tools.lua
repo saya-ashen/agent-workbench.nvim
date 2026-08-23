@@ -1,7 +1,5 @@
 --- Tool call rendering for chat history.
 
-local Render = require("agent-workbench.ui.render")
-
 local M = {}
 
 M.GLYPHS = {
@@ -187,39 +185,22 @@ local function render_body_line(history, text, hl_group, insert_at)
     return insert_at
 end
 
---- Render input lines, wrapping in a fenced code block when render-markdown
---- is active so that shell comments (#) and other markdown-significant syntax
---- in tool input are not misparsed as headings, lists, etc.
+--- Render tool input as structured tool text, never as Markdown.
 ---@param history agent_workbench.ChatHistory
----@param lines string[]  raw input lines (already split)
----@param lang? string  language hint for the code fence (e.g. "bash")
----@param insert_at? integer  when set, insert at this row instead of appending
----@return integer? next_insert_at  advanced insertion cursor (nil when appending)
-local function render_input(history, lines, lang, insert_at)
-    local fenced = lines
-    if Render.engine() ~= "builtin" then
-        local max_run = 0
-        for _, line in ipairs(lines) do
-            local run = line:match("^(`+)")
-            if run and #run > max_run then
-                max_run = #run
-            end
-        end
-        local fence = string.rep("`", math.max(max_run + 1, 3))
-        fenced = { fence .. (lang or "") }
-        vim.list_extend(fenced, lines)
-        fenced[#fenced + 1] = fence
-    end
-
+---@param lines string[] raw input lines (already split)
+---@param _lang? string retained for renderer call compatibility
+---@param insert_at? integer when set, insert at this row instead of appending
+---@return integer? next_insert_at advanced insertion cursor (nil when appending)
+local function render_input(history, lines, _lang, insert_at)
     local start
     if insert_at then
-        start, insert_at = history:_insert_lines(insert_at, fenced)
+        start, insert_at = history:_insert_lines(insert_at, lines)
     else
-        start = history:_append_lines(fenced)
+        start = history:_append_lines(lines)
     end
-    for i = 0, #fenced - 1 do
+    for i = 0, #lines - 1 do
         M.set_border(history, start + i, M.GLYPHS.INDENT)
-        local line = fenced[i + 1] or ""
+        local line = lines[i + 1] or ""
         if #line > 0 then
             vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), start + i, 0, {
                 end_col = #line,
@@ -233,9 +214,9 @@ end
 ---@param history agent_workbench.ChatHistory
 ---@param text string
 ---@param insert_at? integer  when set, insert at this row instead of appending
----@param lang? string  language hint for the code fence (e.g. "bash")
+---@param _lang? string retained for renderer call compatibility
 ---@return integer? next_insert_at  advanced insertion cursor (nil when appending)
-local function render_output(history, text, insert_at, lang)
+local function render_output(history, text, insert_at, _lang)
     text = M.sanitize_text(text)
     local sep_row
     if insert_at then
@@ -245,41 +226,6 @@ local function render_output(history, text, insert_at, lang)
     end
     M.set_border(history, sep_row, M.GLYPHS.INDENT)
     local output_lines = vim.split(text, "\n", { plain = true })
-
-    local auto_closed = false
-
-    if Render.engine() ~= "builtin" then
-        -- Wrap output in a fenced code block so markdown renderer treats
-        -- it as literal code (prevents "# comment" → heading, etc.).
-        -- Fence nesting: pick a fence one backtick longer than the longest
-        -- backtick run at the start of any output line (minimum 3).
-        local max_run = 0
-        for _, line in ipairs(output_lines) do
-            local run = line:match("^(`+)")
-            if run and #run > max_run then
-                max_run = #run
-            end
-        end
-        local fence = string.rep("`", math.max(max_run + 1, 3))
-        table.insert(output_lines, 1, fence .. (lang or ""))
-        output_lines[#output_lines + 1] = fence
-    else
-        -- Builtin engine: treesitter PARSES ``` as fence delimiters regardless
-        -- of conceallevel.  To prevent an unclosed fence from leaking
-        -- code-block styling into the content below, count fence lines and
-        -- auto-close if odd — same approach used for user messages in
-        -- history.lua.
-        local fences = 0
-        for _, line in ipairs(output_lines) do
-            if line:match("^```") then
-                fences = fences + 1
-            end
-        end
-        if fences % 2 == 1 then
-            output_lines[#output_lines + 1] = "```"
-            auto_closed = true
-        end
-    end
     local start
     if insert_at then
         start, insert_at = history:_insert_lines(insert_at, output_lines)
@@ -296,13 +242,6 @@ local function render_output(history, text, insert_at, lang)
                 priority = 200,
             })
         end
-    end
-    if auto_closed then
-        local close_row = start + #output_lines - 1
-        vim.api.nvim_buf_set_extmark(history:buf(), history:ns(), close_row, 3, {
-            virt_text = { { " ← auto-closed", "PiWarning" } },
-            virt_text_pos = "inline",
-        })
     end
     return insert_at
 end
@@ -342,7 +281,7 @@ end
 ---@param buf integer
 ---@param ns integer
 ---@param rendered table[]
----@param start_row integer  0-indexed row of first code fence
+---@param start_row integer  0-indexed row of first rendered diff line
 ---@param old_hl table  highlights from ts_highlights(old_text)
 ---@param new_hl table  highlights from ts_highlights(new_text)
 local function apply_diff_syntax(buf, ns, rendered, start_row, old_hl, new_hl)
@@ -565,26 +504,8 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
         specs[#specs + 1] = "summary"
     end
 
-    -- When render-markdown is active, wrap visible input in a code fence
-    -- to prevent markdown parsing (e.g. shell comments → headings).
-    if Render.engine() ~= "builtin" and #visible_input > 0 then
-        local max_run = 0
-        for _, line in ipairs(visible_input) do
-            local run = line:match("^(`+)")
-            if run and #run > max_run then
-                max_run = #run
-            end
-        end
-        local fence = string.rep("`", math.max(max_run + 1, 3))
-        add(fence, "input")
-        for _, l in ipairs(visible_input) do
-            add(l, "input")
-        end
-        add(fence, "input")
-    else
-        for _, l in ipairs(visible_input) do
-            add(l, "input")
-        end
+    for _, line in ipairs(visible_input) do
+        add(line, "input")
     end
 
     -- Separator + Output (hidden entirely when output_visible = 0)
@@ -606,26 +527,8 @@ function M.build_collapsed_view(input_lines, output_lines, has_output, input_vis
             end
         end
 
-        -- When render-markdown is active, wrap visible output in a code fence
-        -- to prevent markdown parsing (e.g. setext headings from === lines).
-        if Render.engine() ~= "builtin" and #visible_output > 0 then
-            local max_run = 0
-            for _, line in ipairs(visible_output) do
-                local run = line:match("^(`+)")
-                if run and #run > max_run then
-                    max_run = #run
-                end
-            end
-            local fence = string.rep("`", math.max(max_run + 1, 3))
-            add(fence, "output")
-            for _, l in ipairs(visible_output) do
-                add(l, "output")
-            end
-            add(fence, "output")
-        else
-            for _, l in ipairs(visible_output) do
-                add(l, "output")
-            end
+        for _, line in ipairs(visible_output) do
+            add(line, "output")
         end
     end
 
@@ -671,18 +574,6 @@ function M.extract_tool_sections(history, block)
     end
     local input_lines = vim.api.nvim_buf_get_lines(buf, header_row + 1, input_end, false)
 
-    -- When the render-markdown engine is active, render_input() wraps tool
-    -- input in a fenced code block (```lang / ```).  Strip these display-only
-    -- fence artifacts so the collapsed view sees the raw input lines.
-    if Render.engine() ~= "builtin" and #input_lines >= 2 then
-        local first = input_lines[1]
-        local last = input_lines[#input_lines]
-        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then
-            table.remove(input_lines, 1)
-            table.remove(input_lines)
-        end
-    end
-
     local output_lines = {}
     if has_output then
         local output_row = vim.api.nvim_buf_get_extmark_by_id(buf, ns_id, block.output_extmark, {})[1]
@@ -691,27 +582,6 @@ function M.extract_tool_sections(history, block)
         if content_start < footer_row then
             output_lines = vim.api.nvim_buf_get_lines(buf, content_start, footer_row, false)
         end
-    end
-
-    -- When the render-markdown engine is active, render_output() wraps tool
-    -- output in a fenced code block (```lang / ```).  These fence lines are
-    -- display-only artifacts — they must not be counted as real output when
-    -- building the collapsed view, otherwise the closing fence leaks into the
-    -- collapsed summary as an orphan ``` that render-markdown misparses as a
-    -- new code-block start, bleeding its background colour into surrounding
-    -- lines (inline tools, headers, etc.).
-    if Render.engine() ~= "builtin" and #output_lines >= 2 then
-        local first = output_lines[1]
-        local last = output_lines[#output_lines]
-        if first:match("^`%`%`") and last:match("^`%`%`+$") and not last:match("[^`]") then
-            -- Strip opening fence (```lang) and closing fence (```)
-            table.remove(output_lines, 1) -- opening fence
-            table.remove(output_lines) -- closing fence (last element)
-        end
-    end
-
-    if block.batch_child and output_lines[#output_lines] and output_lines[#output_lines]:match("^```+$") then
-        table.remove(output_lines)
     end
 
     return input_lines, output_lines, has_output

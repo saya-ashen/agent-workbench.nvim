@@ -142,12 +142,12 @@ The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and
 - Statusline shows agent state, elapsed time, queue count, context, token usage, cost, and abort hints.
 - Attention requests queue until the user opens them.
 - Extension UI can use dialogs, pickers, widgets, and custom blocks.
-- Existing plugins such as `markview.nvim`, `blink.cmp`, `img-clip.nvim`, `bufferline.nvim`, and `nvim-web-devicons` integrate when installed but are not required for core session management.
+- Message-level Markdown uses Markview's parser API plus Agent Workbench Extmarks, so malformed Markdown cannot leak across messages; `blink.cmp`, `img-clip.nvim`, `bufferline.nvim`, and `nvim-web-devicons` integrate when installed.
 
 ## Quick Start
 
 1. Install `pi` and make sure it is in `$PATH`.
-2. Install this plugin and the default Markdown renderer.
+2. Install this plugin and the Markview Markdown parser dependency.
 3. Run `:checkhealth agent-workbench`.
 4. Open a project and run `:AgentWorkbench`.
 5. Type a prompt and press `<CR>`.
@@ -159,12 +159,12 @@ The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and
 
 - Neovim 0.10+
 - [`pi`](https://pi.dev) in `$PATH`
-- [`OXY2DEV/markview.nvim`](https://github.com/OXY2DEV/markview.nvim) for the default `render.engine = "markview"`
+- [`OXY2DEV/markview.nvim`](https://github.com/OXY2DEV/markview.nvim) and the Markdown Tree-sitter parsers for isolated History rendering
 - `fish` for the `!!` Shell Worksheet
 
 Optional:
 
-- `nvim-treesitter` with the Markdown parser for richer History highlighting
+- Additional Tree-sitter language parsers for syntax highlighting inside fenced code blocks
 - [`HakonHarnes/img-clip.nvim`](https://github.com/HakonHarnes/img-clip.nvim) for `:AgentWorkbenchPasteImage`
 - `blink.cmp` for popup prompt completion
 - `bufferline.nvim` for workspace tabs
@@ -278,6 +278,7 @@ Run local checks through `just`:
 ```sh
 just test
 just smoke
+just markdown-e2e  # real Markview parser + Tree-sitter injections
 just style
 just lint
 just docs-links

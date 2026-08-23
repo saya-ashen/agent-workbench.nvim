@@ -1,37 +1,48 @@
---- Markdown rendering adapter for Pi chat history.
+--- Message-level Markdown rendering service for chat History buffers.
 
 local M = {}
 
+local Compiler = require("agent-workbench.ui.markdown.compiler")
 local Config = require("agent-workbench.config")
-local Ft = require("agent-workbench.filetypes")
+local Notify = require("agent-workbench.notify")
 
-local warned_missing = {}
-local markview_scheduled = {}
-local markview_paused = {}
-local markview_dirty = {}
-local markview_rendered_tick = {}
-local markview_cursor_generation = {}
+local ns = vim.api.nvim_create_namespace("agent-workbench/markdown")
+local warned = {}
+local states = {}
+local resize_autocmd ---@type integer?
 
-local MARKVIEW_CURSOR_DEBOUNCE_MS = 30
+---@class agent_workbench.MarkdownBlock
+---@field id integer
+---@field buffer integer
+---@field role "user"|"assistant"
+---@field anchor integer
+---@field source_chunks string[]
+---@field col_prefix integer
+---@field decoration_ids integer[]
+---@field generation integer
+---@field complete boolean
+---@field dirty boolean
+---@field width_dependent boolean
+---@field line_count integer
+---@field _timer? uv.uv_timer_t
 
----@return string engine "builtin"|"markview"|"render-markdown"
-function M.engine()
-    local render = Config.options.render
-    return (render and render.engine) or "builtin"
-end
+---@class agent_workbench.MarkdownRenderState
+---@field buffer integer
+---@field blocks agent_workbench.MarkdownBlock[]
+---@field next_id integer
+---@field paused boolean
+---@field width integer
+---@field available? boolean
 
----@param engine string
-local function warn_missing(engine)
-    if warned_missing[engine] then
+---@param key string
+---@param message string
+---@param level "warn"|"error"
+local function notify_once(key, message, level)
+    if warned[key] then
         return
     end
-    warned_missing[engine] = true
-    vim.notify(
-        ("Agent Workbench: render.engine = '%s' but renderer is not installed; falling back to builtin rendering."):format(
-            engine
-        ),
-        vim.log.levels.WARN
-    )
+    warned[key] = true
+    Notify[level](message)
 end
 
 ---@param plugin string
@@ -42,228 +53,425 @@ local function lazy_load(plugin)
     end
 end
 
----@return table?
-local function ensure_markview()
-    if package.loaded.markview == nil then
-        lazy_load("markview.nvim")
-    end
-    local ok, markview = pcall(require, "markview")
-    if not ok then
-        warn_missing("markview")
-        return nil
-    end
-    return markview
+---@return agent_workbench.MarkdownConfig?
+local function markdown_config()
+    local render = Config.options.render
+    return render and render.markdown or nil
 end
 
 ---@return boolean
-local function ensure_render_markdown()
-    if package.loaded["render-markdown"] == nil then
-        lazy_load("render-markdown.nvim")
-    end
-    local ok, renderer = pcall(require, "render-markdown")
-    if not ok then
-        warn_missing("render-markdown")
+local function config_enabled()
+    local render = Config.options.render or {}
+    local engine = render.engine
+    if engine == "markview" then
+        notify_once(
+            "legacy-engine-markview",
+            "render.engine = 'markview' is deprecated; remove render.engine and configure render.markdown instead",
+            "warn"
+        )
+    elseif engine == "builtin" or engine == "render-markdown" then
+        notify_once(
+            "unsupported-engine-" .. engine,
+            ("render.engine = '%s' is no longer supported; Markdown decorations are disabled and raw text is preserved"):format(
+                engine
+            ),
+            "error"
+        )
+        return false
+    elseif engine ~= nil then
+        notify_once(
+            "unsupported-engine-other",
+            ("render.engine = '%s' is not supported; Markdown decorations are disabled and raw text is preserved"):format(
+                tostring(engine)
+            ),
+            "error"
+        )
         return false
     end
-
-    local state = require("render-markdown.state")
-    if type(state.file_types) == "table" then
-        if not vim.tbl_contains(state.file_types, Ft.history) then
-            table.insert(state.file_types, Ft.history)
-        end
-    else
-        renderer.setup({ file_types = { "markdown", Ft.history } })
+    if type(render.markview) == "table" and next(render.markview) ~= nil then
+        notify_once(
+            "legacy-markview-config",
+            "render.markview is ignored; migrate History rendering options to render.markdown",
+            "warn"
+        )
     end
+    local markdown = render.markdown
+    return type(markdown) ~= "table" or markdown.enabled ~= false
+end
+
+---@return string engine "markdown"|"raw"
+function M.engine()
+    return config_enabled() and "markdown" or "raw"
+end
+
+---@param state agent_workbench.MarkdownRenderState
+---@return boolean
+local function ensure_available(state)
+    if state.available ~= nil then
+        return state.available
+    end
+    if not config_enabled() then
+        state.available = false
+        return false
+    end
+    if package.loaded["markview.parser"] == nil then
+        lazy_load("markview.nvim")
+    end
+    local ok, parser = pcall(require, "markview.parser")
+    if not ok or type(parser.init) ~= "function" then
+        state.available = false
+        notify_once(
+            "missing-markview-parser",
+            "Markview parser is unavailable; install a compatible markview.nvim. History will show raw Markdown",
+            "error"
+        )
+        return false
+    end
+    local tree_ok = pcall(vim.treesitter.get_string_parser, "", "markdown")
+    if not tree_ok then
+        state.available = false
+        notify_once(
+            "missing-markdown-parser",
+            "Markdown Tree-sitter parser is unavailable. History will show raw Markdown",
+            "error"
+        )
+        return false
+    end
+    state.available = true
     return true
 end
 
 ---@param buf integer
----@return boolean
-local function is_visible(buf)
-    if not vim.api.nvim_buf_is_valid(buf) then
-        return false
+---@return agent_workbench.MarkdownRenderState
+local function state_for(buf)
+    local state = states[buf]
+    if state then
+        return state
     end
-    local current_tab = vim.api.nvim_get_current_tabpage()
-    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
-        if vim.api.nvim_win_get_tabpage(win) == current_tab then
-            return true
-        end
-    end
-    return false
+    state = {
+        buffer = buf,
+        blocks = {},
+        next_id = 0,
+        paused = false,
+        width = 80,
+        available = nil,
+    }
+    states[buf] = state
+    return state
 end
 
----@return table?
-local function markview_render_config()
-    local overrides = Config.options.render and Config.options.render.markview
-    if type(overrides) ~= "table" or next(overrides) == nil then
-        return nil
+---@param block agent_workbench.MarkdownBlock
+local function stop_timer(block)
+    if not block._timer then
+        return
     end
-    local ok, spec = pcall(require, "markview.spec")
-    if not ok or type(spec.config) ~= "table" then
-        return vim.deepcopy(overrides)
+    block._timer:stop()
+    block._timer:close()
+    block._timer = nil
+end
+
+---@param block agent_workbench.MarkdownBlock
+local function clear_decorations(block)
+    if not vim.api.nvim_buf_is_valid(block.buffer) then
+        block.decoration_ids = {}
+        return
     end
-    return vim.tbl_deep_extend("force", vim.deepcopy(spec.config), overrides)
+    for _, id in ipairs(block.decoration_ids) do
+        pcall(vim.api.nvim_buf_del_extmark, block.buffer, ns, id)
+    end
+    block.decoration_ids = {}
+end
+
+---@param block agent_workbench.MarkdownBlock
+---@param decoration agent_workbench.MarkdownDecoration
+---@param anchor_row integer
+---@return integer?
+---@return string?
+local function apply_decoration(block, decoration, anchor_row)
+    local target_row = anchor_row + decoration.row
+    local target_col = decoration.col + block.col_prefix
+    local opts = {
+        strict = false,
+        undo_restore = false,
+        invalidate = true,
+    }
+    if decoration.end_col ~= nil then
+        local relative_end_row = decoration.end_row or decoration.row
+        -- Every nonempty user body line has the same textual prefix. Add it to
+        -- a nonzero end column; an exclusive end at column 0 must remain before
+        -- the next line's prefix (for example a heading ending at {next, 0}).
+        opts.end_row = anchor_row + relative_end_row
+        opts.end_col = decoration.end_col
+            + ((relative_end_row == decoration.row or decoration.end_col > 0) and block.col_prefix or 0)
+    elseif decoration.end_row ~= nil then
+        opts.end_row = anchor_row + decoration.end_row
+    end
+    for _, key in ipairs({
+        "hl_group",
+        "conceal",
+        "virt_text",
+        "virt_text_pos",
+        "virt_lines_above",
+        "line_hl_group",
+        "priority",
+    }) do
+        if decoration[key] ~= nil then
+            opts[key] = decoration[key]
+        end
+    end
+    if decoration.virt_lines ~= nil then
+        opts.virt_lines = vim.deepcopy(decoration.virt_lines)
+        if block.col_prefix > 0 then
+            for _, line in ipairs(opts.virt_lines) do
+                table.insert(line, 1, { string.rep(" ", block.col_prefix) })
+            end
+        end
+    end
+    local ok, id = pcall(vim.api.nvim_buf_set_extmark, block.buffer, ns, target_row, target_col, opts)
+    if not ok then
+        return nil, tostring(id)
+    end
+    return id, nil
+end
+
+---@param block agent_workbench.MarkdownBlock
+local function render_block(block)
+    local state = states[block.buffer]
+    if not state or state.paused or not block.dirty or not vim.api.nvim_buf_is_valid(block.buffer) then
+        return
+    end
+    if not ensure_available(state) then
+        clear_decorations(block)
+        block.dirty = false
+        return
+    end
+    local source = table.concat(block.source_chunks)
+    local config = markdown_config() or {}
+    local plan, err = Compiler.compile(source, {
+        width = state.width,
+        features = config.features or {},
+        symbols = config.symbols or {},
+    })
+    if not plan then
+        clear_decorations(block)
+        block.dirty = false
+        notify_once("compile-error-" .. tostring(err), tostring(err) .. ". History will show raw Markdown", "error")
+        return
+    end
+    local anchor = vim.api.nvim_buf_get_extmark_by_id(block.buffer, ns, block.anchor, {})
+    if not anchor[1] then
+        clear_decorations(block)
+        block.dirty = false
+        return
+    end
+    clear_decorations(block)
+    for _, decoration in ipairs(plan.decorations) do
+        local id, apply_error = apply_decoration(block, decoration, anchor[1])
+        if apply_error then
+            clear_decorations(block)
+            block.dirty = false
+            notify_once(
+                "decoration-error-" .. apply_error,
+                "Markdown decoration failed: " .. apply_error .. ". History will show raw Markdown",
+                "error"
+            )
+            return
+        end
+        block.decoration_ids[#block.decoration_ids + 1] = id --[[@as integer]]
+    end
+    block.width_dependent = plan.width_dependent
+    block.dirty = false
+end
+
+---@param block agent_workbench.MarkdownBlock
+local function schedule_block(block)
+    local state = states[block.buffer]
+    if not state or state.paused or not ensure_available(state) then
+        return
+    end
+    stop_timer(block)
+    local config = markdown_config() or {}
+    local delay = math.max(0, tonumber(config.debounce_ms) or 30)
+    local generation = block.generation
+    if delay == 0 then
+        render_block(block)
+        return
+    end
+    local timer = assert(vim.uv.new_timer())
+    block._timer = timer
+    timer:start(
+        delay,
+        0,
+        vim.schedule_wrap(function()
+            if block._timer ~= timer then
+                return
+            end
+            block._timer = nil
+            timer:stop()
+            timer:close()
+            if block.generation == generation then
+                render_block(block)
+            end
+        end)
+    )
+end
+
+---@param buf integer
+local function flush_dirty(buf)
+    local state = states[buf]
+    if not state or state.paused or not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+    for _, block in ipairs(state.blocks) do
+        if block.dirty then
+            render_block(block)
+        end
+    end
+end
+
+local function ensure_resize_autocmd()
+    if resize_autocmd then
+        return
+    end
+    resize_autocmd = vim.api.nvim_create_autocmd("WinResized", {
+        callback = function()
+            for buf in pairs(states) do
+                if vim.api.nvim_buf_is_valid(buf) then
+                    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+                        if vim.api.nvim_win_is_valid(win) then
+                            M.configure_history_window(buf, win)
+                        end
+                    end
+                end
+            end
+        end,
+    })
+end
+
+---@param buf integer
+function M.attach_history(buf)
+    local state = state_for(buf)
+    ensure_available(state)
+    vim.api.nvim_create_autocmd("BufWinEnter", {
+        buffer = buf,
+        callback = function()
+            flush_dirty(buf)
+        end,
+    })
+    vim.api.nvim_create_autocmd("BufWipeout", {
+        buffer = buf,
+        once = true,
+        callback = function()
+            M.detach_history(buf)
+        end,
+    })
+    ensure_resize_autocmd()
 end
 
 ---@param buf integer
 ---@param win integer
 function M.configure_history_window(buf, win)
-    if
-        M.engine() ~= "markview"
-        or not vim.api.nvim_buf_is_valid(buf)
-        or not vim.api.nvim_win_is_valid(win)
-        or not ensure_markview()
-    then
+    if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then
         return
     end
     vim.w[win].agent_workbench_managed = true
-    local render_config = markview_render_config()
-    local ok, spec = pcall(require, "markview.spec")
-    if not ok or type(spec.get) ~= "function" then
-        return
+    vim.wo[win].conceallevel = 2
+    vim.wo[win].concealcursor = "nvic"
+    local width = vim.api.nvim_win_get_width(win)
+    local info = vim.fn.getwininfo(win)
+    if info and info[1] then
+        width = math.max(1, info[1].width - info[1].textoff)
     end
-    local temporary = render_config and type(spec.tmp_setup) == "function" and type(spec.tmp_reset) == "function"
-    if temporary then
-        spec.tmp_setup(render_config)
+    local state = state_for(buf)
+    if state.width ~= width then
+        state.width = width
+        local top = vim.api.nvim_win_call(win, function()
+            return vim.fn.line("w0") - 1
+        end)
+        local bottom = vim.api.nvim_win_call(win, function()
+            return vim.fn.line("w$") - 1
+        end)
+        for _, block in ipairs(state.blocks) do
+            if block.width_dependent then
+                local anchor = vim.api.nvim_buf_get_extmark_by_id(buf, ns, block.anchor, {})
+                local row = anchor[1]
+                if row and row <= bottom and row + block.line_count - 1 >= top then
+                    block.dirty = true
+                    block.generation = block.generation + 1
+                    schedule_block(block)
+                end
+            end
+        end
     end
-    pcall(function()
-        local callbacks = spec.get({ "preview", "callbacks" }, { fallback = {}, ignore_enable = true })
-        if type(callbacks) ~= "table" then
-            return
-        end
-        local enabled = spec.get({ "preview", "enable" }, { fallback = true, ignore_enable = true }) ~= false
-        local hybrid = spec.get({ "preview", "enable_hybrid_mode" }, { fallback = true, ignore_enable = true })
-        local windows = { win }
-        local callback = enabled and callbacks.on_enable or callbacks.on_disable
-        if type(callback) == "function" then
-            callback(buf, windows)
-        end
-        callback = hybrid == false and callbacks.on_hybrid_disable or callbacks.on_hybrid_enable
-        if enabled and type(callback) == "function" then
-            callback(buf, windows)
-        end
-    end)
-    if temporary then
-        spec.tmp_reset()
-    end
+    flush_dirty(buf)
 end
 
 ---@param buf integer
-local function render_markview_now(buf)
-    if markview_paused[buf] or not markview_dirty[buf] or not is_visible(buf) then
-        return
+---@param role "user"|"assistant"
+---@param row integer
+---@param source? string
+---@param col_prefix? integer
+---@param complete? boolean
+---@return agent_workbench.MarkdownBlock?
+function M.start_block(buf, role, row, source, col_prefix, complete)
+    if not vim.api.nvim_buf_is_valid(buf) or source == "" then
+        return nil
     end
-    local markview = ensure_markview()
-    if not markview or type(markview.render) ~= "function" then
-        return
+    local state = state_for(buf)
+    if not ensure_available(state) then
+        return nil
     end
-    local clear_ok = true
-    if type(markview.clear) == "function" then
-        clear_ok = pcall(markview.clear, buf)
-    end
-    local render_config = markview_render_config()
-    local render_ok
-    if render_config then
-        render_ok = pcall(markview.render, buf, nil, render_config)
+    state.next_id = state.next_id + 1
+    local anchor = vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
+        right_gravity = false,
+        strict = false,
+    })
+    local block = {
+        id = state.next_id,
+        buffer = buf,
+        role = role,
+        anchor = anchor,
+        source_chunks = source and { source } or {},
+        col_prefix = col_prefix or 0,
+        decoration_ids = {},
+        generation = 1,
+        complete = complete == true,
+        dirty = true,
+        width_dependent = false,
+        line_count = source and #vim.split(source, "\n", { plain = true }) or 1,
+    }
+    state.blocks[#state.blocks + 1] = block
+    if complete then
+        render_block(block)
     else
-        render_ok = pcall(markview.render, buf)
+        schedule_block(block)
     end
-    local ok = clear_ok and render_ok
-    vim.b[buf].pi_markview = ok
-    if ok then
-        markview_rendered_tick[buf] = vim.b[buf].changedtick
-        markview_dirty[buf] = nil
-    end
+    return block
 end
 
----@param buf integer
-local function render_markview(buf)
-    if markview_paused[buf] or markview_scheduled[buf] or not markview_dirty[buf] or not is_visible(buf) then
+---@param block agent_workbench.MarkdownBlock?
+---@param chunk string
+function M.append_block(block, chunk)
+    if not block or chunk == "" or block.complete then
         return
     end
-    markview_scheduled[buf] = true
-    vim.schedule(function()
-        markview_scheduled[buf] = nil
-        render_markview_now(buf)
-    end)
+    block.source_chunks[#block.source_chunks + 1] = chunk
+    block.line_count = #vim.split(table.concat(block.source_chunks), "\n", { plain = true })
+    block.generation = block.generation + 1
+    block.dirty = true
+    schedule_block(block)
 end
 
----@param buf integer
----@param force? boolean
-local function refresh_markview(buf, force)
-    if force or vim.api.nvim_buf_is_valid(buf) and markview_rendered_tick[buf] ~= vim.b[buf].changedtick then
-        markview_dirty[buf] = true
-    end
-    render_markview(buf)
-end
-
----@param buf integer
-local function refresh_markview_cursor(buf)
-    local generation = (markview_cursor_generation[buf] or 0) + 1
-    markview_cursor_generation[buf] = generation
-    vim.defer_fn(function()
-        if markview_cursor_generation[buf] ~= generation or not is_visible(buf) then
-            return
-        end
-        refresh_markview(buf, true)
-    end, MARKVIEW_CURSOR_DEBOUNCE_MS)
-end
-
----@param buf integer
-function M.refresh_history(buf)
-    if M.engine() == "markview" then
-        refresh_markview(buf)
-    end
-end
-
----@param buf integer
-function M.attach_history(buf)
-    local engine = M.engine()
-    if engine == "markview" then
-        if not ensure_markview() then
-            return
-        end
-        markview_dirty[buf] = true
-        vim.api.nvim_create_autocmd("TextChanged", {
-            buffer = buf,
-            callback = function()
-                refresh_markview(buf)
-            end,
-        })
-        vim.api.nvim_create_autocmd("BufWinEnter", {
-            buffer = buf,
-            callback = function()
-                render_markview(buf)
-            end,
-        })
-        vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-            buffer = buf,
-            callback = function()
-                refresh_markview_cursor(buf)
-            end,
-        })
-        render_markview(buf)
+---@param block agent_workbench.MarkdownBlock?
+function M.finish_block(block)
+    if not block or block.complete then
         return
     end
-    if engine ~= "render-markdown" or not ensure_render_markdown() then
-        return
-    end
-
-    vim.schedule(function()
-        if not vim.api.nvim_buf_is_valid(buf) then
-            return
-        end
-        local ok, manager = pcall(require, "render-markdown.core.manager")
-        if ok then
-            pcall(manager.attach, buf)
-        end
-    end)
-end
-
----@return any?
-local function render_markdown_manager()
-    local ok, manager = pcall(require, "render-markdown.core.manager")
-    return ok and manager or nil
+    stop_timer(block)
+    block.complete = true
+    block.generation = block.generation + 1
+    block.dirty = true
+    render_block(block)
 end
 
 ---@param buf integer
@@ -271,56 +479,64 @@ function M.pause_history(buf)
     if not vim.api.nvim_buf_is_valid(buf) then
         return
     end
-    if M.engine() == "markview" then
-        markview_paused[buf] = true
-        markview_dirty[buf] = true
-        local markview = ensure_markview()
-        if markview and type(markview.clear) == "function" then
-            pcall(markview.clear, buf)
-        end
-        return
-    end
-    if M.engine() == "render-markdown" then
-        local manager = render_markdown_manager()
-        if manager then
-            pcall(manager.set_buf, buf, false)
-        end
+    local state = state_for(buf)
+    state.paused = true
+    for _, block in ipairs(state.blocks) do
+        stop_timer(block)
     end
 end
 
 ---@param buf integer
 function M.resume_history(buf)
-    if not vim.api.nvim_buf_is_valid(buf) then
+    local state = states[buf]
+    if not state or not vim.api.nvim_buf_is_valid(buf) then
         return
     end
-    if M.engine() == "markview" then
-        markview_paused[buf] = nil
-        markview_dirty[buf] = true
-        vim.defer_fn(function()
-            render_markview(buf)
-        end, 1)
+    state.paused = false
+    vim.schedule(function()
+        flush_dirty(buf)
+    end)
+end
+
+---@param buf integer
+function M.reset_history(buf)
+    local state = states[buf]
+    if not state then
         return
     end
-    if M.engine() == "render-markdown" then
-        vim.defer_fn(function()
-            if not vim.api.nvim_buf_is_valid(buf) then
-                return
-            end
-            local manager = render_markdown_manager()
-            if manager then
-                pcall(manager.set_buf, buf, true)
-            end
-        end, 1)
+    for _, block in ipairs(state.blocks) do
+        stop_timer(block)
+        clear_decorations(block)
+        pcall(vim.api.nvim_buf_del_extmark, buf, ns, block.anchor)
+    end
+    state.blocks = {}
+    state.next_id = 0
+    state.available = nil
+    Compiler.cleanup()
+end
+
+---@param buf integer
+function M.detach_history(buf)
+    M.reset_history(buf)
+    states[buf] = nil
+    if resize_autocmd and next(states) == nil then
+        pcall(vim.api.nvim_del_autocmd, resize_autocmd)
+        resize_autocmd = nil
     end
 end
 
 function M._reset()
-    warned_missing = {}
-    markview_scheduled = {}
-    markview_paused = {}
-    markview_dirty = {}
-    markview_rendered_tick = {}
-    markview_cursor_generation = {}
+    for _, buf in ipairs(vim.tbl_keys(states)) do
+        M.detach_history(buf)
+    end
+    states = {}
+    warned = {}
+    Compiler.cleanup()
+end
+
+M._namespace = ns
+M._states = function()
+    return states
 end
 
 return M

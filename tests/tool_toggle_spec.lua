@@ -72,7 +72,7 @@ end
 
 describe("tool block expand/collapse round-trip", function()
     after_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 
@@ -292,69 +292,63 @@ describe("tool block expand/collapse round-trip", function()
         chat:hide()
     end)
 
-    for _, engine in ipairs({ "builtin", "render-markdown" }) do
-        describe(engine .. " engine", function()
-            before_each(function()
-                Config.options.render = { engine = engine }
-            end)
-
-            it("keeps the footer anchor alive and single-line after expand", function()
-                local h = History.new(930 + (engine == "builtin" and 0 or 1))
-                bash_collapsed(h)
-                local b = h._tool_blocks["b1"]
-                assert.is_true(end_alive(h, b), "end_extmark alive while collapsed")
-
-                h:_set_tool_block_expanded(b, true)
-                assert.is_true(end_alive(h, b), "end_extmark must survive expand")
-                assert.is_true(end_is_single_line(h, b), "end_extmark must stay single-line after expand")
-            end)
-
-            it("collapses again after being expanded (round-trip)", function()
-                local h = History.new(940 + (engine == "builtin" and 0 or 1))
-                bash_collapsed(h)
-                local b = h._tool_blocks["b1"]
-                local buf = h:buf()
-                local line_count = vim.api.nvim_buf_line_count(buf)
-
-                h:_set_tool_block_expanded(b, true)
-                assert.is_true(b.expanded, "expanded after first toggle")
-
-                local changed = h:_set_tool_block_expanded(b, false)
-                assert.is_true(changed, "second toggle (collapse) must report a change")
-                assert.is_false(b.expanded, "collapsed after second toggle")
-                assert.is_true(end_alive(h, b), "end_extmark alive after round-trip")
-                assert.are.equal(
-                    line_count,
-                    vim.api.nvim_buf_line_count(buf),
-                    "folding must not replace transcript lines"
-                )
-                assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
-            end)
-
-            it("round-trips through the cursor-driven toggle_tool_block", function()
-                local h = History.new(950 + (engine == "builtin" and 0 or 1))
-                bash_collapsed(h)
-                local b = h._tool_blocks["b1"]
-                local buf = h:buf()
-
-                -- Put the buffer in a window so toggle_tool_block can read a cursor.
-                vim.api.nvim_win_set_buf(0, buf)
-                h:set_win(0)
-
-                local function cursor_on_header()
-                    local hr = vim.api.nvim_buf_get_extmark_by_id(buf, h:ns(), b.icon_extmark, {})[1]
-                    vim.api.nvim_win_set_cursor(0, { hr + 1, 0 })
-                end
-
-                cursor_on_header()
-                assert.is_true(h:toggle_tool_block(), "expand via <Tab>")
-                assert.is_true(b.expanded)
-
-                cursor_on_header()
-                assert.is_true(h:toggle_tool_block(), "collapse via <Tab> must work")
-                assert.is_false(b.expanded)
-                assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
-            end)
+    describe("structural tool rendering", function()
+        before_each(function()
+            Config.options.render = { markdown = { enabled = false } }
         end)
-    end
+
+        it("keeps the footer anchor alive and single-line after expand", function()
+            local h = History.new(930)
+            bash_collapsed(h)
+            local b = h._tool_blocks["b1"]
+            assert.is_true(end_alive(h, b), "end_extmark alive while collapsed")
+
+            h:_set_tool_block_expanded(b, true)
+            assert.is_true(end_alive(h, b), "end_extmark must survive expand")
+            assert.is_true(end_is_single_line(h, b), "end_extmark must stay single-line after expand")
+        end)
+
+        it("collapses again after being expanded (round-trip)", function()
+            local h = History.new(940)
+            bash_collapsed(h)
+            local b = h._tool_blocks["b1"]
+            local buf = h:buf()
+            local line_count = vim.api.nvim_buf_line_count(buf)
+
+            h:_set_tool_block_expanded(b, true)
+            assert.is_true(b.expanded, "expanded after first toggle")
+
+            local changed = h:_set_tool_block_expanded(b, false)
+            assert.is_true(changed, "second toggle (collapse) must report a change")
+            assert.is_false(b.expanded, "collapsed after second toggle")
+            assert.is_true(end_alive(h, b), "end_extmark alive after round-trip")
+            assert.are.equal(line_count, vim.api.nvim_buf_line_count(buf), "folding must not replace transcript lines")
+            assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
+        end)
+
+        it("round-trips through the cursor-driven toggle_tool_block", function()
+            local h = History.new(950)
+            bash_collapsed(h)
+            local b = h._tool_blocks["b1"]
+            local buf = h:buf()
+
+            -- Put the buffer in a window so toggle_tool_block can read a cursor.
+            vim.api.nvim_win_set_buf(0, buf)
+            h:set_win(0)
+
+            local function cursor_on_header()
+                local hr = vim.api.nvim_buf_get_extmark_by_id(buf, h:ns(), b.icon_extmark, {})[1]
+                vim.api.nvim_win_set_cursor(0, { hr + 1, 0 })
+            end
+
+            cursor_on_header()
+            assert.is_true(h:toggle_tool_block(), "expand via <Tab>")
+            assert.is_true(b.expanded)
+
+            cursor_on_header()
+            assert.is_true(h:toggle_tool_block(), "collapse via <Tab> must work")
+            assert.is_false(b.expanded)
+            assert.is_true(#rows_with(buf, "o10") == 1, "complete output remains in buffer")
+        end)
+    end)
 end)

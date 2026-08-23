@@ -24,7 +24,7 @@ M.DIFF_WINHIGHLIGHT = "WinBar:PiDiffWinbar,WinBarNC:PiDiffWinbar"
 --- left untouched and keep priority.
 local function clear_default_groups()
     for name, def in pairs(vim.api.nvim_get_hl(0, { link = false })) do
-        if name:sub(1, 2) == "Pi" and def.default then
+        if (name:sub(1, 2) == "Pi" or name:sub(1, 22) == "AgentWorkbenchMarkdown") and def.default then
             vim.api.nvim_set_hl(0, name, {})
         end
     end
@@ -112,6 +112,30 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiWarning", { default = true, fg = warning.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiTableBorder", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiTableHeader", { default = true, bold = true })
+
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading1", { default = true, fg = title.fg, bold = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading2", { default = true, fg = func.fg, bold = true })
+    for level = 3, 6 do
+        vim.api.nvim_set_hl(
+            0,
+            "AgentWorkbenchMarkdownHeading" .. level,
+            { default = true, fg = special.fg, bold = true }
+        )
+    end
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownStrong", { default = true, bold = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownEmphasis", { default = true, italic = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownStrikethrough", { default = true, strikethrough = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownLink", { default = true, fg = special.fg, underline = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownInlineCode", { default = true, fg = special.fg, bg = cursorline.bg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCodeBlock", { default = true, bg = cursorline.bg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCodeInfo", { default = true, fg = comment.fg, italic = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownBlockQuote", { default = true, fg = comment.fg, italic = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownListMarker", { default = true, fg = special.fg, bold = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCheckboxChecked", { default = true, fg = func.fg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCheckboxUnchecked", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownTableHeader", { default = true, bold = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownTableBorder", { default = true, fg = comment.fg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHorizontalRule", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiDiffAdd", { default = true, link = "DiffAdd" })
     vim.api.nvim_set_hl(0, "PiDiffDelete", { default = true, link = "DiffDelete" })
     vim.api.nvim_set_hl(0, "PiDiffLineNr", { default = true, fg = comment.fg })

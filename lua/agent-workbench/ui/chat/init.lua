@@ -23,6 +23,9 @@
 ---@field _assistant_tool_only_header_rendered boolean
 ---@field _assistant_section? "activity"|"output"
 ---@field _assistant_message_timestamp number?
+---@field _pending_thinking_opts? table
+---@field _pending_thinking_deltas? string[]
+---@field _thinking_started boolean
 ---@field _flushed_queue_entries agent_workbench.PendingQueueEntry[]
 ---@field _replay_flushed_queue_entries agent_workbench.PendingQueueEntry[]
 ---@field _compaction_queue agent_workbench.CompactionQueuedMessage[]
@@ -94,6 +97,9 @@ function Chat.new(tab, mode, agent, history_name, session_id, cwd)
     self._assistant_tool_only_header_rendered = false
     self._assistant_section = nil
     self._assistant_message_timestamp = nil
+    self._pending_thinking_opts = nil
+    self._pending_thinking_deltas = nil
+    self._thinking_started = false
     self._flushed_queue_entries = {}
     self._replay_flushed_queue_entries = {}
     self._compaction_queue = {}
@@ -1833,6 +1839,9 @@ function Chat:on_agent_start(timestamp)
     self._assistant_tool_only_header_rendered = false
     self._assistant_section = nil
     self._assistant_message_timestamp = timestamp
+    self._pending_thinking_opts = nil
+    self._pending_thinking_deltas = nil
+    self._thinking_started = false
     local verbs = Config.random_verbs()
     self._active_verb = verbs[1]
     self._done_verb = verbs[2]
@@ -1911,11 +1920,15 @@ end
 function Chat:on_agent_end()
     self._streaming = false
     self:_disarm_abort_esc()
+    self:on_thinking_end()
     self._assistant_block_open = false
     self._assistant_message_header_rendered = false
     self._assistant_tool_only_header_rendered = false
     self._assistant_section = nil
     self._assistant_message_timestamp = nil
+    self._pending_thinking_opts = nil
+    self._pending_thinking_deltas = nil
+    self._thinking_started = false
     -- Flush any remaining pending queue entries into the history.
     -- Normally they are moved on message_start, but if the agent ends
     -- without delivering them (e.g. abort), render them now so they
@@ -2011,6 +2024,9 @@ function Chat:on_message_start(msg)
         self._assistant_block_open = false
         self._assistant_message_header_rendered = false
         self._assistant_message_timestamp = message.timestamp
+        self._pending_thinking_opts = nil
+        self._pending_thinking_deltas = nil
+        self._thinking_started = false
     end
 end
 
@@ -2160,18 +2176,49 @@ end
 
 ---@param opts? { unmeasured?: boolean }
 function Chat:on_thinking_start(opts)
-    self:_ensure_assistant_block_open("activity")
-    self._assistant_section = "activity"
-    self._history:on_thinking_start(opts)
+    -- Some providers emit an empty thinking_start/thinking_end envelope before
+    -- ordinary text. Do not create an empty Activity section until reasoning
+    -- contains at least one visible character.
+    self._pending_thinking_opts = opts or {}
+    self._pending_thinking_deltas = {}
+    self._thinking_started = false
 end
 
 ---@param delta string
 function Chat:on_thinking_delta(delta)
-    self._history:on_thinking_delta(delta)
+    if self._pending_thinking_deltas then
+        self._pending_thinking_deltas[#self._pending_thinking_deltas + 1] = delta
+        if not delta:match("%S") then
+            return
+        end
+        self:_ensure_assistant_block_open("activity")
+        self._assistant_section = "activity"
+        self._history:on_thinking_start(self._pending_thinking_opts)
+        local pending = assert(self._pending_thinking_deltas)
+        self._pending_thinking_opts = nil
+        self._pending_thinking_deltas = nil
+        self._thinking_started = true
+        for _, chunk in ipairs(pending) do
+            self._history:on_thinking_delta(chunk)
+        end
+        return
+    end
+    if self._thinking_started then
+        self._history:on_thinking_delta(delta)
+    end
 end
 
 function Chat:on_thinking_end()
-    self._history:on_thinking_end()
+    if self._pending_thinking_deltas then
+        self._pending_thinking_opts = nil
+        self._pending_thinking_deltas = nil
+        self._thinking_started = false
+        return
+    end
+    if self._thinking_started then
+        self._history:on_thinking_end()
+        self._thinking_started = false
+    end
 end
 
 function Chat:toggle_thinking()
@@ -2204,6 +2251,9 @@ function Chat:clear()
     self._assistant_tool_only_header_rendered = false
     self._assistant_section = nil
     self._assistant_message_timestamp = nil
+    self._pending_thinking_opts = nil
+    self._pending_thinking_deltas = nil
+    self._thinking_started = false
     self._flushed_queue_entries = {}
     self._replay_flushed_queue_entries = {}
     self._compaction_queue = {}

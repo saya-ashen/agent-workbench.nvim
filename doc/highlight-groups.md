@@ -1,6 +1,6 @@
 # Highlight groups
 
-All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Special`, `Comment`, `WarningMsg`, `DiagnosticError`, `DiagnosticWarn`, `DiagnosticOk`, `CursorLine`, and the diff/gitsigns groups), rather than linking directly to another group. Definitions are (re)applied on `ColorScheme` and `VimEnter`, so switching themes keeps π colors in sync. Run `:hi PiGroupName` at any time to see the current value.
+All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Special`, `Comment`, `WarningMsg`, `DiagnosticError`, `DiagnosticWarn`, `DiagnosticOk`, `CursorLine`, and the diff/gitsigns groups), rather than linking directly to another group. Definitions are (re)applied on `ColorScheme` and `VimEnter`, so switching themes keeps π colors in sync. Run `:hi PiGroupName` or `:hi AgentWorkbenchMarkdownHeading1` at any time to see the current value.
 
 ## Chat history
 
@@ -37,6 +37,30 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiWarning` | Inline warning lines |
 | `PiError` | Inline error lines |
 | `PiDebug` | Inline debug lines |
+
+## Message-level Markdown
+
+These groups decorate independently parsed user/assistant Markdown blocks. Tool, thinking, status, and error blocks continue to use the structural `Pi*` groups below.
+
+| Group | Role |
+| --- | --- |
+| `AgentWorkbenchMarkdownHeading1` … `Heading6` | ATX/Setext heading levels |
+| `AgentWorkbenchMarkdownStrong` | Strong emphasis |
+| `AgentWorkbenchMarkdownEmphasis` | Italic emphasis |
+| `AgentWorkbenchMarkdownStrikethrough` | Struck text |
+| `AgentWorkbenchMarkdownLink` | Link/image label and virtual link icon |
+| `AgentWorkbenchMarkdownInlineCode` | Inline code text |
+| `AgentWorkbenchMarkdownCodeBlock` | Fenced-code line background |
+| `AgentWorkbenchMarkdownCodeInfo` | Fenced-code language label |
+| `AgentWorkbenchMarkdownBlockQuote` | Quote border and body |
+| `AgentWorkbenchMarkdownListMarker` | Ordered/unordered list marker |
+| `AgentWorkbenchMarkdownCheckboxChecked` | Checked task marker |
+| `AgentWorkbenchMarkdownCheckboxUnchecked` | Unchecked task marker |
+| `AgentWorkbenchMarkdownTableHeader` | Rendered Markdown table header |
+| `AgentWorkbenchMarkdownTableBorder` | Rendered Markdown table borders and rows |
+| `AgentWorkbenchMarkdownHorizontalRule` | Width-aware horizontal rule |
+
+Injected code-language captures keep their normal Tree-sitter groups (for example `@keyword.lua`).
 
 ## Direct bash blocks
 

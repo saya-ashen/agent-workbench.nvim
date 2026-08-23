@@ -1,5 +1,6 @@
 local Config = require("agent-workbench.config")
 local Chat = require("agent-workbench.ui.chat")
+local NativeFolds = require("agent-workbench.ui.chat.history_extensions.native_folds")
 
 Config.setup({})
 
@@ -23,7 +24,7 @@ describe("agent activity and output folds", function()
     local original_notify
 
     before_each(function()
-        Config.options.render.engine = "builtin"
+        Config.options.render = { markdown = { enabled = false } }
         original_notify = vim.notify
     end)
 
@@ -70,6 +71,46 @@ describe("agent activity and output folds", function()
         assert.are.equal(vim.log.levels.INFO, notification.level)
         assert.are.equal(3000, notification.opts.timeout)
         assert.is_nil(notification.opts.id)
+        vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
+    it("ignores empty thinking envelopes before plain output", function()
+        local chat, history = setup_chat(984)
+        chat:on_agent_start(1)
+        chat:on_thinking_start()
+        chat:on_thinking_delta("  \n")
+        chat:on_thinking_end()
+        chat:on_text_delta("Plain answer")
+        chat:on_agent_end()
+        vim.wait(160)
+
+        assert.are.equal(1, #history._message_blocks)
+        assert.are.equal("output", history._message_blocks[1].section)
+        assert.are.equal(0, #history._thinking_blocks)
+        assert.is_nil(table.concat(vim.api.nvim_buf_get_lines(history:buf(), 0, -1, false), "\n"):find("Thought"))
+        vim.api.nvim_buf_delete(history:buf(), { force = true })
+    end)
+
+    it("uses rendered thinking text instead of '(empty)' in the Activity fold", function()
+        local chat, history = setup_chat(985)
+        chat:on_agent_start(1)
+        chat:on_thinking_start()
+        chat:on_thinking_delta("**Clarifying code block formatting rules**")
+        chat:on_thinking_end()
+        chat:on_agent_end()
+        vim.wait(180)
+
+        local block = history._message_blocks[1]
+        local start_row = history:_extmark_row(block.anchor)
+        local end_row = vim.fn.foldclosedend(start_row + 1) - 1
+        local chunks = NativeFolds.foldtext(history, start_row, end_row)
+        local text = ""
+        for _, chunk in ipairs(chunks) do
+            text = text .. chunk[1]
+        end
+        assert.is_not_nil(text:find("Clarifying code block", 1, true))
+        assert.is_nil(text:find("**", 1, true))
+        assert.is_nil(text:find("(empty)", 1, true))
         vim.api.nvim_buf_delete(history:buf(), { force = true })
     end)
 

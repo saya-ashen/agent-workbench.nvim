@@ -16,10 +16,10 @@ Each entry is a real defect or trap encountered while adding features to this pl
 | G4 | Headless: call save method directly, `TextChanged` won't fire |
 | G5 | Headless: feed `"i<Up>"` in one call, or bind `{ "i", "n" }` |
 | G6 | Visual correctness needs a GUI screenshot, headless can't prove it |
-| G7 | Builtin renderer is `conceallevel=0`; use render-markdown for chrome |
-| G8 | render-markdown auto-attach needs `plugin/` sourced (lazy does this) |
-| G9 | Headless: force `render-markdown.render({ buf = buf })` |
-| G10 | markview ignores `buftype=nofile`; prefer render-markdown |
+| G7 | Conceal only inside isolated Markdown blocks; tool text never enters the parser |
+| G8 | `markview.parser.init()` parses a buffer; use/reuse an isolated scratch buffer |
+| G9 | Tree-sitter captures from scratch need row/column translation before target Extmarks |
+| G10 | Never call Markview's renderer on the whole History buffer |
 | G11 | Enter history window from prompt to avoid WinEnter redirect |
 | G12 | Send `Esc` before normal/leader keys (prompt auto-inserts) |
 | G13 | lazy loads on first key; `wait_for` the buffer |
@@ -113,29 +113,29 @@ Each entry is a real defect or trap encountered while adding features to this pl
 - **根因:** Headless has no display; rendering correctness is a visual property.
 - **修法:** A GUI `maim` screenshot is the *only* proof. Open the PNG and confirm the *rendered* form (markers concealed, chrome drawn). See `testing.md` "Reading a screenshot as proof".
 
-### G7 — Builtin code-block chrome looks redundant / breaks tool output
+### G7 — Conceal must not leak into tool output
 
-- **现象:** Adding a language label + box around fenced blocks in the builtin renderer either shows the box *and* the raw ` ```lua ` line (redundant) or, if you conceal the fence, mangles tool output that contains fence-like lines.
-- **根因:** The history window is intentionally `conceallevel=0` (so tool output stays verbatim). Pretty chrome needs conceal, which directly conflicts; and you can't visually verify the result headless.
-- **修法:** Don't add conceal-based chrome to builtin. Deliver rich chrome via the opt-in `render-markdown` engine (`render.engine = "render-markdown"`), which already draws language labels + boxes correctly (confirmed by screenshot).
+- **现象:** A tool result containing `###`, tables, or an unclosed fence changes the appearance of later messages.
+- **根因:** The whole History buffer was parsed as one Markdown document, so tool text participated in the same syntax tree.
+- **修法:** Only user/assistant Markdown blocks receive decorations. Tool/thinking/status text never enters the scratch parser; do not add wrapper or auto-closing fences to compensate.
 
-### G8 — render-markdown "doesn't attach" in a spike
+### G8 — Markview's parser is buffer-oriented
 
-- **现象:** After `require("render-markdown").setup{ file_types = {"pi-chat-history"} }`, `manager.attached(buf)` is false.
-- **根因:** Auto-attach is registered by `plugin/render-markdown.lua` calling `manager.init()` (a global `FileType` autocmd). lazy.nvim sources `plugin/` on load; a runtime `vim.opt.runtimepath:prepend(...)` does **not**, so the autocmd is never created.
-- **修法:** In a spike, call `require("render-markdown.core.manager").init()` explicitly after setup. In production (lazy install) it just works.
+- **现象:** Code tries to pass a Markdown string to `markview.parser.init()` or caches temporary parse data indefinitely.
+- **根因:** The documented API accepts a buffer and Markview keeps module-level parser state/cache.
+- **修法:** Reuse one hidden Markdown scratch buffer, replace its lines synchronously, and call `parser.init(buf, 0, -1, false)`. Compile serially on the main thread and return a pure local-coordinate plan.
 
-### G9 — render-markdown renders nothing on injected text, headless
+### G9 — Scratch coordinates are not History coordinates
 
-- **现象:** Buffer attached, `enabled` true, window present, but after injecting markdown and waiting, the render-markdown namespace has 0 extmarks; a manual forced render produces them.
-- **根因:** render-markdown's render is an async treesitter parse driven by its event hooks; headless's passive `TextChanged` path doesn't drive it the way an interactive event loop does.
-- **修法:** In tests, force `require("render-markdown").render({ buf = buf, event = "Api" })` (public API). Interactively, its own `TextChanged`/`CursorMoved` hooks handle streaming — that is the mechanism codecompanion.nvim relies on too. (Don't add a competing pi-owned debounced re-render: it races with render-markdown's async pass and can *clear* a forced render in headless.)
+- **现象:** User-message highlights start two columns early or multiline captures drift after tool insertion.
+- **根因:** Parsed ranges are local to an unindented scratch document, while History adds message headers/user indentation and parallel tools may insert rows above it.
+- **修法:** Anchor each block with an Extmark, resolve its current row at apply time, and translate every start/end row plus the per-line user `col_prefix`. Track decoration IDs per block and discard stale generations.
 
-### G10 — markview ignores the history buffer
+### G10 — Never render the whole History through Markview
 
-- **现象:** markview attaches nowhere on the history buffer by default.
-- **根因:** The history buffer is `buftype=nofile`, and markview's default `preview.ignore_buftypes = {"nofile"}` excludes it; you must clear that list *and* add the filetype. render-markdown's `buftype.nofile` config works out of the box.
-- **修法:** Prefer render-markdown for this integration (smaller config surface, chat-streaming precedent, nofile-ready).
+- **现象:** One malformed message poisons later parsing, cursor movement triggers full-buffer work, or Markview config/callback state leaks into a `nofile` History window.
+- **根因:** Markview's public renderer is buffer-oriented and sees History as one Markdown language tree.
+- **修法:** Depend only on the documented parser API. Agent Workbench owns Extmark generation/lifecycle, recompiles only the dirty isolated block, and preserves raw text on dependency/parse failure.
 
 ### G11 — Programmatic focus of the history window bounces to the prompt
 

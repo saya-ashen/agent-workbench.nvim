@@ -322,13 +322,34 @@ require("agent-workbench").setup({
         },
     },
 
-    -- Markdown rendering of the chat history.
+    -- Message-level Markdown rendering. User messages and each assistant text
+    -- segment are parsed independently; tools/thinking/status stay structural.
     render = {
-        -- "markview" (default), "render-markdown", or "builtin".
-        engine = "markview",
-        -- Markview config for chat History only. Empty means use the global
-        -- Markview config unchanged; values here deep-merge over it.
-        markview = {},
+        markdown = {
+            enabled = true,
+            debounce_ms = 30,
+            features = {
+                headings = true,
+                emphasis = true,
+                strikethrough = true,
+                links = true,
+                inline_code = true,
+                lists = true,
+                checkboxes = true,
+                block_quotes = true,
+                code_blocks = true,
+                tables = true,
+                horizontal_rules = true,
+            },
+            symbols = {
+                bullet = "•",
+                checked = "󰄲",
+                unchecked = "󰄱",
+                block_quote = "│",
+                link = "󰌹 ",
+                horizontal_rule = "─",
+            },
+        },
     },
 
     -- Verb pairs for status messages, picked randomly per run.
@@ -356,6 +377,8 @@ require("agent-workbench").setup({
 
 Notes on a few fields:
 
+- `render.markdown.enabled = false` keeps raw Markdown text and disables decorations; there is no second renderer. `markview.nvim` and the `markdown` Tree-sitter parser are required when enabled.
+- Legacy `render.engine = "markview"` is temporarily accepted with a deprecation warning. `"builtin"` and `"render-markdown"` now report an error and preserve raw text. `render.markview` is ignored; migrate styling to `render.markdown` and the `AgentWorkbenchMarkdown*` highlight groups.
 - `layout.default`, `layout.side`, and `layout.float` each also accept a **function** returning the value, so you can compute sizes from `vim.o.columns` / `vim.o.lines` at open time. A function-return for `side`/`float` is deep-merged over the defaults, so returning a partial table is fine.
 - `panels.<panel>.name` takes a `fun(tab_id): string` that computes the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars.
 - Several fields (`diff.keys`, `dialog.keys`, `zen.keys`) accept **key specs** — plain strings, `{ key, modes = ... }` tables, or lists of those. See [Keymaps](keymaps.md#key-specs).

@@ -40,12 +40,12 @@ end
 
 describe("history visual polish (issue #47)", function()
     before_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 
     after_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 
@@ -60,6 +60,22 @@ describe("history visual polish (issue #47)", function()
             local tool_call = vim.api.nvim_get_hl(0, { name = "PiToolCall", link = false })
             assert.are.equal(normal.fg, tool_call.fg, "PiToolCall should use normal text color")
             assert.are_not.equal(comment.fg, tool_call.fg, "PiToolCall should not be Comment gray")
+        end)
+
+        it("defines the message-level Markdown highlight surface", function()
+            for _, group in ipairs({
+                "AgentWorkbenchMarkdownHeading1",
+                "AgentWorkbenchMarkdownStrong",
+                "AgentWorkbenchMarkdownEmphasis",
+                "AgentWorkbenchMarkdownLink",
+                "AgentWorkbenchMarkdownInlineCode",
+                "AgentWorkbenchMarkdownCodeBlock",
+                "AgentWorkbenchMarkdownBlockQuote",
+                "AgentWorkbenchMarkdownTableBorder",
+                "AgentWorkbenchMarkdownHorizontalRule",
+            }) do
+                assert.is_not_nil(next(vim.api.nvim_get_hl(0, { name = group, link = false })))
+            end
         end)
 
         it("defines a distinct, subdued thinking preview group", function()
@@ -229,6 +245,16 @@ describe("history visual polish (issue #47)", function()
             local vt = (em[3] or {}).virt_text
             assert.is_not_nil(vt and vt[1], "preview virt_text exists")
             assert.are.equal("PiThinkingPreview", vt[1][2], "preview uses PiThinkingPreview")
+        end)
+
+        it("renders inline Markdown styles without exposing delimiters", function()
+            local h = History.new(966)
+            local row = h:_append_lines({ "thinking header" })
+            local id = h:_set_thinking_preview(row, "**Clarifying code block formatting rules**", nil)
+            local em = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), id, { details = true })
+            local vt = (em[3] or {}).virt_text
+            assert.are.equal("  Clarifying code block formatting rules", vt[1][1])
+            assert.are.same({ "PiThinkingPreview", "AgentWorkbenchMarkdownStrong" }, vt[1][2])
         end)
     end)
 end)

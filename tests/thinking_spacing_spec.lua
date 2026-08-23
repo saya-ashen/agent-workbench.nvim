@@ -53,14 +53,14 @@ end
 
 describe("thinking block spacing rhythm (issue #48)", function()
     before_each(function()
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         Config.options.show_thinking = true
         require("agent-workbench.ui.render")._reset()
     end)
 
     after_each(function()
         Config.options.show_thinking = true
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 

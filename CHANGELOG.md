@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-23
+
+- **CHANGED:** History Markdown is now parsed per user message and per assistant text segment, then projected with Agent Workbench-owned Extmarks. Tool/thinking/status blocks never enter the Markdown parser, so malformed or unclosed Markdown cannot affect later messages; streamed updates recompile only the active block and raw transcript text remains unchanged.
+- **BREAKING:** `render-markdown.nvim` and the whole-History builtin renderer are removed. Configure the new `render.markdown` feature/symbol schema and `AgentWorkbenchMarkdown*` highlight groups. Legacy `render.engine = "markview"` is temporarily accepted with a warning; `builtin` / `render-markdown` preserve raw text with an error, and `render.markview` is ignored.
+- **CHANGED:** Markview is now used only through its documented parser API. Missing/incompatible Markview or Markdown Tree-sitter support leaves complete raw Markdown visible without interrupting chat, tools, replay, or session management.
+- **FIXED:** Empty provider thinking envelopes no longer leave a folded `Agent Activity (empty)` section. Activity folds backed only by visible reasoning now summarize that reasoning instead of reporting `(empty)`, and thinking previews render strong, emphasis, strikethrough, and inline-code delimiters with plugin-owned structural styling.
+
 ## 2026-08-20
 
 - **ADDED:** Workspace sidebar `d` now confirms before closing a workspace tab, stops all sessions owned by it, preserves ordinary buffers, and refuses to close the last workspace.

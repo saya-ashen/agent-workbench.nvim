@@ -95,10 +95,15 @@ M.check = function()
     end
 
     -- ── Treesitter parsers ────────────────────────────────────────────
+    local markdown_enabled = not Config.options.render
+        or not Config.options.render.markdown
+        or Config.options.render.markdown.enabled ~= false
     if has_ts_parser("markdown") then
         vim.health.ok("treesitter `markdown` parser found")
+    elseif markdown_enabled then
+        vim.health.error("treesitter `markdown` parser not found (History will preserve raw Markdown)")
     else
-        vim.health.info("treesitter `markdown` parser not found (chat history highlighting will be limited)")
+        vim.health.info("treesitter `markdown` parser not found (message-level Markdown rendering is disabled)")
     end
     if has_ts_parser("markdown_inline") then
         vim.health.ok("treesitter `markdown_inline` parser found")
@@ -115,23 +120,15 @@ M.check = function()
         )
     end
 
-    local render_engine = Config.options.render and Config.options.render.engine or "builtin"
-    if pcall(require, "markview") then
-        vim.health.ok("markview.nvim found")
-    elseif render_engine == "markview" then
-        vim.health.warn('markview.nvim not found but `render.engine = "markview"` is set', {
-            'Install markview.nvim or set `render.engine = "builtin"`',
+    local ok_markview, markview_parser = pcall(require, "markview.parser")
+    if ok_markview and type(markview_parser.init) == "function" then
+        vim.health.ok("markview.nvim parser API found")
+    elseif markdown_enabled then
+        vim.health.error("compatible markview.nvim parser API not found", {
+            "Install or update OXY2DEV/markview.nvim; chat remains usable with raw Markdown",
         })
     else
-        vim.health.info('markview.nvim not found (optional, only needed for `render.engine = "markview"`)')
-    end
-
-    if pcall(require, "render-markdown") then
-        vim.health.ok("render-markdown.nvim found (legacy renderer)")
-    elseif render_engine == "render-markdown" then
-        vim.health.warn('render-markdown.nvim not found but `render.engine = "render-markdown"` is set', {
-            'Install render-markdown.nvim, use markview, or set `render.engine = "builtin"`',
-        })
+        vim.health.info("markview.nvim parser API not found (message-level Markdown rendering is disabled)")
     end
 
     if pcall(require, "blink.cmp") then

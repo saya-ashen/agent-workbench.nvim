@@ -20,7 +20,7 @@ Use `find lua -type f` for the authoritative file list — don't rely on any sna
 
 - `lua/agent-workbench/` — core: `init.lua` (public API), `config.lua`, `commands.lua` (`:AgentWorkbench*` commands plus deprecated `:Pi*` aliases), `rpc.lua` (JSON-RPC to `pi --mode rpc`), plus feature modules (models, thinking, paste, quickfix, draft, prompt_history, reload, …)
 - `lua/agent-workbench/sessions/` — session lifecycle (`manager.lua`, central event dispatch) and resume parsing (`history.lua`)
-- `lua/agent-workbench/ui/` — all UI: `ui/chat/` holds the Chat class, history rendering, prompt, tool blocks, layout modes; `diff.lua` is the pre-execution diff review; `dialog.lua` / `extension.lua` handle blocking extension UI; `render.lua` is the optional render-markdown.nvim integration
+- `lua/agent-workbench/ui/` — all UI: `ui/chat/` holds the Chat class, history projection, prompt, tool blocks, layout modes; `ui/markdown/` compiles isolated message Markdown through Markview's parser API into Agent Workbench Extmarks; `render.lua` owns Markdown block lifecycle; `diff.lua` is pre-execution diff review; `dialog.lua` / `extension.lua` handle blocking extension UI
 - `lua/agent-workbench/completion/` — @-mention / slash-command completion (blink.cmp source + omnifunc fallback, shared fuzzy matching)
 - `lua/agent-workbench/cache/` — project file listing and slash-command caches
 - `tests/` — plenary specs (`make test`); `make smoke` = hermetic current-checkout boot with stubbed RPC
@@ -74,7 +74,7 @@ Key source files (under `$(npm root -g)/@earendil-works/pi-coding-agent/`):
 
 ## Verification
 
-- There **is** a test harness now: hermetic plenary unit tests (`make test`, specs in `tests/`) and a headless boot check (`make smoke`). For keymap / insert-mode / visual behavior there is also an xdotool+wmctrl+maim GUI-automation stack over the nvim RPC socket. The full playbook — when to use each layer, the pitfalls, the isolation recipe, and the gotchas — is in `.agents/skills/develop/` (see its `references/testing.md` and `references/gotchas.md`). Verify changes at the cheapest layer that can observe the behavior, and escalate to a GUI screenshot for anything visual.
+- There **is** a test harness now: hermetic plenary unit tests (`make test`, specs in `tests/`), a headless boot check (`make smoke`), and a real packaged Markview + Markdown Tree-sitter integration check (`make markdown-e2e`). For keymap / insert-mode / visual behavior there is also an xdotool+wmctrl+maim GUI-automation stack over the nvim RPC socket. The full playbook — when to use each layer, the pitfalls, the isolation recipe, and the gotchas — is in `.agents/skills/develop/` (see its `references/testing.md` and `references/gotchas.md`). Verify changes at the cheapest layer that can observe the behavior, and escalate to a GUI screenshot for anything visual.
 - Formatting and static checks are gated too: `make style` (stylua `--check`) and `make lint` (lua-language-server `--check` over `lua/`, config `.luarc.json`). Both run in CI and must stay green; `make lint` is environment-independent (bundled luv types only, no vim runtime dependency).
 - Reading files or reviewing diffs is not verification.
 - If a change can only be checked through interactive UI behavior, say so clearly instead of claiming success — or prove it with a GUI screenshot per the skill.

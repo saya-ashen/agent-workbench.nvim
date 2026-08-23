@@ -19,7 +19,6 @@
 ---@field _spinner_rate integer
 ---@field _spinner_index integer
 ---@field _spinner_timer uv.uv_timer_t?
----@field _agent_text_chunks string[]?
 ---@field _first_delta boolean
 ---@field _agent_start_time number?
 ---@field _show_thinking boolean
@@ -47,10 +46,11 @@
 ---@field _pending_queue agent_workbench.PendingQueueEntry[]
 ---@field _pending_queue_extmark_id integer?
 ---@field _replaying boolean
----@field _agent_text_start_row integer?
 ---@field _current_turn_first_agent_response_extmark_id integer?
 ---@field _current_turn_last_agent_response_extmark_id integer?
 ---@field _message_blocks agent_workbench.MessageBlock[]
+---@field _markdown_blocks agent_workbench.MarkdownBlock[]
+---@field _active_markdown_block? agent_workbench.MarkdownBlock
 ---@field _active_fold_anchors table<integer, integer?>
 ---@field _status_anchor_id integer?
 ---@field _fold_open_state table<integer, boolean>
@@ -77,14 +77,6 @@ History.__index = History
 --- buffer write dirties the screen, so per-delta writes cost roughly one
 --- redraw per delta at model streaming rates. Tests may lower this.
 History._stream_flush_ms = 30
-
----@class agent_workbench.MdTable
----@field start_row integer 0-indexed first row in the buffer
----@field end_row integer 0-indexed last row in the buffer (inclusive)
----@field header string[] header cell texts (trimmed)
----@field aligns ("left"|"center"|"right")[] per-column alignment
----@field rows string[][] data rows, each a list of cell texts
----@field widths integer[] display width per column
 
 ---@class agent_workbench.MessageBlock
 ---@field anchor integer
@@ -274,160 +266,6 @@ local function format_time(ts)
     return tostring(os.date(Config.options.timestamp_format, secs)) --[[@as string]]
 end
 
---- Markdown tables
-
---- Parse cells from a pipe-delimited markdown table row.
----@param line string
----@return string[]
-local function parse_table_cells(line)
-    local inner = vim.trim(line):match("^|(.+)|$")
-    if not inner then
-        return {}
-    end
-    local cells = vim.split(inner, "|", { plain = true })
-    for i, cell in ipairs(cells) do
-        cells[i] = vim.trim(cell)
-    end
-    return cells
-end
-
---- Try to parse a contiguous block of lines as a markdown table.
----@param lines string[]
----@param buf_start_row integer 0-indexed buffer row of the first line
----@return agent_workbench.MdTable?
-local function parse_table(lines, buf_start_row)
-    if #lines < 3 then
-        return nil
-    end
-    local header = parse_table_cells(lines[1])
-    local ncols = #header
-    if ncols == 0 then
-        return nil
-    end
-    local sep_cells = parse_table_cells(lines[2])
-    if #sep_cells ~= ncols then
-        return nil
-    end
-    local aligns = {}
-    for _, cell in ipairs(sep_cells) do
-        if not cell:match("^:?%-+:?$") then
-            return nil
-        end
-        local l = cell:sub(1, 1) == ":"
-        local r = cell:sub(-1) == ":"
-        if l and r then
-            aligns[#aligns + 1] = "center"
-        elseif r then
-            aligns[#aligns + 1] = "right"
-        else
-            aligns[#aligns + 1] = "left"
-        end
-    end
-    local data_rows = {}
-    for i = 3, #lines do
-        local cells = parse_table_cells(lines[i])
-        local row = {}
-        for j = 1, ncols do
-            row[j] = cells[j] or ""
-        end
-        data_rows[#data_rows + 1] = row
-    end
-    -- Column widths: max display width across header + all data rows
-    local widths = {}
-    for j = 1, ncols do
-        widths[j] = vim.fn.strdisplaywidth(header[j])
-    end
-    for _, row in ipairs(data_rows) do
-        for j = 1, ncols do
-            widths[j] = math.max(widths[j], vim.fn.strdisplaywidth(row[j]))
-        end
-    end
-    for j = 1, ncols do
-        widths[j] = math.max(widths[j], 1)
-    end
-    return {
-        start_row = buf_start_row,
-        end_row = buf_start_row + #lines - 1,
-        header = header,
-        aligns = aligns,
-        rows = data_rows,
-        widths = widths,
-    }
-end
-
---- Pad or align a cell string to a given display width.
----@param text string
----@param width integer target display width
----@param align "left"|"center"|"right"
----@return string
-local function align_table_cell(text, width, align)
-    local pad = width - vim.fn.strdisplaywidth(text)
-    if pad <= 0 then
-        return text
-    end
-    if align == "right" then
-        return string.rep(" ", pad) .. text
-    elseif align == "center" then
-        local l = math.floor(pad / 2)
-        return string.rep(" ", l) .. text .. string.rep(" ", pad - l)
-    end
-    return text .. string.rep(" ", pad)
-end
-
---- Build a horizontal border line with box-drawing characters.
----@param widths integer[]
----@param left string corner/tee glyph
----@param mid string intersection glyph
----@param right string corner/tee glyph
----@param fill string horizontal fill glyph
----@return string
-local function table_border(widths, left, mid, right, fill)
-    local parts = { left }
-    for i, w in ipairs(widths) do
-        parts[#parts + 1] = string.rep(fill, w + 2) -- +2 for cell padding
-        if i < #widths then
-            parts[#parts + 1] = mid
-        end
-    end
-    parts[#parts + 1] = right
-    return table.concat(parts)
-end
-
---- Build a data/header row line with box-drawing pipe characters.
----@param cells string[]
----@param widths integer[]
----@param aligns ("left"|"center"|"right")[]
----@return string
-local function table_row(cells, widths, aligns)
-    local parts = { "│" }
-    for i, cell in ipairs(cells) do
-        parts[#parts + 1] = " " .. align_table_cell(cell, widths[i], aligns[i] or "left") .. " │"
-    end
-    return table.concat(parts)
-end
-
---- Apply PiTableBorder highlight to every │ character in a buffer line.
----@param buf integer
----@param ns_id integer
----@param row integer 0-indexed
----@param line string
-local function highlight_table_pipes(buf, ns_id, row, line)
-    local pipe = "│"
-    local pos = 1
-    while true do
-        local s, e = line:find(pipe, pos, true)
-        if not s then
-            break
-        end
-        vim.api.nvim_buf_set_extmark(buf, ns_id, row, s - 1, {
-            end_col = e,
-            hl_group = "PiTableBorder",
-            priority = 200,
-        })
-        pos = e + 1
-    end
-end
-
 ---@param title string?
 ---@return string?
 local function clean_buffer_title(title)
@@ -472,7 +310,6 @@ function History.new(tab, name, session_id)
     self._spinner_index = 1
     self._spinner_timer = nil
     self:_pick_spinner()
-    self._agent_text_chunks = nil
     self._first_delta = false
     self._agent_start_time = nil
     self._show_thinking = Config.options.show_thinking
@@ -503,10 +340,11 @@ function History.new(tab, name, session_id)
     self._pending_queue_extmark_id = nil
     self._status_virt_line_count = 0
     self._replaying = false
-    self._agent_text_start_row = nil
     self._current_turn_first_agent_response_extmark_id = nil
     self._current_turn_last_agent_response_extmark_id = nil
     self._message_blocks = {}
+    self._markdown_blocks = {}
+    self._active_markdown_block = nil
     self._active_fold_anchors = {}
     self._status_anchor_id = nil
     self._fold_open_state = {}
@@ -547,7 +385,7 @@ function History.new(tab, name, session_id)
         end,
     })
 
-    -- Optional richer markdown rendering (no-op for the builtin engine).
+    -- Message-level Markdown owns only user/assistant text decorations.
     Render.attach_history(self._buf)
 
     local function configure_history_windows(args)
@@ -653,7 +491,6 @@ function History:_with_modifiable(fn)
     vim.bo[self._buf].modifiable = true
     local ok, err = pcall(fn)
     vim.bo[self._buf].modifiable = false
-    Render.refresh_history(self._buf)
     if not ok then
         error(err)
     end
@@ -1042,6 +879,7 @@ function History:_emit_queue_count()
 end
 
 ---@param text string
+---@return integer start_row
 function History:_append_text(text)
     local should_scroll = self:_should_auto_scroll()
     local last_line = vim.api.nvim_buf_line_count(self._buf) - 1
@@ -1056,6 +894,7 @@ function History:_append_text(text)
         self._scroll_scheduled = false
         self:_follow_stream_bottom()
     end
+    return last_line
 end
 
 -- ---------------------------------------------------------------------------
@@ -1097,17 +936,34 @@ function History:_render_text_deltas(delta)
         end
     end
     self._last_was_inline = false
-    -- After a tool block, prepend a newline so the blank footer line
-    -- becomes breathing room and text starts on a fresh line.
+    local markdown_delta = delta
+    local breathing_line = false
+    -- After a tool block, prepend a newline only to the History projection so
+    -- the blank footer becomes breathing room. It is not part of the isolated
+    -- Markdown document sent to the compiler.
     if self._needs_breathing_line then
         self._needs_breathing_line = false
+        breathing_line = true
         delta = "\n" .. delta
     end
-    if self._agent_text_chunks then
-        self._agent_text_chunks[#self._agent_text_chunks + 1] = delta
-    end
+    local append_row
     if delta ~= "" then
-        self:_append_text(delta)
+        append_row = self:_append_text(delta)
+    end
+    if markdown_delta == "" then
+        return
+    end
+    if self._active_markdown_block then
+        Render.append_block(self._active_markdown_block, markdown_delta)
+        return
+    end
+    -- Use the actual buffer insertion point instead of reconstructing the row
+    -- from line counts. Extmark-driven tool output may have inserted above this
+    -- segment between its structural header and its first streamed delta.
+    local start_row = (append_row or 0) + (breathing_line and 1 or 0)
+    self._active_markdown_block = Render.start_block(self._buf, "assistant", start_row, markdown_delta, 0, false)
+    if self._active_markdown_block then
+        self._markdown_blocks[#self._markdown_blocks + 1] = self._active_markdown_block
     end
 end
 
@@ -1255,7 +1111,7 @@ function History:_flush_stream_thinking()
     if header_row then
         local flat = Text.thinking_flat(self._thinking_accum.lines)
         local pw = self:_thinking_preview_width(self._thinking_accum.header_text or "")
-        local preview = Text.thinking_tail(flat, pw)
+        local preview = Text.thinking_preview_tail(flat, pw)
         self._thinking_accum.virt_id = self:_set_thinking_preview(header_row, preview, self._thinking_accum.virt_id)
     end
     self:_update_status_extmark()
@@ -1295,16 +1151,13 @@ function History:_flush_tool_updates()
     end
 end
 
----@param text string
----@return boolean
-function History:_agent_text_has_open_fence(text)
-    local open = false
-    for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
-        if line:match("^%s*```") then
-            open = not open
-        end
+--- Complete the active assistant Markdown segment before a structural block.
+function History:_finish_markdown_segment()
+    if not self._active_markdown_block then
+        return
     end
-    return open
+    Render.finish_block(self._active_markdown_block)
+    self._active_markdown_block = nil
 end
 
 ---@param lines_list string[]
@@ -1374,18 +1227,39 @@ end
 --- inline (the preview still sits right after a short header) and the hard clip
 --- matches the existing tail truncation (which adds no ellipsis either).
 ---@param row integer 0-indexed header row
----@param text string? preview text; nil clears
+---@param preview string|agent_workbench.ThinkingPreviewChunk[]? preview text/chunks; nil clears
 ---@return integer? virt_id
-function History:_set_thinking_preview(row, text, virt_id)
-    if not text or text == "" then
+function History:_set_thinking_preview(row, preview, virt_id)
+    local chunks ---@type agent_workbench.ThinkingPreviewChunk[]?
+    if type(preview) == "string" then
+        chunks = Text.thinking_inline_chunks(preview)
+    else
+        chunks = preview
+    end
+    if not chunks or #chunks == 0 then
         if virt_id then
             pcall(vim.api.nvim_buf_del_extmark, self._buf, ns, virt_id)
         end
         return nil
     end
+    local style_groups = {
+        strong = "AgentWorkbenchMarkdownStrong",
+        emphasis = "AgentWorkbenchMarkdownEmphasis",
+        strikethrough = "AgentWorkbenchMarkdownStrikethrough",
+        inline_code = "AgentWorkbenchMarkdownInlineCode",
+    }
+    local virtual_text = {}
+    for index, chunk in ipairs(chunks) do
+        local text = (index == 1 and "  " or "") .. chunk.text
+        local style_group = chunk.style and style_groups[chunk.style] or nil
+        virtual_text[#virtual_text + 1] = {
+            text,
+            style_group and { "PiThinkingPreview", style_group } or "PiThinkingPreview",
+        }
+    end
     local line = vim.api.nvim_buf_get_lines(self._buf, row, row + 1, false)[1] or ""
     local opts = {
-        virt_text = { { "  " .. text, "PiThinkingPreview" } },
+        virt_text = virtual_text,
         virt_text_pos = "eol",
     }
     if virt_id then
@@ -1571,116 +1445,6 @@ function History:set_status(status)
     end)
 end
 
---- Find and render all markdown tables in the given buffer range.
---- Skips tables inside fenced code blocks.
----@param from_row integer 0-indexed
----@param to_row integer 0-indexed (inclusive)
-function History:_render_tables(from_row, to_row)
-    if from_row > to_row then
-        return
-    end
-    local all_lines = vim.api.nvim_buf_get_lines(self._buf, from_row, to_row + 1, false)
-    ---@type agent_workbench.MdTable[]
-    local tables = {}
-    local in_fence = false
-    local i = 1
-    while i <= #all_lines do
-        local line = all_lines[i]
-        if line:match("^```") then
-            in_fence = not in_fence
-            i = i + 1
-        elseif in_fence then
-            i = i + 1
-        else
-            local trimmed = vim.trim(line)
-            if trimmed:match("^|.+|$") then
-                local block = { line }
-                local j = i + 1
-                while j <= #all_lines do
-                    local nt = vim.trim(all_lines[j])
-                    if nt:match("^|.+|$") then
-                        block[#block + 1] = all_lines[j]
-                        j = j + 1
-                    else
-                        break
-                    end
-                end
-                if #block >= 3 then
-                    local tbl = parse_table(block, from_row + i - 1)
-                    if tbl then
-                        tables[#tables + 1] = tbl
-                    end
-                end
-                i = j
-            else
-                i = i + 1
-            end
-        end
-    end
-    -- Render in reverse order so earlier row indices remain valid.
-    for t = #tables, 1, -1 do
-        self:_render_md_table(tables[t])
-    end
-end
-
---- Replace a parsed markdown table with box-drawing rendered lines and extmarks.
----@param tbl agent_workbench.MdTable
-function History:_render_md_table(tbl)
-    local widths = tbl.widths
-    local aligns = tbl.aligns
-
-    -- Build replacement lines (same count as original).
-    local new_lines = {}
-    new_lines[1] = table_row(tbl.header, widths, aligns)
-    new_lines[2] = table_border(widths, "├", "┼", "┤", "─")
-    for _, row in ipairs(tbl.rows) do
-        new_lines[#new_lines + 1] = table_row(row, widths, aligns)
-    end
-
-    local top = table_border(widths, "┌", "┬", "┐", "─")
-    local bot = table_border(widths, "└", "┴", "┘", "─")
-
-    -- Replace buffer lines.
-    self:_with_modifiable(function()
-        vim.api.nvim_buf_set_lines(self._buf, tbl.start_row, tbl.end_row + 1, false, new_lines)
-    end)
-
-    -- Top border (virtual line above first row).
-    vim.api.nvim_buf_set_extmark(self._buf, ns, tbl.start_row, 0, {
-        virt_lines = { { { top, "PiTableBorder" } } },
-        virt_lines_above = true,
-    })
-
-    -- Bottom border (virtual line below last row).
-    local last_row = tbl.start_row + #new_lines - 1
-    vim.api.nvim_buf_set_extmark(self._buf, ns, last_row, 0, {
-        virt_lines = { { { bot, "PiTableBorder" } } },
-    })
-
-    -- Highlights.
-    for i, line in ipairs(new_lines) do
-        local row = tbl.start_row + i - 1
-        if i == 1 then
-            -- Header: bold on the whole line, border color on │ at higher priority.
-            vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
-                end_col = #line,
-                hl_group = "PiTableHeader",
-                priority = 100,
-            })
-            highlight_table_pipes(self._buf, ns, row, line)
-        elseif i == 2 then
-            -- Separator: full border color.
-            vim.api.nvim_buf_set_extmark(self._buf, ns, row, 0, {
-                end_col = #line,
-                hl_group = "PiTableBorder",
-            })
-        else
-            -- Data rows: border color on │ only.
-            highlight_table_pipes(self._buf, ns, row, line)
-        end
-    end
-end
-
 ---@param msg string
 ---@param timestamp? number
 ---@param image_count? integer
@@ -1689,6 +1453,7 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
     self:_seal_stream_text()
     self:_schedule(function()
         self:_pop_text_batch()
+        self:_finish_markdown_segment()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
@@ -1699,17 +1464,6 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
         local icon = Config.options.labels.user_message
         local has_message_text = msg ~= ""
         local msg_lines = has_message_text and vim.split(msg, "\n", { plain = true }) or {}
-        -- Treesitter highlights fenced code blocks — an unclosed fence bleeds
-        -- into everything below. We track fence parity and auto-close if odd.
-        local fences = 0
-        for _, line in ipairs(msg_lines) do
-            if line:match("^```") then
-                fences = fences + 1
-            end
-        end
-        if fences % 2 == 1 then
-            msg_lines[#msg_lines + 1] = "```"
-        end
         local time = timestamp or (os.time() * 1000)
         local time_str = format_time(time)
         local queue_tag = ""
@@ -1775,6 +1529,12 @@ function History:add_user_message(msg, timestamp, image_count, queue_type)
                 })
             end
         end
+        if has_message_text then
+            local markdown_block = Render.start_block(self._buf, "user", body_start, msg, 2, true)
+            if markdown_block then
+                self._markdown_blocks[#self._markdown_blocks + 1] = markdown_block
+            end
+        end
         if image_count and image_count > 0 then
             local info_row = start + #lines - 1
             local info_text = lines[#lines]
@@ -1810,23 +1570,14 @@ function History:on_agent_start(timestamp, section, continuation)
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
+        self:_finish_markdown_segment()
         local had_content = self._has_conversation_content
         self:_begin_conversation_content()
-        if continuation then
-            local previous_text = table.concat(self._agent_text_chunks or {})
-            if self:_agent_text_has_open_fence(previous_text) then
-                self:_append_text("\n```")
-            end
-            if self._agent_text_start_row then
-                self:_render_tables(self._agent_text_start_row, vim.api.nvim_buf_line_count(self._buf) - 1)
-                self._agent_text_start_row = nil
-            end
-        else
+        if not continuation then
             self._agent_start_time = vim.uv.hrtime() / 1e9
             self:_pick_spinner()
         end
         self._first_delta = true
-        self._agent_text_chunks = {}
         self._needs_separator = false
         self._last_was_inline = false
         local icon = Config.options.labels.agent_response
@@ -1889,7 +1640,6 @@ function History:on_agent_start(timestamp, section, continuation)
             end_col = #label_line,
             hl_group = "PiMessageDateTime",
         })
-        self._agent_text_start_row = label_row + 2
         self:_activate_output_fold(response_extmark_id, 1)
     end)
 end
@@ -1943,19 +1693,7 @@ function History:on_agent_end(done_verb, opts)
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             return
         end
-        -- Agent may stop mid-stream with an open fence. Recompute from the
-        -- streamed agent text because chunks can split the ``` marker.
-        local agent_text = table.concat(self._agent_text_chunks or {})
-        if self:_agent_text_has_open_fence(agent_text) then
-            self:_append_text("\n```")
-        end
-        self._agent_text_chunks = nil
-        -- Render markdown tables in the agent response text.
-        if self._agent_text_start_row then
-            local scan_end = vim.api.nvim_buf_line_count(self._buf) - 1
-            self:_render_tables(self._agent_text_start_row, scan_end)
-            self._agent_text_start_row = nil
-        end
+        self:_finish_markdown_segment()
         if not self._agent_start_time then
             self:_close_active_output_folds()
             return
@@ -2033,6 +1771,7 @@ function History:on_error(error_message, opts)
             return
         end
         self:_pop_text_batch()
+        self:_finish_markdown_segment()
         local icon = Config.options.labels.error
         local prefix_w = vim.fn.strdisplaywidth(icon) + 1
         local indent = string.rep(" ", prefix_w)
@@ -2671,6 +2410,7 @@ function History:on_tool_start(tool_name, tool_call_id, tool_input)
     self:_seal_stream_text()
     self:_schedule(function()
         self:_pop_text_batch() -- land pending text before the block
+        self:_finish_markdown_segment()
         if type(tool_call_id) == "string" then
             self._tool_start_pending[tool_call_id] = nil
         end
@@ -3514,7 +3254,7 @@ function History:set_blocks_expanded(expanded)
                     local flat = Text.thinking_flat(block.lines)
                     local pw = self:_thinking_preview_width(header_text)
                     block.virt_id =
-                        self:_set_thinking_preview(anchor_row + 1, Text.thinking_head(flat, pw), block.virt_id)
+                        self:_set_thinking_preview(anchor_row + 1, Text.thinking_preview_head(flat, pw), block.virt_id)
                     block.line_count = 2
                     block.expanded = false
                     changed = true
@@ -3795,6 +3535,7 @@ function History:on_bash_start(id, command, exclude_from_context)
         -- Land pending text before the block. Queued output survives: it
         -- drains after the block exists (below), while the flag is still set.
         self:_pop_text_batch()
+        self:_finish_markdown_segment()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             self._bash_start_pending[id] = nil
             return
@@ -4128,6 +3869,7 @@ function History:on_thinking_start(opts)
         end
         -- Land pending text before anchoring the block relative to the last line.
         self:_pop_text_batch()
+        self:_finish_markdown_segment()
         if not self._buf or not vim.api.nvim_buf_is_valid(self._buf) then
             self._pending_thinking[gen] = nil
             return
@@ -4274,7 +4016,7 @@ function History:on_thinking_end()
             -- Freeze the rolling preview into a static head summary.
             local flat = Text.thinking_flat(self._thinking_accum.lines)
             local pw = self:_thinking_preview_width(header_text)
-            virt_id = self:_set_thinking_preview(header_row, Text.thinking_head(flat, pw), virt_id)
+            virt_id = self:_set_thinking_preview(header_row, Text.thinking_preview_head(flat, pw), virt_id)
             line_count = 2
         else
             line_count = 0
@@ -4316,7 +4058,7 @@ function History:toggle_thinking()
                 self:_apply_thinking_hl(row + 1, 1)
                 local flat = Text.thinking_flat(block.lines)
                 local pw = self:_thinking_preview_width(header_text)
-                block.virt_id = self:_set_thinking_preview(row + 1, Text.thinking_head(flat, pw), block.virt_id)
+                block.virt_id = self:_set_thinking_preview(row + 1, Text.thinking_preview_head(flat, pw), block.virt_id)
                 block.line_count = 2
                 block.visible = true
                 block.expanded = false
@@ -4370,7 +4112,8 @@ function History:toggle_thinking_block()
                 self:_apply_thinking_hl(anchor_row + 1, 1)
                 local flat = Text.thinking_flat(block.lines)
                 local pw = self:_thinking_preview_width(header_text)
-                block.virt_id = self:_set_thinking_preview(anchor_row + 1, Text.thinking_head(flat, pw), block.virt_id)
+                block.virt_id =
+                    self:_set_thinking_preview(anchor_row + 1, Text.thinking_preview_head(flat, pw), block.virt_id)
                 block.line_count = 2
                 block.expanded = false
             else
@@ -4619,8 +4362,6 @@ function History:clear()
     self._startup_errors = {}
     self:clear_placeholder()
     self._placeholder_mode = nil
-    self._agent_text_start_row = nil
-    self._agent_text_chunks = nil
     self._current_turn_first_agent_response_extmark_id = nil
     self._current_turn_last_agent_response_extmark_id = nil
     self._message_blocks = {}
@@ -4628,6 +4369,9 @@ function History:clear()
     self._status_anchor_id = nil
     self._fold_open_state = {}
     self._fold_state_initialized = false
+    self._markdown_blocks = {}
+    self._active_markdown_block = nil
+    Render.reset_history(self._buf)
     vim.api.nvim_buf_clear_namespace(self._buf, ns, 0, -1)
     self:_with_modifiable(function()
         vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })

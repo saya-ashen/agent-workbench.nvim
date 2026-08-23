@@ -2,6 +2,8 @@
 
 local M = {}
 
+local Text = require("agent-workbench.ui.chat.text")
+
 ---@param history agent_workbench.ChatHistory
 ---@param win integer
 ---@return boolean
@@ -299,6 +301,7 @@ function M.foldtext(history, start_row, end_row)
             local nested = {}
             local tool_count = 0
             local batch_call_count = 0
+            local thinking_preview
             for _, block in pairs(history._tool_blocks) do
                 local first = history:_extmark_row(block.icon_extmark)
                 local last = history:_extmark_row(block.end_extmark)
@@ -317,9 +320,19 @@ function M.foldtext(history, start_row, end_row)
             tool_count = math.max(tool_count, batch_call_count)
             for _, block in ipairs(history._thinking_blocks) do
                 local first = block.visible and history:_extmark_row(block.anchor) or nil
-                if first and first > start_row then
+                if first and first > start_row and first <= end_row then
                     for row = first, math.min(end_row, first + block.line_count - 1) do
                         nested[row] = true
+                    end
+                    if not thinking_preview then
+                        local flat = Text.thinking_flat(block.lines)
+                        local plain = {}
+                        for _, chunk in ipairs(Text.thinking_inline_chunks(flat)) do
+                            plain[#plain + 1] = chunk.text
+                        end
+                        if #plain > 0 then
+                            thinking_preview = M.preview(table.concat(plain))
+                        end
                     end
                 end
             end
@@ -333,6 +346,9 @@ function M.foldtext(history, start_row, end_row)
                     preview = M.preview(line)
                     break
                 end
+            end
+            if not preview then
+                preview = thinking_preview
             end
             if not preview and tool_count > 0 then
                 preview = tool_count .. (tool_count == 1 and " tool" or " tools")

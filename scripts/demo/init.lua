@@ -43,7 +43,7 @@ require("agent-workbench").setup({
     layout = { default = "buffer" },
     workspace_bar = { show = "always", show_index = true },
     sessions_list = { mode = "side", position = "right", width = 38 },
-    render = { engine = "markview" },
+    render = { markdown = { enabled = true } },
     prompt = { draft = { enabled = false } },
 })
 

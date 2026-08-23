@@ -13,6 +13,30 @@ describe("pi.ui.chat.text", function()
         end)
     end)
 
+    describe("thinking inline preview", function()
+        it("removes delimiters and preserves supported styles", function()
+            assert.are.same({
+                { text = "Plan " },
+                { text = "carefully", style = "strong" },
+                { text = ", then " },
+                { text = "check", style = "inline_code" },
+                { text = "." },
+            }, Text.thinking_inline_chunks("Plan **carefully**, then `check`."))
+        end)
+
+        it("keeps unmatched delimiters as plain text", function()
+            assert.are.same({ { text = "unfinished **thought" } }, Text.thinking_inline_chunks("unfinished **thought"))
+        end)
+
+        it("truncates by rendered width instead of counting delimiters", function()
+            assert.are.same({
+                { text = "abc", style = "strong" },
+                { text = "…" },
+            }, Text.thinking_preview_head("**abcdef**", 4))
+            assert.are.same({ { text = "cdef", style = "strong" } }, Text.thinking_preview_tail("**abcdef**", 4))
+        end)
+    end)
+
     describe("utf8_len", function()
         it("returns 1 for ASCII", function()
             assert.are.equal(1, Text.utf8_len(0x41)) -- 'A'

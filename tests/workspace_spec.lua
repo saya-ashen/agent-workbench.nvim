@@ -5,10 +5,10 @@ local History = require("agent-workbench.ui.chat.history")
 Config.setup({})
 
 describe("agent workspace", function()
-    it("uses lazy session creation, buffer layout, and markview by default", function()
+    it("uses lazy session creation, buffer layout, and isolated Markdown by default", function()
         assert.is_false(Config.options.auto_start_session)
         assert.are.equal("buffer", Config.resolve_default_layout_mode())
-        assert.are.equal("markview", require("agent-workbench.ui.render").engine())
+        assert.are.equal("markdown", require("agent-workbench.ui.render").engine())
     end)
 
     it("builds stable session URIs", function()
@@ -22,7 +22,7 @@ describe("agent workspace", function()
     end)
 
     it("uses a listed virtual history buffer with stable identity", function()
-        Config.options.render.engine = "builtin"
+        Config.options.render = { markdown = { enabled = false } }
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/new-1")
         local buf = history:buf()
 
@@ -74,7 +74,7 @@ describe("agent workspace", function()
     end)
 
     it("folds user and assistant messages from their timestamp headers", function()
-        Config.options.render.engine = "builtin"
+        Config.options.render = { markdown = { enabled = false } }
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/folds/transcript")
         vim.api.nvim_win_set_buf(0, history:buf())
         history:set_win(0)
@@ -130,7 +130,7 @@ describe("agent workspace", function()
     end)
 
     it("folds agent activity while retaining two recent outputs", function()
-        Config.options.render.engine = "builtin"
+        Config.options.render = { markdown = { enabled = false } }
         local history = History.new(vim.api.nvim_get_current_tabpage(), "agent://project/activity/transcript")
         vim.api.nvim_win_set_buf(0, history:buf())
         history:set_win(0)

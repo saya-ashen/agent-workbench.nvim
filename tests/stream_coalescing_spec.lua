@@ -41,12 +41,12 @@ describe("stream coalescing", function()
     before_each(function()
         saved_flush_ms = History._stream_flush_ms
         History._stream_flush_ms = 1
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
     after_each(function()
         History._stream_flush_ms = saved_flush_ms
-        Config.options.render = { engine = "builtin" }
+        Config.options.render = { markdown = { enabled = false } }
         require("agent-workbench.ui.render")._reset()
     end)
 
@@ -315,22 +315,18 @@ describe("stream coalescing", function()
         assert.is_nil(text:find("pending output", 1, true))
     end)
 
-    it("agent_end table scan sees the fully drained text", function()
+    it("agent_end drains table text without rewriting the Markdown source", function()
         local h = History.new(TAB)
         h:on_agent_start(nil)
         pump(30)
-        -- A complete markdown table streamed as small deltas, then agent_end
-        -- immediately: the drain inside on_agent_end must land the text before
-        -- _render_tables scans the range.
         h:on_text_delta("| a | b |\n")
         h:on_text_delta("| - | - |\n")
         h:on_text_delta("| 1 | 2 |\n")
         h:on_agent_end()
         pump(80)
-        local buf = h:buf()
-        assert.is_true(
-            text_of(buf):find("─", 1, true) ~= nil or #rows_with(buf, "│") > 0,
-            "table rendered from drained text"
-        )
+        local text = text_of(h:buf())
+        assert.is_not_nil(text:find("| a | b |", 1, true))
+        assert.is_not_nil(text:find("| - | - |", 1, true))
+        assert.is_not_nil(text:find("| 1 | 2 |", 1, true))
     end)
 end)

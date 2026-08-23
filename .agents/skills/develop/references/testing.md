@@ -1,6 +1,6 @@
 # Testing — the three layers in depth
 
-The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary), `smoke` (hermetic current-checkout boot with stubbed RPC), plus `format`/`style`/`lint` (stylua + lua-language-server; `style` and `lint` also gate CI — see `SKILL.md` § CI verification). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
+The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic plenary), `smoke` (hermetic current-checkout boot with stubbed RPC), `markdown-e2e` (real packaged Markview + Markdown Tree-sitter integration), plus `format`/`style`/`lint` (stylua + lua-language-server; `style` and `lint` also gate CI — see `SKILL.md` § CI verification). This file explains each layer, the pitfalls unique to it, and how the `scripts/` templates sidestep them. Pick the cheapest layer that can observe the behavior; escalate only when it cannot.
 
 ## Layer 1 — Unit tests (hermetic plenary)
 
@@ -21,7 +21,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **What it's for:** plugin loading from the current checkout, chat opening, buffer/extmark wiring, keymap *registration*, and method-level behavior — everything that doesn't need pixels or real key events.
 
-**How it runs:** `nvim --headless -i NONE -u tests/minimal_init.lua -l script.lua`. The script drives `require("agent-workbench").show{layout="side"}`, waits for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` runs `tests/smoke.lua`, stubs RPC lifecycle, opens chat, and asserts session/History/prompt exist. It never loads user config, starts real pi, or writes real session data. Both paths resolve the current checkout from `tests/minimal_init.lua`, so they are worktree-safe (G23).
+**How it runs:** `nvim --headless -i NONE -u tests/minimal_init.lua -l script.lua`. The script drives `require("agent-workbench").show{layout="side"}`, waits for buffers, mutates buffers, calls chat methods, and exits `cq 0`/`cq 1`. `make smoke` runs `tests/smoke.lua`, stubs RPC lifecycle, opens chat, and asserts session/History/prompt exist. `make markdown-e2e` uses the dev shell's packaged Demo Neovim to run `tests/markdown_real_e2e.lua` against the real Markview parser, Markdown queries, and fenced-language injections. Neither starts real pi or writes real session data. All paths resolve the current checkout from `tests/minimal_init.lua`, so they are worktree-safe (G23).
 
 **Stub the backend** at the top of any script that submits: `chat._agent.send = function(_) return true end` (get `chat` via `require("agent-workbench.sessions.manager").get().chat`). This prevents real model calls *and*, because the stub returns before the RPC send, prevents the pi backend from writing a session transcript — so sessions stay clean.
 
@@ -40,7 +40,7 @@ The repo ships `tests/minimal_init.lua` and a `Makefile` with `test` (hermetic p
 
 **Topology.** A dedicated WezTerm window runs `nvim --listen <SOCK>` on its own i3 workspace (so it tiles full-screen and screenshots are legible — a shared workspace splits the screen and the UI is tiny). `xdotool` sends keys to that window id; `wmctrl` enumerates windows; `maim -i <WID>` screenshots; the nvim **RPC socket** is ground truth (`nvim --server $SOCK --remote-expr 'luaeval("...")'`).
 
-**Why RPC is ground truth, not the screenshot.** The screenshot proves pixels; RPC proves state (cursor line, buffer text, mode, extmark counts, whether render-markdown attached). Assert state over RPC; capture a screenshot as the human-readable artifact and as the only way to confirm visual rendering.
+**Why RPC is ground truth, not the screenshot.** The screenshot proves pixels; RPC proves state (cursor line, exact buffer text, mode, message-block extmark counts, dependency fallback). Assert state over RPC; capture a screenshot as the human-readable artifact and as the only way to confirm visual rendering.
 
 **The harness (`scripts/gui_harness.sh`).** `source` it. Key helpers:
 

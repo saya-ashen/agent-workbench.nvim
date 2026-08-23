@@ -778,7 +778,7 @@ Hiding thinking doesn't change anything on the backend or affect how the agent w
 
 ### Presentation
 
-When visible, each thinking block renders as a **single header line** with an inline preview of the content (truncated to fit the window width). During streaming the preview rolls with the latest text; once finished it freezes to a head summary. Press `<Tab>` on the header to expand the full multi-line thinking text, and `<Tab>` again to collapse it back. `pi.toggle_history_blocks()` (`<C-o>` in the example keymaps) expands/collapses all blocks — tool and thinking — at once.
+When visible, each thinking block renders as a **single header line** with an inline preview of the content (truncated to fit the window width). During streaming the preview rolls with the latest text; once finished it freezes to a head summary. The structural preview recognizes strong, emphasis, strikethrough, and inline-code delimiters without sending thinking through the Markdown parser. An Activity fold with reasoning but no prose uses that rendered reasoning as its summary instead of reporting `(empty)`. Provider `thinking_start` / `thinking_end` envelopes that contain no visible reasoning are ignored, so a plain-text answer does not leave an empty Agent Activity section. Press `<Tab>` on the header to expand the full multi-line thinking text, and `<Tab>` again to collapse it back. `pi.toggle_history_blocks()` (`<C-o>` in the example keymaps) expands/collapses all blocks — tool and thinking — at once.
 
 ### Thinking levels
 
@@ -801,41 +801,43 @@ Typical setup binds both in the prompt buffer: cycle on a fast key (e.g. `<M-t>`
 
 ## Markdown rendering
 
-By default chat history uses [markview.nvim](https://github.com/OXY2DEV/markview.nvim) with your global Markview configuration unchanged: headings, list bullets, code blocks, links, and inline Markdown. Tool output stays fenced so shell content is not misparsed. Choose legacy `render-markdown` or Pi's **builtin** renderer when needed:
+History is a normal searchable/copyable Neovim buffer, but it is **not** parsed as one Markdown document. Agent Workbench treats every user message and every assistant text segment as an independent Markdown block. Tool calls, tool results, thinking, status, error, startup, and extension blocks never enter the Markdown parser.
+
+This means an unclosed fence or other malformed Markdown can affect the rest of its own message, but never a later message. A single assistant turn shaped like `text → tool → text` contains two independent Markdown blocks around the structured tool block. Tool output is stored verbatim and no longer receives synthetic wrapper or auto-closing fences.
+
+[markview.nvim](https://github.com/OXY2DEV/markview.nvim) supplies its documented parser API only. Agent Workbench converts the parsed nodes and Tree-sitter highlight captures to its own Extmarks, so Markview's global preview configuration and renderer are not applied to History. Supported presentation includes headings, emphasis/strikethrough, links, inline and fenced code, lists/checkboxes, block quotes, tables, and horizontal rules. HTML, LaTeX, Typst, Obsidian, and other extensions remain raw text.
 
 ```lua
 require("agent-workbench").setup({
     render = {
-        engine = "builtin", -- default: "markview"
-    },
-})
-```
-
-To override Markview only for Agent Workbench History buffers, set `render.markview`. These values deep-merge over the active global Markview configuration without changing other buffers. For example, this keeps the current cursor line in source form while surrounding lines stay rendered:
-
-```lua
-require("agent-workbench").setup({
-    render = {
-        engine = "markview",
-        markview = {
-            preview = {
-                enable_hybrid_mode = true,
-                hybrid_modes = { "n", "no", "c" },
-                linewise_hybrid_mode = true,
-                edit_range = { 0, 0 },
+        markdown = {
+            enabled = true,
+            debounce_ms = 30,
+            features = {
+                tables = true,
+                code_blocks = true,
+                links = true,
+                -- See configuration.md for the complete list.
+            },
+            symbols = {
+                bullet = "•",
+                block_quote = "│",
+                horizontal_rule = "─",
             },
         },
     },
 })
 ```
 
-Notes:
+Streaming recompiles only the active block after the configured debounce; completed history is not reparsed. Width-dependent decorations such as horizontal rules refresh only when their visible block needs a new width.
 
-- markview.nvim is dependency of default renderer; add it to plugin spec (see [Installation](../README.md#installation)). Missing markview triggers one warning and builtin fallback.
-- `render.markview = {}` is the default and passes neither state nor config overrides to Markview. History also applies Markview's configured enable/hybrid preview callbacks to its window, so cursor-line conceal matches ordinary Markdown buffers.
-- `render-markdown` remains supported for existing configurations.
-- pi only appends its `pi-chat-history` filetype to render-markdown's active `file_types`; your existing render-markdown configuration is left untouched.
-- render-markdown drives the rendering through its standard event hooks, so it stays in sync as the agent streams. The `markdown`/`markdown_inline` treesitter parsers it needs ship with Neovim ≥ 0.10.
+Set `render.markdown.enabled = false` to keep raw Markdown without decorations. If Markview or the Markdown Tree-sitter parser is missing/incompatible, Agent Workbench reports the problem once and automatically preserves raw text without interrupting chat, tools, or replay.
+
+Migration notes:
+
+- Remove `render.engine = "markview"`; it is temporarily accepted with a deprecation warning.
+- `render.engine = "builtin"` and `"render-markdown"` are removed and now select raw-text degradation with an explicit error.
+- `render.markview` is ignored. Configure `render.markdown` and override the documented `AgentWorkbenchMarkdown*` highlight groups instead.
 
 ## Buffer reload
 
