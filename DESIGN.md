@@ -1,7 +1,7 @@
 # π.nvim — Visual Design Specification
 
-> **Quiet hierarchy** — let color and whitespace speak; never draw a border
-> that doesn't carry information.
+> **Quiet hierarchy** — let semantic color and whitespace lead; structural
+> marks stay subtle and appear only when they clarify a real boundary.
 >
 > A chat UI is read, not scanned like code. The design goal is the same as
 > good book typography: the reader should never notice the design, only the
@@ -14,8 +14,8 @@
 
 | # | Principle | What it means in practice |
 |---|-----------|--------------------------|
-| 1 | **Color over chrome** | Role identification via foreground color on text, not via rails, borders, or structural symbols. Three role hues + one semantic hue. |
-| 2 | **Whitespace over lines** | Turn boundaries are extra blank lines, never drawn rules. The eye reads a pause; it doesn't parse a glyph. |
+| 1 | **Semantic color over chrome** | Role, interaction, code, and state colors have distinct jobs. The assistant rail groups text segments but never carries a role hue. |
+| 2 | **Whitespace before lines** | Turn boundaries remain blank space. A single muted rail is reserved for assistant text segments split by tool/thinking blocks. |
 | 3 | **One weight per role** | User = colored text. Agent = default text. Tool = muted + indented. Thinking = muted + italic + indented. No two roles share the same visual weight. |
 | 4 | **Silence is the default** | Successful tools show no footer. Completed inline tools fade. The spinner lives only on the active line. |
 | 5 | **Icons from one family** | Every glyph is a Nerd Font icon from `config.labels`. No emoji. No mixed sets. |
@@ -34,25 +34,28 @@ All colors derive from the user's colorscheme via `nvim_get_hl`. No hardcoded he
 ├─────────────┼──────────────────┼─────────────────────────────────────┤
 │ user        │ Title.fg         │ User icon + indented user body text │
 │ agent       │ Function.fg      │ Agent icon + tool header + spinner  │
+│ section     │ Normal.fg        │ Agent Output / Activity (bold)      │
 │ thinking    │ Special.fg       │ Thinking header + body (italic)     │
 │ error       │ DiagnosticError  │ Error rail + error text             │
 ├─────────────┼──────────────────┼─────────────────────────────────────┤
-│ muted       │ Comment.fg       │ Timestamps, tool body, fold glyph   │
+│ muted       │ Comment.fg       │ Timestamps, rails, tool body        │
 │ body        │ Normal.fg        │ Agent prose (the default voice)     │
 └─────────────┴──────────────────┴─────────────────────────────────────┘
 ```
 
 ### 1.2 The Rule
 
-**Color goes on text, not on structure.** The user's message body is colored
-with `Title.fg` — the same hue as their icon — and indented two columns, so
-indent + color together mark it as quoted input. The agent's prose stays
-`Normal.fg`, flush-left — the absence of color and indent IS the signal that
-this is the primary content.
+**Color has one meaning per semantic family.** The user's message body is
+colored with `Title.fg` — the same hue as their icon — and indented two columns,
+so indent + color together mark it as quoted input. The agent icon keeps
+`Function.fg`, while the `Agent Output` / `Agent Activity` section text uses
+`Normal.fg` bold; structure no longer competes with links or headings.
 
-Tool bodies use `Comment.fg` (muted) — they are subordinate actions, not
-content to read. Thinking uses `Special.fg` italic — a distinct hue that says
-"internal, skippable."
+Agent prose stays `Normal.fg` and receives only a `Comment.fg` segment rail.
+Links use the colorscheme's `Underlined` / `DiagnosticInfo` hue plus an
+underline, inline code uses `String.fg` over `CursorLine.bg`, lower headings use
+body color plus weight, and list markers recede to `Delimiter` / `Comment`.
+Tool bodies remain muted; thinking keeps `Special.fg` italic.
 
 ### 1.3 Role Icons (colored foreground, no fill)
 
@@ -62,11 +65,12 @@ line; the message body follows after a breathing blank line.
 
 - **User icon**: `fg = Title.fg`, bold
 - **Agent icon**: `fg = Function.fg`, bold
+- **Agent section label**: `fg = Normal.fg`, bold
 - **Error icon**: `fg = DiagnosticError.fg`, bold
 
-There are **no filled-background elements** in the history buffer. Role is
-carried by the icon color and (for the user) the body text color. Everything
-is foreground-only.
+Role is carried by the icon color and (for the user) the body text color. The
+agent section label is intentionally neutral; only inline code and tool bodies
+may use the existing subtle `CursorLine.bg` surface.
 
 ---
 
@@ -90,15 +94,15 @@ is foreground-only.
 ### 2.2 Agent Response
 
 ```
- [icon]  Jul 24 2026, 21:41
+ [icon] Agent Output  Jul 24 2026, 21:41
 
-I'll look at the auth module now. Let me read the current
-implementation first.
+│ I'll look at the auth module now. Let me read the current
+│ implementation first.
 ```
 
-- Icon line: role-colored icon (`Function.fg`) + timestamp (muted)
+- Icon line: role-colored icon (`Function.fg`) + neutral bold section label + muted timestamp
 - Blank line
-- Body text: **Normal.fg**, flush-left (the default — no decoration needed)
+- Body text: **Normal.fg** with a `Comment.fg` left rail grouping this text segment
 - Completion: `  · 7s` as virtual text on last prose line (muted)
 
 ### 2.3 Turn Separation
@@ -180,7 +184,7 @@ accent-colored.
 ```
 
 - `▌` left-half-block rail in DiagnosticError.fg
-- This is the **only** structural element in the entire design
+- This is the only **high-emphasis** structural element; assistant segment rails remain thin and muted
 - Justified: errors must break the visual flow; color alone isn't enough
   during fast scrolling
 - Long lines are hard-wrapped to the history window width so every screen
@@ -200,23 +204,23 @@ accent-colored.
 
 ---
 
-## 7 · Status Spinner (pinned bottom overlay)
+## 7 · Status Spinner (transcript-attached virtual lines)
 
 ```
-                  [spinner]  verb… 27s · [thinking icon]
+  ────────────────────────────────
+[spinner]  verb… 27s · [thinking icon]
 ```
 
-- Rendered as a **borderless floating window pinned to the bottom row** of the
-  history viewport (`relative="win"`, `row = win_height - height`). Because the
-  position is viewport-relative, it stays glued to the bottom — directly above
-  the prompt panel — regardless of where the history is scrolled.
-- The spinner line is **horizontally centered** within the history width.
+- Rendered as `virt_lines` immediately below the last real transcript row, so
+  busy state and pending queue remain attached to the latest output.
+- A short muted divider separates status from transcript content; rows are
+  left-aligned and padded to the current History text width.
 - Spinner + verb: `PiBusy` (Function.fg bold); time: `PiBusyTime` (Comment.fg);
   thinking suffix: `PiThinking` (Special.fg italic).
-- The pending steer/follow-up queue is rendered in the same overlay, left-aligned
-  above the spinner row.
-- The overlay is torn down automatically when there is no active status and no
-  pending queue, and on `chat:clear()` (session switch).
+- Pending steer/follow-up rows share the same virtual-line block below the busy
+  row, with muted labels and previews.
+- The extmark is removed automatically when there is no active status or pending
+  queue, and on `chat:clear()` (session switch).
 
 ---
 
@@ -229,11 +233,13 @@ accent-colored.
 │ PiUserMessageLabel      │ fg=Title.fg bold (user role icon)         │
 │ PiUserBody              │ fg=Title.fg (indented user body text)     │
 │ PiAgentResponseLabel    │ fg=Function.fg bold (agent role icon)     │
+│ PiAgentSectionLabel     │ fg=Normal.fg bold (Output / Activity)     │
+│ PiAssistantBlockBorder  │ fg=Comment.fg (assistant segment rail)    │
 │ PiSystemErrorIcon       │ fg=DiagnosticError.fg bold (error icon)   │
 │ PiToolHeader            │ fg=Function.fg bold                       │
 │ PiToolBorder            │ fg=Comment.fg (fold glyph ▾/▸)           │
 │ PiToolBody              │ bg=CursorLine.bg (optional, subtle)       │
-│ PiToolCall              │ fg=Comment.fg (input text)                │
+│ PiToolCall              │ fg=Normal.fg (input text)                 │
 │ PiToolOutput            │ fg=Comment.fg italic (output text)        │
 │ PiToolRunning           │ fg=Function.fg (spinner on header)        │
 │ PiToolInlineDone        │ fg=Comment.fg (faded completed inline)    │
@@ -248,6 +254,14 @@ accent-colored.
 └─────────────────────────┴───────────────────────────────────────────┘
 ```
 
+Markdown content uses a separate semantic palette:
+
+- H1/H2: `Title.fg` bold; H3–H6: inherited body foreground, bold
+- Links: `Underlined.fg` or `DiagnosticInfo.fg`, always underlined
+- Inline code: `String.fg` over `CursorLine.bg`
+- List markers: `Delimiter.fg` or `Comment.fg`
+- Checked tasks: `DiagnosticOk.fg`; unchecked tasks: `Comment.fg`
+
 ---
 
 ## 9 · Visual Hierarchy
@@ -260,7 +274,7 @@ accent-colored.
 │        │ Role icons       │ Colored fg icon per role (turn anchors)  │
 │        │ Tool header      │ Function.fg bold + per-tool icon         │
 │ MEDIUM │ User body        │ Title.fg colored text + 2-space indent   │
-│        │ Agent prose      │ Normal.fg flush-left (default = primary) │
+│        │ Agent prose      │ Normal.fg + muted segment rail            │
 │ QUIET  │ Tool body        │ Comment.fg + indent                      │
 │        │ Thinking         │ Special.fg italic + indent               │
 │        │ Timestamps/meta  │ Comment.fg                               │
@@ -302,8 +316,8 @@ accent-colored.
 ▾ [icon] bash  ⠋
   maim -i 39845891 /tmp/screenshot.png
 
-The active window is 39845891 — a WezTerm running nvim. I've captured
-the screenshot to /tmp/screenshot.png.  · 27s
+│ The active window is 39845891 — a WezTerm running nvim. I've captured
+│ the screenshot to /tmp/screenshot.png.  · 27s
 
 
  [icon]  Jul 24 2026, 21:43
@@ -314,13 +328,13 @@ the screenshot to /tmp/screenshot.png.  · 27s
 
  [icon]  Jul 24 2026, 21:44
 
-The screenshot shows a Neovim instance with the pi chat panel open on
-the right side.  · 3s
+│ The screenshot shows a Neovim instance with the pi chat panel open on
+│ the right side.  · 3s
 ```
 
 **Color annotations** (not visible in plain text):
 - User body lines ("I need you to find...", "Great, now analyze..."): **Title.fg + 2-space indent**
-- Agent prose ("The active window is...", "The screenshot shows..."): **Normal.fg**
+- Agent prose ("The active window is...", "The screenshot shows..."): **Normal.fg + Comment.fg rail**
 - Tool headers (`▾ [icon] bash`): **Function.fg bold**
 - Tool body (`  xdotool...`, `  39845891`): **Comment.fg** (output italic)
 - Thinking (`[icon] Thought...` + body): **Special.fg italic**
@@ -342,10 +356,10 @@ the right side.  · 3s
 | Decision | Why |
 |----------|-----|
 | User body colored + indented, not railed | A rail is a structural element that competes with content. Color on the text plus a 2-space indent marks quoted input quietly — it tints and nests the reading experience without adding visual objects to parse. |
-| Agent prose uncolored | The default foreground IS the identity. "I am what you're here to read." Adding color would make it compete with user text. |
+| Agent prose stays neutral | `Normal.fg` remains the primary reading voice; the muted rail groups segments without turning prose into colored chrome. |
 | Whitespace turn gaps, not lines | A drawn line is an object the eye must process. An extra blank line is processed pre-attentively as "pause." It's the difference between a wall and a doorway. |
 | Tool output italic, not colored | Italic is the lightest possible differentiation. It shifts texture without adding a new color to the palette. Regular = command; italic = echo. |
 | Thinking in Special.fg | A distinct hue (pink/orange/purple) immediately signals "non-standard content." Combined with italic, it says "internal, skippable" without any structural marker. |
-| Error rail is the only exception | Errors must break the flow. A colored structural element is the minimum that achieves "unmissable during fast scroll" — color alone on text can be missed. |
+| Error rail is the loud exception | Assistant rails are muted grouping aids. Errors alone use a saturated, heavy rail because they must be unmissable during fast scrolling. |
 | Fold glyph muted, not accent | `▾`/`▸` are UI controls, not content. They should recede. The tool name in bold accent does the identification work. |
 | Inline tools fade on completion | Focus follows action. A screen full of accent-colored completed reads creates "shouting" where nothing stands out. |

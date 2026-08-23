@@ -8,6 +8,8 @@
 - **FIXED:** Empty provider thinking envelopes no longer leave a folded `Agent Activity (empty)` section. Activity folds backed only by visible reasoning now summarize that reasoning instead of reporting `(empty)`, and thinking previews render strong, emphasis, strikethrough, and inline-code delimiters with plugin-owned structural styling.
 - **FIXED:** Cursor movement no longer appears stuck inside concealed Markdown. The default Obsidian-style element reveal temporarily exposes only the heading, emphasis span, link, list item, checkbox, quote, code block, table row, or rule under the cursor without reparsing History; line-wide reveal and always-rendered modes remain configurable.
 - **CHANGED:** Assistant text segments now use a subtle configurable left rail, making prose boundaries around tool and thinking blocks visible without adding full boxes or changing raw transcript text.
+- **CHANGED:** History colors now follow semantic roles: the agent icon retains its accent while Output/Activity labels are neutral, links use an information/underlined hue, inline code uses the colorscheme's string hue, lower headings inherit body color, and list/task markers use muted/success colors.
+- **FIXED:** Colorscheme changes now refresh plugin-owned default highlights on Neovim 0.10/0.11 while preserving explicit user overrides; style-only Markdown highlights compose with user/assistant body colors instead of replacing them.
 
 ## 2026-08-20
 

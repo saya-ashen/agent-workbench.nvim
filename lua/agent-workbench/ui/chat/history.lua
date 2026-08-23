@@ -1632,7 +1632,7 @@ function History:on_agent_start(timestamp, section, continuation)
             virt_text = {
                 {
                     message_block.section == "activity" and " Agent Activity" or " Agent Output",
-                    "PiAgentResponseLabel",
+                    "PiAgentSectionLabel",
                 },
             },
             virt_text_pos = "inline",
@@ -1674,7 +1674,7 @@ function History:mark_agent_activity()
         if row and block.section_extmark then
             vim.api.nvim_buf_set_extmark(self._buf, ns, row, #Config.options.labels.agent_response, {
                 id = block.section_extmark,
-                virt_text = { { " Agent Activity", "PiAgentResponseLabel" } },
+                virt_text = { { " Agent Activity", "PiAgentSectionLabel" } },
                 virt_text_pos = "inline",
             })
         end

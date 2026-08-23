@@ -11,27 +11,73 @@ M.SESSIONS_LIST_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,Fl
 M.DIFF_REVIEW_WINHIGHLIGHT = "NormalFloat:PiFloat,FloatBorder:PiFloatBorder,FloatTitle:PiDiffReviewFloatTitle"
 M.DIFF_WINHIGHLIGHT = "WinBar:PiDiffWinbar,WinBarNC:PiDiffWinbar"
 
---- Clear the Pi* groups we previously installed as defaults.
----
---- Every group below is created with `default = true`, which by design never
---- overrides an existing definition (so a user's own `Pi*` highlight wins). The
---- flip side: on a later `:colorscheme`, `default = true` alone is a no-op for
---- groups that already exist. Legacy colorschemes call `:highlight clear` and
---- wipe them for us, but many modern ones (tokyonight, catppuccin, ...) do not,
---- so the colors would stay frozen at the first theme. Clearing our own
---- default-defined groups here lets the `default = true` calls below re-apply
---- against the new theme, while explicit (non-default) user definitions are
---- left untouched and keep priority.
+---@class agent_workbench.DefaultHighlightFingerprint
+---@field definition table<string, any>
+
+---@type table<string, agent_workbench.DefaultHighlightFingerprint>
+local default_fingerprints = {}
+
+---@param name string
+---@return boolean
+local function is_plugin_group(name)
+    return name:sub(1, 2) == "Pi" or name:sub(1, 22) == "AgentWorkbenchMarkdown"
+end
+
+---@param definition table<string, any>
+---@return table<string, any>
+local function comparable_definition(definition)
+    local comparable = vim.deepcopy(definition)
+    comparable.default = nil
+    return comparable
+end
+
+--- Clear only the Pi*/Markdown groups whose current definitions still match
+--- defaults installed by this module. Neovim 0.10/0.11 do not report the
+--- `default` flag from nvim_get_hl(), so fingerprints are required to preserve
+--- explicit user overrides while still refreshing colorscheme-derived values.
+---@return table<string, boolean> preexisting groups that defaults must not own
 local function clear_default_groups()
-    for name, def in pairs(vim.api.nvim_get_hl(0, { link = false })) do
-        if (name:sub(1, 2) == "Pi" or name:sub(1, 22) == "AgentWorkbenchMarkdown") and def.default then
+    local definitions = vim.api.nvim_get_hl(0, { link = false })
+    local fingerprints = default_fingerprints
+    default_fingerprints = {}
+    for name, fingerprint in pairs(fingerprints) do
+        local current = definitions[name] or {}
+        local comparable = comparable_definition(current)
+        -- Some colorscheme operations strip the reported `default` flag from
+        -- unchanged groups, so the normalized definition remains authoritative.
+        local owned = current.default == true or vim.deep_equal(comparable, fingerprint.definition)
+        if owned then
             vim.api.nvim_set_hl(0, name, {})
+        end
+    end
+    -- Also clear module defaults left behind by a Lua module reload on Neovim
+    -- versions that expose the flag directly.
+    definitions = vim.api.nvim_get_hl(0, { link = false })
+    for name, definition in pairs(definitions) do
+        if is_plugin_group(name) and definition.default then
+            vim.api.nvim_set_hl(0, name, {})
+        end
+    end
+    local preexisting = {}
+    for name, definition in pairs(vim.api.nvim_get_hl(0, { link = false })) do
+        if is_plugin_group(name) and next(comparable_definition(definition)) ~= nil then
+            preexisting[name] = true
+        end
+    end
+    return preexisting
+end
+
+---@param preexisting table<string, boolean>
+local function remember_default_groups(preexisting)
+    for name, definition in pairs(vim.api.nvim_get_hl(0, { link = false })) do
+        if is_plugin_group(name) and not preexisting[name] then
+            default_fingerprints[name] = { definition = comparable_definition(definition) }
         end
     end
 end
 
 local function set_defaults()
-    clear_default_groups()
+    local preexisting = clear_default_groups()
     local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
     local title = vim.api.nvim_get_hl(0, { name = "Title", link = false })
     local func = vim.api.nvim_get_hl(0, { name = "Function", link = false })
@@ -39,6 +85,11 @@ local function set_defaults()
     local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })
     local warning = vim.api.nvim_get_hl(0, { name = "WarningMsg", link = false })
     local diagnostic_error = vim.api.nvim_get_hl(0, { name = "DiagnosticError", link = false })
+    local diagnostic_info = vim.api.nvim_get_hl(0, { name = "DiagnosticInfo", link = false })
+    local diagnostic_ok = vim.api.nvim_get_hl(0, { name = "DiagnosticOk", link = false })
+    local underlined = vim.api.nvim_get_hl(0, { name = "Underlined", link = false })
+    local string_hl = vim.api.nvim_get_hl(0, { name = "String", link = false })
+    local delimiter = vim.api.nvim_get_hl(0, { name = "Delimiter", link = false })
     local cursorline = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
     local diff_add = vim.api.nvim_get_hl(0, { name = "DiffAdd", link = false })
     local diff_delete = vim.api.nvim_get_hl(0, { name = "DiffDelete", link = false })
@@ -65,6 +116,7 @@ local function set_defaults()
     if agent.fg then
         vim.api.nvim_set_hl(0, "PiAgentResponseLabel", { default = true, fg = agent.fg, bold = true })
     end
+    vim.api.nvim_set_hl(0, "PiAgentSectionLabel", { default = true, fg = normal.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiDebugLabel", { default = true, fg = normal.bg, bg = comment.fg, bold = true })
     vim.api.nvim_set_hl(
         0,
@@ -115,24 +167,37 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiTableHeader", { default = true, bold = true })
 
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading1", { default = true, fg = title.fg, bold = true })
-    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading2", { default = true, fg = func.fg, bold = true })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading2", { default = true, fg = title.fg, bold = true })
     for level = 3, 6 do
-        vim.api.nvim_set_hl(
-            0,
-            "AgentWorkbenchMarkdownHeading" .. level,
-            { default = true, fg = special.fg, bold = true }
-        )
+        -- Lower heading levels keep the body foreground and use weight alone,
+        -- so they cannot collapse into the link/inline-code accent colors.
+        vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownHeading" .. level, { default = true, bold = true })
     end
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownStrong", { default = true, bold = true })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownEmphasis", { default = true, italic = true })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownStrikethrough", { default = true, strikethrough = true })
-    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownLink", { default = true, fg = special.fg, underline = true })
-    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownInlineCode", { default = true, fg = special.fg, bg = cursorline.bg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownLink", {
+        default = true,
+        fg = underlined.fg or diagnostic_info.fg or special.fg,
+        underline = true,
+    })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownInlineCode", {
+        default = true,
+        fg = string_hl.fg or special.fg,
+        bg = cursorline.bg,
+    })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCodeBlock", { default = true, bg = cursorline.bg })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCodeInfo", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownBlockQuote", { default = true, fg = comment.fg, italic = true })
-    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownListMarker", { default = true, fg = special.fg, bold = true })
-    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCheckboxChecked", { default = true, fg = func.fg })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownListMarker", {
+        default = true,
+        fg = delimiter.fg or comment.fg,
+        bold = true,
+    })
+    vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCheckboxChecked", {
+        default = true,
+        fg = diagnostic_ok.fg or string_hl.fg or func.fg,
+    })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownCheckboxUnchecked", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownTableHeader", { default = true, bold = true })
     vim.api.nvim_set_hl(0, "AgentWorkbenchMarkdownTableBorder", { default = true, fg = comment.fg })
@@ -232,8 +297,7 @@ local function set_defaults()
 
     vim.api.nvim_set_hl(0, "PiSessionsListIdle", { default = true, fg = comment.fg })
     vim.api.nvim_set_hl(0, "PiSessionsListDotDim", { default = true, fg = comment.fg, bold = false })
-    local diag_ok = vim.api.nvim_get_hl(0, { name = "DiagnosticOk", link = false })
-    vim.api.nvim_set_hl(0, "PiSessionsListDone", { default = true, fg = diag_ok.fg or agent.fg, bold = true })
+    vim.api.nvim_set_hl(0, "PiSessionsListDone", { default = true, fg = diagnostic_ok.fg or agent.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiSessionsListError", { default = true, fg = diagnostic_error.fg, bold = true })
     -- Busy: yellow blink.
     local diag_warn = vim.api.nvim_get_hl(0, { name = "DiagnosticWarn", link = false })
@@ -249,6 +313,7 @@ local function set_defaults()
     vim.api.nvim_set_hl(0, "PiDiffReviewFile", { default = true, fg = title.fg, bold = true })
     vim.api.nvim_set_hl(0, "PiDiffReviewHint", { default = true, fg = comment.fg, italic = true })
     vim.api.nvim_set_hl(0, "PiDiffReviewFloatTitle", { default = true, fg = title.fg, bold = true })
+    remember_default_groups(preexisting)
 end
 
 function M.setup()

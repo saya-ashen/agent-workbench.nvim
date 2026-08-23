@@ -102,9 +102,23 @@ describe("message-level Markdown rendering", function()
         local source = "# Heading **bold**"
         local buf = new_buffer({ source })
         vim.api.nvim_win_set_buf(0, buf)
-        local block = assert(Render.start_block(buf, "assistant", 0, source, 0, true))
+        local original_set_extmark = vim.api.nvim_buf_set_extmark
+        local strong_hl_mode
+        vim.api.nvim_buf_set_extmark = function(target_buf, namespace, row, col, opts)
+            if namespace == Render._namespace and opts.hl_group == "AgentWorkbenchMarkdownStrong" then
+                strong_hl_mode = opts.hl_mode
+            end
+            return original_set_extmark(target_buf, namespace, row, col, opts)
+        end
+        local block
+        local ok, err = pcall(function()
+            block = assert(Render.start_block(buf, "assistant", 0, source, 0, true))
+        end)
+        vim.api.nvim_buf_set_extmark = original_set_extmark
+        assert.is_true(ok, tostring(err))
         assert.is_true(block.complete)
         assert.is_true(has_hl(buf, "AgentWorkbenchMarkdownStrong"))
+        assert.are.equal("combine", strong_hl_mode)
         assert.are.same({ source }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     end)
 

@@ -213,6 +213,30 @@ describe("History Markdown block lifecycle", function()
         assert.are.equal(0, history._markdown_blocks[2].col_prefix)
     end)
 
+    it("combines lower user headings with the user body color", function()
+        local original_set_extmark = vim.api.nvim_buf_set_extmark
+        local heading_hl_mode
+        vim.api.nvim_buf_set_extmark = function(target_buf, namespace, row, col, opts)
+            if namespace == Render._namespace and opts.hl_group == "AgentWorkbenchMarkdownHeading3" then
+                heading_hl_mode = opts.hl_mode
+            end
+            return original_set_extmark(target_buf, namespace, row, col, opts)
+        end
+        history:add_user_message("### Lower heading", 1)
+        vim.wait(40)
+        vim.api.nvim_buf_set_extmark = original_set_extmark
+
+        assert.are.equal("combine", heading_hl_mode)
+        local has_user_body = false
+        for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(history:buf(), history:ns(), 0, -1, { details = true })) do
+            if mark[4].hl_group == "PiUserBody" then
+                has_user_body = true
+                break
+            end
+        end
+        assert.is_true(has_user_body)
+    end)
+
     it("keeps Markdown anchors aligned when a parallel tool inserts output above", function()
         history:on_tool_start("bash", "p1", { command = "one" })
         history:on_tool_start("bash", "p2", { command = "two" })

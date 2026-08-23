@@ -62,6 +62,99 @@ describe("history visual polish (issue #47)", function()
             assert.are_not.equal(comment.fg, tool_call.fg, "PiToolCall should not be Comment gray")
         end)
 
+        it("separates agent chrome from Markdown content semantics", function()
+            local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+            local title = vim.api.nvim_get_hl(0, { name = "Title", link = false })
+            local func = vim.api.nvim_get_hl(0, { name = "Function", link = false })
+            local special = vim.api.nvim_get_hl(0, { name = "Special", link = false })
+            local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })
+            local underlined = vim.api.nvim_get_hl(0, { name = "Underlined", link = false })
+            local diagnostic_info = vim.api.nvim_get_hl(0, { name = "DiagnosticInfo", link = false })
+            local diagnostic_ok = vim.api.nvim_get_hl(0, { name = "DiagnosticOk", link = false })
+            local string_hl = vim.api.nvim_get_hl(0, { name = "String", link = false })
+            local delimiter = vim.api.nvim_get_hl(0, { name = "Delimiter", link = false })
+            local cursorline = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
+
+            local agent_icon = vim.api.nvim_get_hl(0, { name = "PiAgentResponseLabel", link = false })
+            local agent_section = vim.api.nvim_get_hl(0, { name = "PiAgentSectionLabel", link = false })
+            assert.are.equal(func.fg, agent_icon.fg)
+            assert.are.equal(normal.fg, agent_section.fg)
+            assert.is_true(agent_section.bold)
+
+            for _, level in ipairs({ 1, 2 }) do
+                local heading = vim.api.nvim_get_hl(0, {
+                    name = "AgentWorkbenchMarkdownHeading" .. level,
+                    link = false,
+                })
+                assert.are.equal(title.fg, heading.fg)
+                assert.is_true(heading.bold)
+            end
+            for level = 3, 6 do
+                local heading = vim.api.nvim_get_hl(0, {
+                    name = "AgentWorkbenchMarkdownHeading" .. level,
+                    link = false,
+                })
+                assert.is_nil(heading.fg)
+                assert.is_true(heading.bold)
+            end
+
+            local link = vim.api.nvim_get_hl(0, { name = "AgentWorkbenchMarkdownLink", link = false })
+            assert.are.equal(underlined.fg or diagnostic_info.fg or special.fg, link.fg)
+            assert.is_true(link.underline)
+
+            local inline_code = vim.api.nvim_get_hl(0, {
+                name = "AgentWorkbenchMarkdownInlineCode",
+                link = false,
+            })
+            assert.are.equal(string_hl.fg or special.fg, inline_code.fg)
+            assert.are.equal(cursorline.bg, inline_code.bg)
+
+            local marker = vim.api.nvim_get_hl(0, {
+                name = "AgentWorkbenchMarkdownListMarker",
+                link = false,
+            })
+            assert.are.equal(delimiter.fg or comment.fg, marker.fg)
+
+            local checked = vim.api.nvim_get_hl(0, {
+                name = "AgentWorkbenchMarkdownCheckboxChecked",
+                link = false,
+            })
+            assert.are.equal(diagnostic_ok.fg or string_hl.fg or func.fg, checked.fg)
+        end)
+
+        it("refreshes derived colors while preserving explicit user overrides", function()
+            local original_normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+            local original_function = vim.api.nvim_get_hl(0, { name = "Function", link = false })
+
+            vim.api.nvim_set_hl(0, "Normal", { fg = 0x112233, bg = original_normal.bg })
+            vim.api.nvim_set_hl(0, "Function", { fg = 0x223344 })
+            Highlights.setup()
+            local first_section = vim.api.nvim_get_hl(0, { name = "PiAgentSectionLabel", link = false })
+            local first_icon = vim.api.nvim_get_hl(0, { name = "PiAgentResponseLabel", link = false })
+
+            vim.api.nvim_set_hl(0, "Normal", { fg = 0x334455, bg = original_normal.bg })
+            vim.api.nvim_set_hl(0, "Function", { fg = 0x445566 })
+            vim.api.nvim_exec_autocmds("ColorScheme", { modeline = false })
+            local refreshed_section = vim.api.nvim_get_hl(0, { name = "PiAgentSectionLabel", link = false })
+            local refreshed_icon = vim.api.nvim_get_hl(0, { name = "PiAgentResponseLabel", link = false })
+
+            vim.api.nvim_set_hl(0, "PiAgentSectionLabel", { fg = 0xABCDEF, bold = true })
+            vim.api.nvim_set_hl(0, "Normal", { fg = 0x556677, bg = original_normal.bg })
+            vim.api.nvim_exec_autocmds("ColorScheme", { modeline = false })
+            local overridden_section = vim.api.nvim_get_hl(0, { name = "PiAgentSectionLabel", link = false })
+
+            vim.api.nvim_set_hl(0, "Normal", original_normal)
+            vim.api.nvim_set_hl(0, "Function", original_function)
+            vim.api.nvim_set_hl(0, "PiAgentSectionLabel", {})
+            Highlights.setup()
+
+            assert.are.equal(0x112233, first_section.fg)
+            assert.are.equal(0x223344, first_icon.fg)
+            assert.are.equal(0x334455, refreshed_section.fg)
+            assert.are.equal(0x445566, refreshed_icon.fg)
+            assert.are.equal(0xABCDEF, overridden_section.fg)
+        end)
+
         it("defines the message-level Markdown highlight surface", function()
             for _, group in ipairs({
                 "AgentWorkbenchMarkdownHeading1",
@@ -95,6 +188,27 @@ describe("history visual polish (issue #47)", function()
             assert.are.equal("number", type(del_sign.fg), "PiDiffDeleteSign needs a foreground")
             assert.is_true(add_sign.bold, "PiDiffAddSign should be bold")
             assert.is_true(del_sign.bold, "PiDiffDeleteSign should be bold")
+        end)
+    end)
+
+    describe("agent section labels", function()
+        it("renders output and activity text with the neutral section group", function()
+            local h = History.new(959)
+            h:on_agent_start(1, "output", false)
+            pump()
+
+            local block = h._message_blocks[#h._message_blocks]
+            local section = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.section_extmark, {
+                details = true,
+            })
+            assert.are.same({ { " Agent Output", "PiAgentSectionLabel" } }, section[3].virt_text)
+
+            h:mark_agent_activity()
+            pump()
+            section = vim.api.nvim_buf_get_extmark_by_id(h:buf(), h:ns(), block.section_extmark, {
+                details = true,
+            })
+            assert.are.same({ { " Agent Activity", "PiAgentSectionLabel" } }, section[3].virt_text)
         end)
     end)
 

@@ -1,6 +1,6 @@
 # Highlight groups
 
-All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Special`, `Comment`, `WarningMsg`, `DiagnosticError`, `DiagnosticWarn`, `DiagnosticOk`, `CursorLine`, and the diff/gitsigns groups), rather than linking directly to another group. Definitions are (re)applied on `ColorScheme` and `VimEnter`, so switching themes keeps π colors in sync. Run `:hi PiGroupName` or `:hi AgentWorkbenchMarkdownHeading1` at any time to see the current value.
+All highlight groups are defined with `default = true`, so they can be overridden by your colorscheme or by a later `vim.api.nvim_set_hl` call. Most groups are computed from your base colorscheme at load time (pulling from `Normal`, `Title`, `Function`, `Special`, `Comment`, `Underlined`, `String`, `Delimiter`, `WarningMsg`, `DiagnosticInfo`, `DiagnosticError`, `DiagnosticWarn`, `DiagnosticOk`, `CursorLine`, and the diff/gitsigns groups), rather than linking directly to another group. Definitions are (re)applied on `ColorScheme` and `VimEnter`, so switching themes keeps π colors in sync. Run `:hi PiGroupName` or `:hi AgentWorkbenchMarkdownHeading1` at any time to see the current value.
 
 ## Chat history
 
@@ -8,7 +8,8 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | --- | --- |
 | `PiUserMessageLabel` | Inline label in front of a user message |
 | `PiUserBody` | Body text of user messages |
-| `PiAgentResponseLabel` | Inline label in front of an agent response |
+| `PiAgentResponseLabel` | Accent-colored agent role icon |
+| `PiAgentSectionLabel` | Neutral bold `Agent Output` / `Agent Activity` section text |
 | `PiAssistantBlockBorder` | Low-contrast left rail beside assistant text segments |
 | `PiDebugLabel` | Inline label for debug entries |
 | `PiStartupLabel` | Inline label for the startup block |
@@ -45,17 +46,18 @@ These groups decorate independently parsed user/assistant Markdown blocks. Tool,
 
 | Group | Role |
 | --- | --- |
-| `AgentWorkbenchMarkdownHeading1` … `Heading6` | ATX/Setext heading levels |
+| `AgentWorkbenchMarkdownHeading1` … `Heading2` | Primary headings (`Title` color, bold) |
+| `AgentWorkbenchMarkdownHeading3` … `Heading6` | Lower headings (body foreground, bold) |
 | `AgentWorkbenchMarkdownStrong` | Strong emphasis |
 | `AgentWorkbenchMarkdownEmphasis` | Italic emphasis |
 | `AgentWorkbenchMarkdownStrikethrough` | Struck text |
-| `AgentWorkbenchMarkdownLink` | Link/image label and virtual link icon |
-| `AgentWorkbenchMarkdownInlineCode` | Inline code text |
+| `AgentWorkbenchMarkdownLink` | Link/image label and virtual link icon (`Underlined` / `DiagnosticInfo`, underlined) |
+| `AgentWorkbenchMarkdownInlineCode` | Inline code text (`String` foreground over subtle `CursorLine` background) |
 | `AgentWorkbenchMarkdownCodeBlock` | Fenced-code line background |
 | `AgentWorkbenchMarkdownCodeInfo` | Fenced-code language label |
 | `AgentWorkbenchMarkdownBlockQuote` | Quote border and body |
-| `AgentWorkbenchMarkdownListMarker` | Ordered/unordered list marker |
-| `AgentWorkbenchMarkdownCheckboxChecked` | Checked task marker |
+| `AgentWorkbenchMarkdownListMarker` | Muted ordered/unordered list marker (`Delimiter` / `Comment`) |
+| `AgentWorkbenchMarkdownCheckboxChecked` | Successful checked task marker (`DiagnosticOk`) |
 | `AgentWorkbenchMarkdownCheckboxUnchecked` | Unchecked task marker |
 | `AgentWorkbenchMarkdownTableHeader` | Rendered Markdown table header |
 | `AgentWorkbenchMarkdownTableBorder` | Rendered Markdown table borders and rows |

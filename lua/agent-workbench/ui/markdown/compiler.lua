@@ -18,6 +18,7 @@ local SCRATCH_FILETYPE = "agent-workbench-markdown-scratch"
 ---@field end_row? integer
 ---@field end_col? integer
 ---@field hl_group? string
+---@field hl_mode? "replace"|"combine"|"blend"
 ---@field conceal? string
 ---@field virt_text? table
 ---@field virt_text_pos? string

@@ -293,6 +293,7 @@ local function apply_decoration(block, decoration, anchor_row)
     end
     for _, key in ipairs({
         "hl_group",
+        "hl_mode",
         "conceal",
         "virt_text",
         "virt_text_pos",
@@ -303,6 +304,12 @@ local function apply_decoration(block, decoration, anchor_row)
         if decoration[key] ~= nil then
             opts[key] = decoration[key]
         end
+    end
+    -- Markdown ranges compose with the History role/body highlight beneath
+    -- them. This is essential for style-only groups such as strong emphasis
+    -- and H3-H6, which intentionally supply weight without a foreground.
+    if decoration.hl_group ~= nil and decoration.hl_mode == nil then
+        opts.hl_mode = "combine"
     end
     if decoration.virt_lines ~= nil then
         opts.virt_lines = vim.deepcopy(decoration.virt_lines)
