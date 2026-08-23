@@ -137,7 +137,7 @@ The worksheet currently requires the `fish` executable. It does not replace the 
 The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and buffer navigation.
 
 - Chat supports buffer, side, and float layouts.
-- History is a listed `nofile` buffer with structured tool and thinking blocks.
+- History is a listed `nofile` buffer with subtle assistant-segment rails plus structured tool and thinking blocks.
 - Tool output folds without losing extmarks or transcript state.
 - Statusline shows agent state, elapsed time, queue count, context, token usage, cost, and abort hints.
 - Attention requests queue until the user opens them.

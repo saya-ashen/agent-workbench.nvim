@@ -95,7 +95,12 @@
 ---@field features agent_workbench.MarkdownFeatures
 ---@field symbols agent_workbench.MarkdownSymbols
 
+---@class agent_workbench.AssistantBlockRenderConfig
+---@field enabled boolean Draw a subtle rail beside each assistant text segment
+---@field border string Rail glyph rendered before assistant text
+
 ---@class agent_workbench.RenderConfig
+---@field assistant_blocks agent_workbench.AssistantBlockRenderConfig
 ---@field markdown agent_workbench.MarkdownConfig
 ---@field engine? string Deprecated compatibility key; only "markview" is accepted temporarily
 ---@field markview? table Deprecated and ignored; use markdown instead
@@ -530,6 +535,10 @@ local defaults = {
         },
     },
     render = {
+        assistant_blocks = {
+            enabled = true,
+            border = "│",
+        },
         markdown = {
             enabled = true,
             debounce_ms = 30,

@@ -322,9 +322,13 @@ require("agent-workbench").setup({
         },
     },
 
-    -- Message-level Markdown rendering. User messages and each assistant text
-    -- segment are parsed independently; tools/thinking/status stay structural.
+    -- Assistant text segments get a subtle boundary; their Markdown is parsed
+    -- independently while tools/thinking/status stay structural.
     render = {
+        assistant_blocks = {
+            enabled = true,
+            border = "│",
+        },
         markdown = {
             enabled = true,
             debounce_ms = 30,
@@ -381,6 +385,7 @@ require("agent-workbench").setup({
 
 Notes on a few fields:
 
+- `render.assistant_blocks` draws a low-contrast left rail beside every buffer line in an assistant text segment, including blank lines, while leaving user, tool, thinking, status, and error blocks unchanged. Set `enabled = false` to remove it or change `border` to another glyph. Rails remain available when Markdown rendering falls back to raw text.
 - `render.markdown.enabled = false` keeps raw Markdown text and disables decorations; there is no second renderer. `markview.nvim` and the `markdown` Tree-sitter parser are required when enabled.
 - `render.markdown.cursor_reveal = "element"` provides Obsidian-style Live Preview: entering a heading, emphasis span, link, list item, checkbox, quote, code block, table row, or rule temporarily reveals only that element's source syntax. `"line"` reveals the complete cursor line through Neovim's `concealcursor`; `false` keeps the current element fully rendered. Element transitions reuse the compiled decoration plan and never reparse History.
 - Legacy `render.engine = "markview"` is temporarily accepted with a deprecation warning. `"builtin"` and `"render-markdown"` now report an error and preserve raw text. `render.markview` is ignored; migrate styling to `render.markdown` and the `AgentWorkbenchMarkdown*` highlight groups.

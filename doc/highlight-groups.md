@@ -9,6 +9,7 @@ All highlight groups are defined with `default = true`, so they can be overridde
 | `PiUserMessageLabel` | Inline label in front of a user message |
 | `PiUserBody` | Body text of user messages |
 | `PiAgentResponseLabel` | Inline label in front of an agent response |
+| `PiAssistantBlockBorder` | Low-contrast left rail beside assistant text segments |
 | `PiDebugLabel` | Inline label for debug entries |
 | `PiStartupLabel` | Inline label for the startup block |
 | `PiStartupHint` | Hint text inside the startup block |

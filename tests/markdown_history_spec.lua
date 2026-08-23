@@ -1,9 +1,20 @@
 local Config = require("agent-workbench.config")
 local History = require("agent-workbench.ui.chat.history")
 local Render = require("agent-workbench.ui.render")
+local AssistantBlocks = require("agent-workbench.ui.chat.assistant_blocks")
 
 local function text_of(buf)
     return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+end
+
+local function assistant_rails(buf)
+    local rails = {}
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, AssistantBlocks._namespace, 0, -1, { details = true })) do
+        if mark[4].virt_text then
+            rails[#rails + 1] = mark
+        end
+    end
+    return rails
 end
 
 local function has_hl_after(buf, row, group)
@@ -33,6 +44,7 @@ describe("History Markdown block lifecycle", function()
             end,
         }
         Config.options.render = {
+            assistant_blocks = { enabled = true, border = "│" },
             markdown = { enabled = true, debounce_ms = 1, features = {}, symbols = {} },
         }
         History._stream_flush_ms = 1
@@ -51,7 +63,10 @@ describe("History Markdown block lifecycle", function()
         end
         package.loaded["markview.parser"] = original_parser
         History._stream_flush_ms = original_flush
-        Config.options.render = { markdown = { enabled = false } }
+        Config.options.render = {
+            assistant_blocks = { enabled = false, border = "│" },
+            markdown = { enabled = false },
+        }
         Render._reset()
     end)
 
@@ -83,6 +98,75 @@ describe("History Markdown block lifecycle", function()
             {}
         )[1]
         assert.is_true(has_hl_after(history:buf(), second_anchor, "AgentWorkbenchMarkdownHeading3"))
+    end)
+
+    it("draws rails only beside assistant text segments", function()
+        history:add_user_message("user text", 1)
+        history:on_agent_start(2, "output", false)
+        history:on_text_delta("first line\nsecond line")
+        vim.wait(30)
+        history:on_tool_start("bash", "rail-tool", { command = "echo tool" })
+        vim.wait(30)
+        history:on_tool_end("bash", "rail-tool", { content = { { type = "text", text = "tool output" } } }, false)
+        vim.wait(30)
+        history:on_agent_start(3, "output", true)
+        history:on_text_delta("after tool")
+        history:on_agent_end()
+        vim.wait(80)
+
+        local rails = assistant_rails(history:buf())
+        assert.are.equal(3, #rails)
+        assert.are.equal(2, #history._assistant_text_blocks)
+        assert.is_true(history._assistant_text_blocks[1].complete)
+        assert.is_true(history._assistant_text_blocks[2].complete)
+        local rail_lines = {}
+        for _, mark in ipairs(rails) do
+            rail_lines[#rail_lines + 1] = vim.api.nvim_buf_get_lines(history:buf(), mark[2], mark[2] + 1, false)[1]
+            assert.are.same({ { "│ ", "PiAssistantBlockBorder" } }, mark[4].virt_text)
+        end
+        assert.are.same({ "first line", "second line", "after tool" }, rail_lines)
+    end)
+
+    it("extends one rail continuously as streamed text gains lines", function()
+        history:on_agent_start(1, "output", false)
+        history:on_text_delta("first")
+        vim.wait(30)
+        local block = assert(history._active_assistant_text_block)
+        assert.are.equal(1, #assistant_rails(history:buf()))
+
+        history:on_text_delta("\nsecond\nthird")
+        vim.wait(30)
+        assert.are.equal(block, history._active_assistant_text_block)
+        assert.are.equal(3, block.line_count)
+        assert.are.equal(3, #assistant_rails(history:buf()))
+
+        history:on_agent_end()
+        vim.wait(40)
+        assert.is_true(block.complete)
+    end)
+
+    it("keeps assistant rails when Markdown rendering is unavailable", function()
+        Config.options.render.markdown.enabled = false
+        Render.reset_history(history:buf())
+        history:on_agent_start(1, "output", false)
+        history:on_text_delta("raw line\nstill raw")
+        history:on_agent_end()
+        vim.wait(60)
+
+        assert.are.equal(0, #history._markdown_blocks)
+        assert.are.equal(1, #history._assistant_text_blocks)
+        assert.are.equal(2, #assistant_rails(history:buf()))
+    end)
+
+    it("allows assistant rails to be disabled", function()
+        Config.options.render.assistant_blocks.enabled = false
+        history:on_agent_start(1, "output", false)
+        history:on_text_delta("plain assistant")
+        history:on_agent_end()
+        vim.wait(60)
+
+        assert.are.equal(0, #history._assistant_text_blocks)
+        assert.are.equal(0, #assistant_rails(history:buf()))
     end)
 
     it("creates separate assistant segments around thinking", function()
@@ -161,6 +245,9 @@ describe("History Markdown block lifecycle", function()
         history:clear()
         assert.are.equal(0, #history._markdown_blocks)
         assert.is_nil(history._active_markdown_block)
+        assert.are.equal(0, #history._assistant_text_blocks)
+        assert.is_nil(history._active_assistant_text_block)
+        assert.are.equal(0, #assistant_rails(history:buf()))
         assert.are.equal(0, #Render._states()[history:buf()].blocks)
     end)
 end)

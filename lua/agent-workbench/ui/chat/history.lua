@@ -51,6 +51,8 @@
 ---@field _message_blocks agent_workbench.MessageBlock[]
 ---@field _markdown_blocks agent_workbench.MarkdownBlock[]
 ---@field _active_markdown_block? agent_workbench.MarkdownBlock
+---@field _assistant_text_blocks agent_workbench.AssistantTextBlock[]
+---@field _active_assistant_text_block? agent_workbench.AssistantTextBlock
 ---@field _active_fold_anchors table<integer, integer?>
 ---@field _status_anchor_id integer?
 ---@field _fold_open_state table<integer, boolean>
@@ -157,6 +159,7 @@ local Ft = require("agent-workbench.filetypes")
 local Config = require("agent-workbench.config")
 local Tools = require("agent-workbench.ui.chat.tools")
 local Render = require("agent-workbench.ui.render")
+local AssistantBlocks = require("agent-workbench.ui.chat.assistant_blocks")
 local Text = require("agent-workbench.ui.chat.text")
 local NativeFolds = require("agent-workbench.ui.chat.history_extensions.native_folds")
 local WorkspaceHistory = require("agent-workbench.ui.chat.history_extensions.workspace")
@@ -345,6 +348,8 @@ function History.new(tab, name, session_id)
     self._message_blocks = {}
     self._markdown_blocks = {}
     self._active_markdown_block = nil
+    self._assistant_text_blocks = {}
+    self._active_assistant_text_block = nil
     self._active_fold_anchors = {}
     self._status_anchor_id = nil
     self._fold_open_state = {}
@@ -953,7 +958,8 @@ function History:_render_text_deltas(delta)
     if markdown_delta == "" then
         return
     end
-    if self._active_markdown_block then
+    if self._active_assistant_text_block or self._active_markdown_block then
+        AssistantBlocks.append(self._active_assistant_text_block, markdown_delta)
         Render.append_block(self._active_markdown_block, markdown_delta)
         return
     end
@@ -961,6 +967,10 @@ function History:_render_text_deltas(delta)
     -- from line counts. Extmark-driven tool output may have inserted above this
     -- segment between its structural header and its first streamed delta.
     local start_row = (append_row or 0) + (breathing_line and 1 or 0)
+    self._active_assistant_text_block = AssistantBlocks.start(self._buf, start_row, markdown_delta)
+    if self._active_assistant_text_block then
+        self._assistant_text_blocks[#self._assistant_text_blocks + 1] = self._active_assistant_text_block
+    end
     self._active_markdown_block = Render.start_block(self._buf, "assistant", start_row, markdown_delta, 0, false)
     if self._active_markdown_block then
         self._markdown_blocks[#self._markdown_blocks + 1] = self._active_markdown_block
@@ -1151,13 +1161,16 @@ function History:_flush_tool_updates()
     end
 end
 
---- Complete the active assistant Markdown segment before a structural block.
+--- Complete the active assistant text segment before a structural block.
 function History:_finish_markdown_segment()
-    if not self._active_markdown_block then
-        return
+    if self._active_markdown_block then
+        Render.finish_block(self._active_markdown_block)
+        self._active_markdown_block = nil
     end
-    Render.finish_block(self._active_markdown_block)
-    self._active_markdown_block = nil
+    if self._active_assistant_text_block then
+        AssistantBlocks.finish(self._active_assistant_text_block)
+        self._active_assistant_text_block = nil
+    end
 end
 
 ---@param lines_list string[]
@@ -4371,7 +4384,10 @@ function History:clear()
     self._fold_state_initialized = false
     self._markdown_blocks = {}
     self._active_markdown_block = nil
+    self._assistant_text_blocks = {}
+    self._active_assistant_text_block = nil
     Render.reset_history(self._buf)
+    AssistantBlocks.reset(self._buf)
     vim.api.nvim_buf_clear_namespace(self._buf, ns, 0, -1)
     self:_with_modifiable(function()
         vim.api.nvim_buf_set_lines(self._buf, 0, -1, false, { "" })

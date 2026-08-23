@@ -810,6 +810,10 @@ This means an unclosed fence or other malformed Markdown can affect the rest of 
 ```lua
 require("agent-workbench").setup({
     render = {
+        assistant_blocks = {
+            enabled = true,
+            border = "│",
+        },
         markdown = {
             enabled = true,
             debounce_ms = 30,
@@ -829,6 +833,8 @@ require("agent-workbench").setup({
     },
 })
 ```
+
+Each assistant text segment also gets a subtle left rail by default, making `text → tool → text` boundaries visible without enclosing long prose, tables, or code in a full box. The rail is independent of Markdown parsing, follows streamed and blank buffer lines, and never appears beside user, tool, thinking, status, or error blocks. Configure it with `render.assistant_blocks`, or set `enabled = false` to remove it.
 
 Streaming recompiles only the active block after the configured debounce; completed history is not reparsed. Width-dependent decorations such as horizontal rules refresh only when their visible block needs a new width.
 

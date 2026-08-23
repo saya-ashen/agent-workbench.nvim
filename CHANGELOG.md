@@ -7,6 +7,7 @@
 - **CHANGED:** Markview is now used only through its documented parser API. Missing/incompatible Markview or Markdown Tree-sitter support leaves complete raw Markdown visible without interrupting chat, tools, replay, or session management.
 - **FIXED:** Empty provider thinking envelopes no longer leave a folded `Agent Activity (empty)` section. Activity folds backed only by visible reasoning now summarize that reasoning instead of reporting `(empty)`, and thinking previews render strong, emphasis, strikethrough, and inline-code delimiters with plugin-owned structural styling.
 - **FIXED:** Cursor movement no longer appears stuck inside concealed Markdown. The default Obsidian-style element reveal temporarily exposes only the heading, emphasis span, link, list item, checkbox, quote, code block, table row, or rule under the cursor without reparsing History; line-wide reveal and always-rendered modes remain configurable.
+- **CHANGED:** Assistant text segments now use a subtle configurable left rail, making prose boundaries around tool and thinking blocks visible without adding full boxes or changing raw transcript text.
 
 ## 2026-08-20
 
