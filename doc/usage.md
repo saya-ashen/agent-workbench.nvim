@@ -813,6 +813,7 @@ require("agent-workbench").setup({
         markdown = {
             enabled = true,
             debounce_ms = 30,
+            cursor_reveal = "element",
             features = {
                 tables = true,
                 code_blocks = true,
@@ -830,6 +831,8 @@ require("agent-workbench").setup({
 ```
 
 Streaming recompiles only the active block after the configured debounce; completed history is not reparsed. Width-dependent decorations such as horizontal rules refresh only when their visible block needs a new width.
+
+The default `cursor_reveal = "element"` behaves like Obsidian Live Preview. Moving into rendered syntax temporarily reveals the complete semantic element — for example `**text**`, a link's label and destination, a list marker, or the current raw table row — and restores its decorations when the cursor leaves. This prevents horizontal motions from appearing stuck inside concealed source text. Cursor movement only toggles the affected Extmarks; it does not invoke Markview or Tree-sitter again. Use `"line"` to reveal the whole cursor line, or `false` to keep Markdown rendered under the cursor. Extmarks are buffer-local, so if one History buffer is shown in multiple windows, every view reflects the reveal owned by the currently active window; entering another view moves the reveal to that view's cursor.
 
 Set `render.markdown.enabled = false` to keep raw Markdown without decorations. If Markview or the Markdown Tree-sitter parser is missing/incompatible, Agent Workbench reports the problem once and automatically preserves raw text without interrupting chat, tools, or replay.
 

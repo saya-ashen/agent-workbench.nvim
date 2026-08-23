@@ -69,6 +69,30 @@ local ok, err = xpcall(function()
     assert(groups["AgentWorkbenchMarkdownStrong"], "real strong-emphasis capture was not rendered")
     assert(concealed_link_destination, "real link destination was not concealed")
 
+    local second_block = history._markdown_blocks[2]
+    local second_anchor =
+        vim.api.nvim_buf_get_extmark_by_id(history:buf(), Render._namespace, second_block.anchor, {})[1]
+    local second_lines =
+        vim.api.nvim_buf_get_lines(history:buf(), second_anchor, second_anchor + second_block.line_count, false)
+    local bold_row, bold_col
+    for offset, line in ipairs(second_lines) do
+        local start = line:find("**bold**", 1, true)
+        if start then
+            bold_row = second_anchor + offset - 1
+            bold_col = start + 1
+            break
+        end
+    end
+    assert(bold_row and bold_col, "real strong source range missing")
+    Render.clear_cursor_reveal(history:buf())
+    local decorated_count = #second_block.decoration_ids
+    vim.api.nvim_win_set_cursor(0, { bold_row + 1, bold_col })
+    Render.update_cursor_reveal(history:buf(), 0)
+    assert(next(second_block.active_reveals), "real strong element did not activate cursor reveal")
+    assert(#second_block.decoration_ids < decorated_count, "real strong delimiters remained concealed")
+    Render.clear_cursor_reveal(history:buf())
+    assert(#second_block.decoration_ids == decorated_count, "cursor reveal did not restore real decorations")
+
     local tool_row
     for row, line in ipairs(vim.api.nvim_buf_get_lines(history:buf(), 0, -1, false)) do
         if line == "### tool-only" then

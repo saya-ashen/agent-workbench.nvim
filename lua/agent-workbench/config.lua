@@ -86,9 +86,12 @@
 ---@field link string
 ---@field horizontal_rule string
 
+---@alias agent_workbench.MarkdownCursorRevealMode "element"|"line"|false
+
 ---@class agent_workbench.MarkdownConfig
 ---@field enabled boolean Render user/assistant Markdown blocks with Extmarks (default: true)
 ---@field debounce_ms integer Delay before recompiling streamed Markdown (default: 30)
+---@field cursor_reveal agent_workbench.MarkdownCursorRevealMode Reveal active syntax like Obsidian Live Preview
 ---@field features agent_workbench.MarkdownFeatures
 ---@field symbols agent_workbench.MarkdownSymbols
 
@@ -530,6 +533,7 @@ local defaults = {
         markdown = {
             enabled = true,
             debounce_ms = 30,
+            cursor_reveal = "element",
             features = {
                 headings = true,
                 emphasis = true,

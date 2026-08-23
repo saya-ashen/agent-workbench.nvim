@@ -328,6 +328,10 @@ require("agent-workbench").setup({
         markdown = {
             enabled = true,
             debounce_ms = 30,
+            -- Obsidian-style Live Preview: reveal only the Markdown element
+            -- under the cursor. Use "line" for the whole cursor line, or
+            -- false to keep syntax concealed under the cursor.
+            cursor_reveal = "element",
             features = {
                 headings = true,
                 emphasis = true,
@@ -378,6 +382,7 @@ require("agent-workbench").setup({
 Notes on a few fields:
 
 - `render.markdown.enabled = false` keeps raw Markdown text and disables decorations; there is no second renderer. `markview.nvim` and the `markdown` Tree-sitter parser are required when enabled.
+- `render.markdown.cursor_reveal = "element"` provides Obsidian-style Live Preview: entering a heading, emphasis span, link, list item, checkbox, quote, code block, table row, or rule temporarily reveals only that element's source syntax. `"line"` reveals the complete cursor line through Neovim's `concealcursor`; `false` keeps the current element fully rendered. Element transitions reuse the compiled decoration plan and never reparse History.
 - Legacy `render.engine = "markview"` is temporarily accepted with a deprecation warning. `"builtin"` and `"render-markdown"` now report an error and preserve raw text. `render.markview` is ignored; migrate styling to `render.markdown` and the `AgentWorkbenchMarkdown*` highlight groups.
 - `layout.default`, `layout.side`, and `layout.float` each also accept a **function** returning the value, so you can compute sizes from `vim.o.columns` / `vim.o.lines` at open time. A function-return for `side`/`float` is deep-merged over the defaults, so returning a partial table is fine.
 - `panels.<panel>.name` takes a `fun(tab_id): string` that computes the underlying buffer name per tab — useful for distinguishing multiple π conversations in `:buffers`, statuslines, or tab bars.

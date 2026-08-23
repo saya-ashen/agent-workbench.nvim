@@ -142,7 +142,7 @@ The frontend uses normal Neovim buffers, windows, extmarks, folds, quickfix, and
 - Statusline shows agent state, elapsed time, queue count, context, token usage, cost, and abort hints.
 - Attention requests queue until the user opens them.
 - Extension UI can use dialogs, pickers, widgets, and custom blocks.
-- Message-level Markdown uses Markview's parser API plus Agent Workbench Extmarks, so malformed Markdown cannot leak across messages; `blink.cmp`, `img-clip.nvim`, `bufferline.nvim`, and `nvim-web-devicons` integrate when installed.
+- Message-level Markdown uses Markview's parser API plus Agent Workbench Extmarks, so malformed Markdown cannot leak across messages; Obsidian-style cursor reveal exposes only the active source element for smooth navigation. `blink.cmp`, `img-clip.nvim`, `bufferline.nvim`, and `nvim-web-devicons` integrate when installed.
 
 ## Quick Start
 

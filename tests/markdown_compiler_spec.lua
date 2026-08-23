@@ -136,6 +136,39 @@ describe("isolated Markdown compiler", function()
         assert.is_true(has(plan, function(decoration)
             return decoration.virt_text and decoration.virt_text[1][1] == "link "
         end))
+        assert.is_true(has(plan, function(decoration)
+            return decoration.hide_when_revealed
+                and decoration.reveal
+                and decoration.reveal.row == 6
+                and decoration.reveal.end_row == 6
+                and decoration.virt_text_pos == "overlay"
+        end))
+    end)
+
+    it("groups concealed inline syntax under semantic cursor-reveal ranges", function()
+        package.loaded["markview.parser"] = {
+            init = function()
+                return { markdown = {}, markdown_inline = {} }, {}
+            end,
+        }
+        local plan = assert(Compiler.compile("**bold** [label](url) `code`", {
+            width = 80,
+            features = {},
+            symbols = {},
+        }))
+        local owners = {}
+        for _, decoration in ipairs(plan.decorations) do
+            if decoration.conceal ~= nil then
+                assert.is_true(decoration.hide_when_revealed)
+                assert.is_not_nil(decoration.reveal)
+                owners[decoration.reveal.key] = true
+            end
+        end
+        local count = 0
+        for _ in pairs(owners) do
+            count = count + 1
+        end
+        assert.are.equal(3, count, "strong, link, and inline code have separate reveal owners")
     end)
 
     it("honors feature switches for Tree-sitter highlights and conceal", function()

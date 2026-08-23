@@ -5,6 +5,13 @@ local M = {}
 local scratch_buf ---@type integer?
 local SCRATCH_FILETYPE = "agent-workbench-markdown-scratch"
 
+---@class agent_workbench.MarkdownRevealRange
+---@field key string
+---@field row integer
+---@field col integer
+---@field end_row integer
+---@field end_col integer
+
 ---@class agent_workbench.MarkdownDecoration
 ---@field row integer
 ---@field col integer
@@ -18,6 +25,8 @@ local SCRATCH_FILETYPE = "agent-workbench-markdown-scratch"
 ---@field virt_lines_above? boolean
 ---@field line_hl_group? string
 ---@field priority? integer
+---@field reveal? agent_workbench.MarkdownRevealRange Semantic source range that owns this decoration
+---@field hide_when_revealed? boolean Hide this conceal/replacement while its owner is under the cursor
 
 ---@class agent_workbench.MarkdownPlan
 ---@field decorations agent_workbench.MarkdownDecoration[]
@@ -49,6 +58,78 @@ end
 ---@param decoration agent_workbench.MarkdownDecoration
 local function add(decorations, decoration)
     decorations[#decorations + 1] = decoration
+end
+
+local reveal_owner_types = {
+    atx_heading = true,
+    setext_heading = true,
+    strong_emphasis = true,
+    emphasis = true,
+    strikethrough = true,
+    inline_link = true,
+    full_reference_link = true,
+    collapsed_reference_link = true,
+    shortcut_link = true,
+    autolink = true,
+    image = true,
+    code_span = true,
+    list_item = true,
+    block_quote = true,
+    fenced_code_block = true,
+    thematic_break = true,
+    pipe_table = true,
+}
+
+---@param row integer
+---@param col integer
+---@param end_row integer
+---@param end_col integer
+---@return agent_workbench.MarkdownRevealRange
+local function reveal_range(row, col, end_row, end_col)
+    return {
+        key = table.concat({ row, col, end_row, end_col }, ":"),
+        row = row,
+        col = col,
+        end_row = end_row,
+        end_col = end_col,
+    }
+end
+
+---@param range table
+---@return agent_workbench.MarkdownRevealRange?
+local function semantic_reveal_range(range)
+    local row = tonumber(range.row_start)
+    local col = tonumber(range.col_start)
+    local end_row = tonumber(range.row_end)
+    local end_col = tonumber(range.col_end)
+    if not row or not col or not end_row or not end_col then
+        return nil
+    end
+    return reveal_range(row, col, end_row, end_col)
+end
+
+---@param node any
+---@return agent_workbench.MarkdownRevealRange?
+local function node_reveal_range(node)
+    local current = node
+    while current do
+        if reveal_owner_types[current:type()] then
+            local row, col, end_row, end_col = current:range()
+            return reveal_range(row, col, end_row, end_col)
+        end
+        current = current:parent()
+    end
+    return nil
+end
+
+---@param decoration agent_workbench.MarkdownDecoration
+---@param reveal agent_workbench.MarkdownRevealRange?
+local function make_cursor_revealable(decoration, reveal)
+    if not reveal then
+        return
+    end
+    decoration.reveal = reveal
+    decoration.hide_when_revealed = true
 end
 
 ---@param capture string
@@ -241,6 +322,9 @@ local function add_tree_sitter_decorations(parser, buffer, decorations, features
             elseif type(capture_meta.conceal) == "number" then
                 decoration.conceal = vim.fn.nr2char(capture_meta.conceal)
             end
+            if decoration.conceal ~= nil then
+                make_cursor_revealable(decoration, node_reveal_range(node))
+            end
             if decoration.hl_group or decoration.conceal ~= nil then
                 add(decorations, decoration)
             end
@@ -367,6 +451,8 @@ local function render_table(lines, item, decorations)
             },
             virt_text_pos = "overlay",
             priority = 130,
+            reveal = reveal_range(row, 0, row, #source_line),
+            hide_when_revealed = true,
         })
     end
     add(decorations, {
@@ -394,6 +480,7 @@ local function render_markdown_item(lines, item, decorations, opts)
     local symbols = opts.symbols or {}
     local range = item.range or {}
     local class = item.class
+    local owner = semantic_reveal_range(range)
     if class == "markdown_atx_heading" and features.headings ~= false then
         local line = lines[range.row_start + 1] or ""
         local marker = item.marker or "#"
@@ -403,6 +490,8 @@ local function render_markdown_item(lines, item, decorations, opts)
             end_col = math.min(#line, (range.col_start or 0) + #marker + 1),
             conceal = "",
             priority = 120,
+            reveal = owner,
+            hide_when_revealed = owner ~= nil,
         })
         add(decorations, {
             row = range.row_start,
@@ -430,6 +519,8 @@ local function render_markdown_item(lines, item, decorations, opts)
             end_col = #underline,
             conceal = "",
             priority = 120,
+            reveal = owner,
+            hide_when_revealed = owner ~= nil,
         })
     elseif class == "markdown_block_quote" and features.block_quotes ~= false then
         for row = range.row_start or 0, (range.row_end or 0) - 1 do
@@ -445,6 +536,8 @@ local function render_markdown_item(lines, item, decorations, opts)
                     virt_text_pos = "inline",
                     line_hl_group = "AgentWorkbenchMarkdownBlockQuote",
                     priority = 120,
+                    reveal = owner,
+                    hide_when_revealed = owner ~= nil,
                 })
             end
         end
@@ -462,6 +555,8 @@ local function render_markdown_item(lines, item, decorations, opts)
                     virt_text = { { symbols.bullet or "•", "AgentWorkbenchMarkdownListMarker" } },
                     virt_text_pos = "inline",
                     priority = 120,
+                    reveal = owner,
+                    hide_when_revealed = owner ~= nil,
                 })
             end
         end
@@ -481,6 +576,8 @@ local function render_markdown_item(lines, item, decorations, opts)
             },
             virt_text_pos = "inline",
             priority = 125,
+            reveal = owner,
+            hide_when_revealed = owner ~= nil,
         })
     elseif class == "markdown_code_block" and features.code_blocks ~= false then
         local start_row = range.row_start
@@ -501,6 +598,8 @@ local function render_markdown_item(lines, item, decorations, opts)
                 virt_text = { { " " .. language .. " ", "AgentWorkbenchMarkdownCodeInfo" } },
                 virt_text_pos = "inline",
                 priority = 125,
+                reveal = owner,
+                hide_when_revealed = owner ~= nil,
             })
         end
     elseif class == "markdown_table" and features.tables ~= false then
@@ -522,6 +621,8 @@ local function render_markdown_item(lines, item, decorations, opts)
             },
             virt_text_pos = "overlay",
             priority = 130,
+            reveal = owner,
+            hide_when_revealed = owner ~= nil,
         })
         return true
     end
@@ -535,6 +636,7 @@ local function render_inline_item(item, decorations, opts)
     local features = opts.features or {}
     local symbols = opts.symbols or {}
     local range = item.range or {}
+    local owner = semantic_reveal_range(range)
     if item.class and item.class:match("^inline_link_") and features.links ~= false then
         add(decorations, {
             row = range.row_start,
@@ -542,6 +644,8 @@ local function render_inline_item(item, decorations, opts)
             virt_text = { { symbols.link or "󰌹 ", "AgentWorkbenchMarkdownLink" } },
             virt_text_pos = "inline",
             priority = 120,
+            reveal = owner,
+            hide_when_revealed = owner ~= nil,
         })
     end
 end
