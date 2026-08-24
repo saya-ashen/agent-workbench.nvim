@@ -10,7 +10,7 @@
 
 Agent Workbench runs `pi --mode rpc` beside Neovim and turns agent work into an editor-native workflow. Conversations, files, workspace state, tool output, shell commands, diffs, and attention requests stay inside Neovim without replacing normal editing.
 
-The editor layer is designed to support additional coding-agent backends over time. Current releases support pi.dev only.
+Pi remains built-in and default. Backend plugins can register a semantic `BackendSession` factory; frontend features are enabled by backend capabilities instead of backend-name checks. Backends that implement `list_history` / `load_history` also use the standard continue/resume commands without Pi JSONL files.
 
 The canonical Lua namespace is now `agent-workbench`:
 
@@ -70,7 +70,7 @@ Sessions are buffer-owned instead of being one global chat singleton.
 
 - Keep several sessions alive in one tab or across tabs.
 - Switch sessions with ordinary buffer commands.
-- Continue or resume sessions for the current working directory.
+- Continue or resume sessions from Pi's cwd-scoped files or backend-owned history.
 - Background output stays in its owning History buffer.
 - Re-entering a session restores its last History cursor and folds.
 - `:AgentWorkbenchSessions` gives one live overview of busy, idle, attention, and stopped sessions.

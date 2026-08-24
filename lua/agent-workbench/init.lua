@@ -7,6 +7,22 @@ local Config = require("agent-workbench.config")
 
 local is_initialized = false
 
+---@param capability string
+---@param label string
+---@return agent_workbench.Session?
+local function capable_session(capability, label)
+    local session = require("agent-workbench.sessions.manager").get()
+    if not session then
+        require("agent-workbench.notify").warn("No active session")
+        return nil
+    end
+    if not session.capabilities[capability] then
+        require("agent-workbench.notify").warn("Backend does not support " .. label)
+        return nil
+    end
+    return session
+end
+
 ---@param chat agent_workbench.Chat
 ---@param mode? agent_workbench.LayoutMode
 local function show_chat(chat, mode)
@@ -16,6 +32,13 @@ local function show_chat(chat, mode)
     else
         chat:ensure_shown_and_focus_prompt()
     end
+end
+
+---Register external BackendSession factory.
+---@param name string
+---@param factory fun(options: table): agent_workbench.BackendSession
+function M.register_backend(name, factory)
+    require("agent-workbench.backends").register(name, factory)
 end
 
 ---@param opts? agent_workbench.Options
@@ -86,12 +109,22 @@ end
 --- Continue the most recent session for the current cwd.
 ---@param opts? agent_workbench.SessionCreateOpts
 function M.continue_session(opts)
+    local session = require("agent-workbench.sessions.manager").get()
+    if session and not session.capabilities.history then
+        require("agent-workbench.notify").warn("Backend does not support session history")
+        return
+    end
     require("agent-workbench.sessions.manager").continue_session(opts)
 end
 
 --- Show a picker to resume a past session.
 ---@param opts? agent_workbench.SessionCreateOpts
 function M.resume_session(opts)
+    local session = require("agent-workbench.sessions.manager").get()
+    if session and not session.capabilities.history then
+        require("agent-workbench.notify").warn("Backend does not support session history")
+        return
+    end
     require("agent-workbench.sessions.manager").resume_session(opts)
 end
 
@@ -143,9 +176,9 @@ end
 --- Abort the current agent operation.
 function M.abort()
     local session = require("agent-workbench.sessions.manager").get()
-    if session and session.rpc:is_running() then
+    if session and session.backend:is_running() then
         require("agent-workbench.attention").clear_session(session)
-        session.rpc:send({ type = "abort" })
+        session.backend:stop()
     end
 end
 
@@ -160,7 +193,7 @@ end
 --- Abort a running direct bash command (! prefix).
 function M.abort_bash()
     local session = require("agent-workbench.sessions.manager").get()
-    if session and session.rpc:is_running() then
+    if session and session.capabilities.direct_bash and session.rpc and session.rpc:is_running() then
         session.rpc:send({ type = "abort_bash" })
     end
 end
@@ -171,7 +204,7 @@ end
 --- during the retry window.
 function M.abort_retry()
     local session = require("agent-workbench.sessions.manager").get()
-    if session and session.rpc:is_running() then
+    if session and session.capabilities.raw_rpc and session.rpc and session.rpc:is_running() then
         session.rpc:send({ type = "abort_retry" })
     end
 end
@@ -227,7 +260,9 @@ end
 --- Navigate the session tree (:AgentWorkbenchTree): pick a past conversation point and
 --- move the session leaf to it, optionally summarizing the abandoned branch.
 function M.tree()
-    require("agent-workbench.tree").open()
+    if capable_session("tree", "session tree") then
+        require("agent-workbench.tree").open()
+    end
 end
 
 --- Toggle the sessions overview list (:AgentWorkbenchSessions): a live list of all
@@ -276,7 +311,9 @@ end
 --- Untracked files render as full-file additions; <CR>/o jumps to the file
 --- and line under the cursor, q closes.
 function M.diff_review()
-    require("agent-workbench.ui.diff_review").open()
+    if capable_session("changed_files", "changed-file review") then
+        require("agent-workbench.ui.diff_review").open()
+    end
 end
 
 --- Toggle thinking block visibility.
@@ -307,54 +344,44 @@ end
 
 --- Cycle to the next thinking level.
 function M.cycle_thinking_level()
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
-        return
+    local session = capable_session("thinking", "thinking levels")
+    if session and session.rpc and session.rpc:is_running() then
+        require("agent-workbench.thinking").cycle(session)
     end
-    require("agent-workbench.thinking").cycle(session)
 end
 
 --- Select a thinking level from a picker.
 function M.select_thinking_level()
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
-        return
+    local session = capable_session("thinking", "thinking levels")
+    if session and session.rpc and session.rpc:is_running() then
+        require("agent-workbench.thinking").select(session)
     end
-    require("agent-workbench.thinking").select(session)
 end
 
 --- Cycle to the next model.
 --- If `models` is configured, cycles within the resolved subset.
 function M.cycle_model()
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
-        return
+    local session = capable_session("models", "model selection")
+    if session and session.rpc and session.rpc:is_running() then
+        require("agent-workbench.models").cycle(session)
     end
-    require("agent-workbench.models").cycle(session)
 end
 
 --- Select a model from configured models (or all if none configured).
 --- Uses Dialog.select for the curated list.
 function M.select_model()
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
-        return
+    local session = capable_session("models", "model selection")
+    if session and session.rpc and session.rpc:is_running() then
+        require("agent-workbench.models").select(session)
     end
-    require("agent-workbench.models").select(session)
 end
 
 --- Select a model from all available models using vim.ui.select (searchable).
 function M.select_model_all()
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
-        return
+    local session = capable_session("models", "model selection")
+    if session and session.rpc and session.rpc:is_running() then
+        require("agent-workbench.models").select_all(session)
     end
-    require("agent-workbench.models").select_all(session)
 end
 
 --- Send an @-mention to the prompt.
@@ -405,9 +432,8 @@ end
 ---@param custom_instructions? string optional instructions to guide compaction
 function M.compact(custom_instructions)
     local Notify = require("agent-workbench.notify")
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        Notify.warn("No active session")
+    local session = capable_session("compaction", "compaction")
+    if not session or not session.rpc or not session.rpc:is_running() then
         return
     end
     if session.chat:is_streaming() then
@@ -452,7 +478,7 @@ end
 function M.toggle_auto_compaction()
     local Sessions = require("agent-workbench.sessions.manager")
     local session = Sessions.get()
-    if not session or not session.rpc:is_running() then
+    if not session or not session.capabilities.compaction or not session.rpc or not session.rpc:is_running() then
         return
     end
     session.rpc:send({ type = "get_state" }, function(res)
@@ -482,9 +508,8 @@ end
 function M.set_session_name(name)
     local Notify = require("agent-workbench.notify")
     local Dialog = require("agent-workbench.ui.dialog")
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        Notify.warn("No active session")
+    local session = capable_session("raw_rpc", "session names")
+    if not session or not session.rpc or not session.rpc:is_running() then
         return
     end
 
@@ -532,9 +557,12 @@ end
 --- Silent no-op without an active session; a failed get_entries degrades to
 --- the session-stats-only view.
 function M.session_stats()
-    local Sessions = require("agent-workbench.sessions.manager")
-    local session = Sessions.get()
-    if not session or not session.rpc:is_running() then
+    local session = require("agent-workbench.sessions.manager").get()
+    if not session then
+        return
+    end
+    if not session.capabilities.raw_rpc or not session.rpc or not session.rpc:is_running() then
+        require("agent-workbench.notify").warn("Backend does not support session stats")
         return
     end
 
@@ -656,9 +684,8 @@ end
 --- Accepts with or without leading "/" (e.g. "toggle-auto-accept" or "/toggle-auto-accept").
 ---@param command string
 function M.invoke(command)
-    local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
-        require("agent-workbench.notify").warn("No active session")
+    local session = capable_session("commands", "extension commands")
+    if not session or not session.rpc or not session.rpc:is_running() then
         return
     end
     if command:sub(1, 1) ~= "/" then

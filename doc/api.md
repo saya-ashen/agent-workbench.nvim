@@ -5,7 +5,10 @@ Everything exposed by the [user commands](../README.md#commands) is also availab
 ```lua
 local pi = require("agent-workbench")
 
--- Setup (called once from your config entrypoint)
+-- Backend registration (external backend plugins call before setup)
+pi.register_backend(name, factory) -- factory(options) -> BackendSession
+
+-- Setup (called once from your config entrypoint; Pi is the default backend)
 pi.setup(opts?)
 
 -- Chat lifecycle
@@ -17,8 +20,8 @@ pi.is_visible()               -- boolean: is the chat shown in the current tab?
 pi.layout()                   -- "side" | "float" | nil
 
 -- Sessions
-pi.continue_session(opts?)    -- load the most recent session for the current cwd
-pi.resume_session(opts?)      -- pick a past session for the current cwd
+pi.continue_session(opts?)    -- load the newest history item from the active backend
+pi.resume_session(opts?)      -- pick and load backend history (Pi uses cwd-scoped JSONL)
 pi.new_session()              -- create and activate a separate session buffer
 pi.replace_session()          -- replace current idle session and delete its live History buffer
 pi.tree()                     -- navigate the session tree (:AgentWorkbenchTree)

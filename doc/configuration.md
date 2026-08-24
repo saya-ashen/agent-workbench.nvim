@@ -1,6 +1,6 @@
 # Configuration
 
-All options are optional — `require("agent-workbench").setup()` with no arguments gives you the defaults below. This page is the full reference; the [README](../README.md) has a shorter overview of the most common knobs.
+All options are optional — `require("agent-workbench").setup()` with no arguments gives you the defaults below. Pi remains the built-in default backend. External plugins can register BackendSession factories through `register_backend()`; unsupported features are capability-gated. This page is the full reference; the [README](../README.md) has a shorter overview of the most common knobs.
 
 ```lua
 ---@type agent_workbench.Options
@@ -8,7 +8,12 @@ require("agent-workbench").setup({
     -- Sessions start lazily when a chat command is first used.
     -- Set true to create and show one in every tab-backed workspace.
     auto_start_session = false,
-    -- pi CLI invocation. Extra args are inserted before `--mode rpc`.
+    -- Registered BackendSession name. Pi remains built-in and default.
+    backend = "pi",
+    -- Opaque options passed to the selected backend factory.
+    backend_options = {},
+    -- pi CLI invocation. Used only by the built-in Pi backend.
+    -- Extra args are inserted before `--mode rpc`.
     -- Args that conflict with RPC mode (`--mode`, `--print`, `--help`, etc.)
     -- are dropped with a one-time warning.
     cli = {

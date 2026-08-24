@@ -121,7 +121,7 @@ end
 ---@param session agent_workbench.Session
 ---@param cmd agent_workbench.RpcCommand
 local function send_response(session, cmd)
-    if session.rpc:is_running() then
+    if (session.capabilities == nil or session.capabilities.raw_rpc) and session.rpc and session.rpc:is_running() then
         session.rpc:send(cmd)
     end
 end
@@ -132,7 +132,8 @@ end
 ---@return boolean
 local function is_stale(session, entry, now)
     now = now or now_ms()
-    if not session.rpc:is_running() then
+    local process = session.backend or session.rpc
+    if not process or not process:is_running() then
         return true
     end
     return entry.expires_at ~= nil and now >= entry.expires_at

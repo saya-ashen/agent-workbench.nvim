@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-24
+
+- **ADDED:** BackendSession plugins can provide backend-owned `list_history` / `load_history` methods. `:AgentWorkbenchContinue` and `:AgentWorkbenchResume` stage normalized backend messages through the same bounded History replay path without assuming Pi JSONL storage.
+- **ADDED:** Agent sessions now use a semantic BackendSession registry/factory. Pi remains built-in and default; external backend plugins can register prompt, steering, stop, stream, tool, usage, lifecycle, and freshness behavior without UI backend-name branches.
+- **CHANGED:** Pi-only history, model, thinking-level, compaction, command, attachment, direct-bash, tree, stats, and changed-file features are capability-gated when another backend is active.
+
 ## 2026-08-23
 
 - **CHANGED:** History Markdown is now parsed per user message and per assistant text segment, then projected with Agent Workbench-owned Extmarks. Tool/thinking/status blocks never enter the Markdown parser, so malformed or unclosed Markdown cannot affect later messages; streamed updates recompile only the active block and raw transcript text remains unchanged.

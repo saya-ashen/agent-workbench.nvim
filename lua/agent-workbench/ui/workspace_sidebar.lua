@@ -158,7 +158,8 @@ end
 ---@param session agent_workbench.Session
 ---@return string
 local function session_status(session)
-    if not session.rpc:is_running() then
+    local process = session.backend or session.rpc
+    if not process or not process:is_running() then
         return "exited"
     end
     if require("agent-workbench.attention").count_for_session(session) > 0 then
@@ -678,7 +679,8 @@ local function close_workspace(workspace)
     local sessions = sessions_for(workspace)
     local running = 0
     for _, session in ipairs(sessions) do
-        if session.rpc:is_running() then
+        local process = session.backend or session.rpc
+        if process and process:is_running() then
             running = running + 1
         end
     end

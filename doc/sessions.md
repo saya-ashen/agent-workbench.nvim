@@ -1,10 +1,10 @@
 # Sessions
 
-π is session-oriented: every conversation is persisted to disk as it happens, you can leave one in the middle of a turn and pick it up later, and Agent Workbench gives you a few ways to navigate between them.
+Agent Workbench is session-oriented: every conversation is persisted by its backend as it happens, you can leave one in the middle of a turn and pick it up later, and Agent Workbench gives you a few ways to navigate between them. Pi remains the default backend and stores JSONL sessions locally; external backends can expose their own authoritative history through the same continue/resume commands.
 
 ## Buffer-owned sessions
 
-Agent Workbench binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and `pi --mode rpc` subprocess.
+Agent Workbench binds each live session to its listed History buffer. One Neovim can keep multiple independent sessions in one tab or across tabs. Each session owns its History, prompt, attachments, model state, and backend session (`pi --mode rpc` for the built-in Pi backend).
 
 Use normal buffer commands to switch sessions. Sessions start lazily by default: opening a workspace does not start `pi --mode rpc` until one of these chat/session commands runs.
 
@@ -51,7 +51,7 @@ require("agent-workbench").setup({
 
 ## Session history as a buffer
 
-Persisted sessions keep the History area on `Loading session…` while the backend performs RPC `switch_session` and returns its authoritative `get_messages` result. Agent Workbench rebuilds the real History buffer offscreen in bounded timer slices, returning control to Neovim between slices; partial messages never replace the loading view. Once replay finishes, the complete History buffer is restored, native folds are finalized once, and Markdown rendering runs separately so it cannot block transcript installation. Prompt submissions stay blocked, with draft text preserved, until the completed transcript is visible. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view.
+Persisted sessions keep the History area on `Loading session…` while the backend returns its authoritative normalized messages. Pi performs RPC `switch_session` followed by `get_messages`; a backend-owned history implementation uses its `list_history` / `load_history` contract instead. Agent Workbench rebuilds the real History buffer offscreen in bounded timer slices, returning control to Neovim between slices; partial messages never replace the loading view. Once replay finishes, the complete History buffer is restored, native folds are finalized once, and Markdown rendering runs separately so it cannot block transcript installation. Prompt submissions stay blocked, with draft text preserved, until the completed transcript is visible. Late reload or startup callbacks update only their owning session and cannot retake the active History/prompt view.
 
 The rendered agent transcript is a listed Neovim `nofile` buffer, not terminal output. Its stable virtual resource URI is tracked internally:
 
@@ -63,7 +63,7 @@ The URI starts as `agent://<project>/new-<id>/transcript` for a new session and 
 
 ## Storage and scoping
 
-Sessions are JSONL documents stored under:
+For the built-in Pi backend, sessions are JSONL documents stored under:
 
 ```text
 <agent_dir>/sessions/<encoded-cwd>/*.jsonl
@@ -75,7 +75,7 @@ where `<agent_dir>` is resolved in this order:
 2. `$PI_CODING_AGENT_DIR` environment variable
 3. `~/.pi/agent` (default)
 
-Crucially, sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when Agent Workbench is running from the same directory. This matches how you'd actually want it: you don't want to accidentally resume an unrelated project's conversation just because you opened a chat in a new tab.
+Crucially, Pi sessions are **scoped to the current working directory**. Sessions started in `~/Dev/project-a` are only visible to continue/resume when Agent Workbench is running from the same directory. External backends own their storage and filtering policy; their history entries must carry normalized user/assistant messages when loaded. Backend-owned resume reuses the active Workbench session, is refused while that session is busy or already switching, and blocks prompt submission until staged replay completes.
 
 ## Starting, continuing, resuming
 
@@ -84,8 +84,8 @@ There are three ways to open a chat — each honors the usual `layout=side|float
 | Command | Lua | What it does |
 | --- | --- | --- |
 | `:AgentWorkbench` | `pi.show()` / `pi.toggle()` | Open the chat. If current tab has no active session, starts one. |
-| `:AgentWorkbenchContinue` | `pi.continue_session()` | Load the most recent session not already live in another buffer. |
-| `:AgentWorkbenchResume` | `pi.resume_session()` | Pick any past session. Selecting a live session activates its existing buffer. |
+| `:AgentWorkbenchContinue` | `pi.continue_session()` | Load the most recent session from the active backend. Pi skips sessions already live in another buffer. |
+| `:AgentWorkbenchResume` | `pi.resume_session()` | Pick backend history. Pi activates an already-live buffer; backend-owned history reloads the active backend session. |
 
 And mid-session management:
 

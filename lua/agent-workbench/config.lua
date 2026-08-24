@@ -308,8 +308,10 @@
 ---@field map_event? fun(msg: table, ctx: agent_workbench.RpcAdapterContext): table? Map or drop inbound RPC events.
 
 ---@class agent_workbench.Options
+---@field backend string Registered backend name (default: "pi")
+---@field backend_options table Options passed unchanged to backend factory.
 ---@field cli agent_workbench.CliConfig
----@field auto_start_session boolean Create and show a Pi session for every tab-backed workspace on startup and tab entry (default: false)
+---@field auto_start_session boolean Create and show an agent session for every tab-backed workspace on startup and tab entry (default: false)
 ---@field rpc agent_workbench.RpcConfig
 ---@field agent_dir? string Override the π agent directory (default: $PI_CODING_AGENT_DIR or ~/.pi/agent)
 ---@field debug boolean Enable RPC debug logging to stdpath("log")/pi/<session>/rpc.log
@@ -353,6 +355,8 @@ math.randomseed(os.time())
 ---@type agent_workbench.Options
 local defaults = {
     auto_start_session = false,
+    backend = "pi",
+    backend_options = {},
     cli = {
         bin = "pi",
         args = {},
@@ -604,12 +608,17 @@ function M.setup(opts)
 
     -- Stash user verbs before deep-extend mangles the list.
     local user_verbs = opts and opts.verbs or nil
+    local backend_options = opts and opts.backend_options or nil
     if opts then
         opts = vim.deepcopy(opts)
         opts.verbs = nil
+        opts.backend_options = nil
     end
 
     M.options = vim.tbl_deep_extend("force", defaults, opts or {})
+    if backend_options then
+        M.options.backend_options = backend_options
+    end
 
     -- Resolve verbs: merge or replace based on use_defaults.
     if user_verbs then

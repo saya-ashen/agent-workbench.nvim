@@ -56,7 +56,8 @@ end
 ---@param session agent_workbench.Session
 ---@return agent_workbench.SessionsListStatus
 function M.status_of(session)
-    if not session.rpc:is_running() then
+    local process = session.backend or session.rpc
+    if not process or not process:is_running() then
         return "exited"
     end
     if session.chat:is_compacting() then
@@ -304,7 +305,8 @@ fetch_name = function(session)
     local entry = name_cache[session]
     local retryable = entry == nil
         or (type(entry) == "table" and not entry.name and not entry.first_message and not entry.pending)
-    if not retryable or not session.rpc:is_running() then
+    local raw_rpc = session.capabilities == nil or session.capabilities.raw_rpc
+    if not retryable or not raw_rpc or not session.rpc or not session.rpc:is_running() then
         return
     end
     if type(entry) ~= "table" then
@@ -446,7 +448,8 @@ function M._render()
         local name = resolve_name(session)
         -- A dead process will never answer the name fetch; stop showing the
         -- pending placeholder for it.
-        if name == nil and not session.rpc:is_running() then
+        local process = session.backend or session.rpc
+        if name == nil and (not process or not process:is_running()) then
             return "(unnamed)"
         end
         return name
@@ -716,7 +719,12 @@ local function rename_under_cursor()
         return
     end
     local Notify = require("agent-workbench.notify")
-    if not session.rpc:is_running() then
+    if (session.capabilities and not session.capabilities.raw_rpc) or not session.rpc then
+        Notify.warn("Backend does not support session names")
+        return
+    end
+    local process = session.backend or session.rpc
+    if not process:is_running() then
         Notify.warn("Cannot rename: the session process is not running")
         return
     end

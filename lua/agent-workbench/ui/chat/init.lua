@@ -1,7 +1,11 @@
 --- Chat UI orchestration — layout, window management, and wiring.
 
 ---@class agent_workbench.ChatAgent
----@field send fun(msg: agent_workbench.RpcCommand, callback?: fun(res: agent_workbench.RpcEvent)): boolean?
+---@field prompt? fun(text: string, opts?: { images?: agent_workbench.RpcImageContent[] }): boolean
+---@field steer? fun(text: string, opts?: { images?: agent_workbench.RpcImageContent[] }): boolean
+---@field follow_up? fun(text: string, opts?: { images?: agent_workbench.RpcImageContent[] }): boolean
+---@field capabilities? agent_workbench.BackendCapabilities
+---@field send? fun(msg: agent_workbench.RpcCommand, callback?: fun(res: agent_workbench.RpcEvent)): boolean? Temporary Pi-only path.
 
 ---@class agent_workbench.Chat
 ---@field _tab agent_workbench.TabId
@@ -66,6 +70,27 @@ local PromptHistory = require("agent-workbench.prompt_history")
 ---@field mode "steer"|"follow_up"
 ---@field images? table[]
 ---@field image_count? integer
+
+---@param agent agent_workbench.ChatAgent
+---@param command_type "prompt"|"steer"|"follow_up"
+---@param text string
+---@param images? agent_workbench.RpcImageContent[]
+---@return boolean
+local function send_agent_message(agent, command_type, text, images)
+    local method = agent[command_type]
+    if method then
+        return method(text, { images = images }) ~= false
+    end
+    if not agent.send then
+        return false
+    end
+    ---@type agent_workbench.RpcCommand
+    local command = { type = command_type, message = text }
+    if images and #images > 0 then
+        command.images = images
+    end
+    return agent.send(command) ~= false
+end
 
 ---@param tab agent_workbench.TabId
 ---@param mode agent_workbench.LayoutMode
@@ -1180,6 +1205,10 @@ function Chat:submit_follow_up()
     if self._prompt:is_request_mode() then
         return
     end
+    if self._agent.capabilities and not self._agent.capabilities.follow_up then
+        Notify.warn("Backend does not support queued follow-up")
+        return
+    end
     if self._compacting then
         self:_queue_compaction_message("follow_up")
         return
@@ -1358,12 +1387,7 @@ end
 ---@param command_type "prompt"|"steer"|"follow_up"
 ---@return boolean
 function Chat:_send_compaction_entry(entry, command_type)
-    ---@type agent_workbench.RpcCommand
-    local cmd = { type = command_type, message = entry.expanded }
-    if entry.images and #entry.images > 0 then
-        cmd.images = entry.images
-    end
-    return self._agent.send(cmd) ~= false
+    return send_agent_message(self._agent, command_type, entry.expanded, entry.images)
 end
 
 ---@param entry agent_workbench.PendingQueueEntry|agent_workbench.CompactionQueuedMessage
@@ -1556,6 +1580,10 @@ function Chat:_send_message(queue_type)
 
     -- Direct backend bash runs independently of agent streaming state.
     if prefixed:sub(1, 1) == "!" then
+        if self._agent.capabilities and not self._agent.capabilities.direct_bash then
+            Notify.warn("Backend does not support direct bash")
+            return
+        end
         local command = vim.trim(prefixed:sub(2))
         if command ~= "" then
             self:_send_bash(text, command)
@@ -1573,6 +1601,10 @@ function Chat:_send_message(queue_type)
     -- A bare "/tree" opens the session-tree navigator locally instead of
     -- being sent as a prompt (mirrors the TUI's built-in /tree command).
     if text == "/tree" then
+        if self._agent.capabilities and not self._agent.capabilities.tree then
+            Notify.warn("Backend does not support session tree")
+            return
+        end
         self._prompt:clear_text()
         require("agent-workbench.tree").open()
         return
@@ -1585,20 +1617,8 @@ function Chat:_send_message(queue_type)
     local attachments = self._attachments:count() > 0 and self._attachments:get() or nil
     local expanded = Mentions.expand(text)
 
-    ---@type agent_workbench.RpcCommand
-    local cmd
-    if queue_type == "steer" then
-        cmd = { type = "steer", message = expanded }
-    elseif queue_type == "follow_up" then
-        cmd = { type = "follow_up", message = expanded }
-    else
-        cmd = { type = "prompt", message = expanded }
-    end
-    if attachments and #attachments > 0 then
-        cmd.images = attachments
-    end
-
-    if self._agent.send(cmd) == false then
+    local command_type = queue_type or "prompt"
+    if not send_agent_message(self._agent, command_type, expanded, attachments) then
         return
     end
 
@@ -2289,11 +2309,19 @@ end
 ---@param path string
 ---@return boolean
 function Chat:attach_image(path)
+    if self._agent.capabilities and not self._agent.capabilities.attachments then
+        Notify.warn("Backend does not support attachments")
+        return false
+    end
     return self._attachments:add_file(path)
 end
 
 ---@return boolean
 function Chat:attach_from_clipboard()
+    if self._agent.capabilities and not self._agent.capabilities.attachments then
+        Notify.warn("Backend does not support attachments")
+        return false
+    end
     return self._attachments:add_from_clipboard()
 end
 

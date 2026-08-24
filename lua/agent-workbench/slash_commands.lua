@@ -302,7 +302,12 @@ function M.request_argument_completions(name, prefix, callback)
         return false
     end
     local session = require("agent-workbench.sessions.manager").get()
-    if not session or not session.rpc:is_running() then
+    local supported = session
+        and (
+            (name == "model" and (session.capabilities == nil or session.capabilities.models))
+            or (name == "thinking" and (session.capabilities == nil or session.capabilities.thinking))
+        )
+    if not session or not supported or not session.rpc or not session.rpc:is_running() then
         callback({})
         return true
     end
@@ -338,7 +343,13 @@ function M.execute(text)
         Pi.resume_session()
     elseif name == "model" then
         local session = require("agent-workbench.sessions.manager").get()
-        if args ~= "" and session and session.rpc:is_running() then
+        if
+            args ~= ""
+            and session
+            and (session.capabilities == nil or session.capabilities.models)
+            and session.rpc
+            and session.rpc:is_running()
+        then
             local Models = require("agent-workbench.models")
             Models.with_available(session, function(models)
                 for _, model in ipairs(models) do
@@ -357,7 +368,12 @@ function M.execute(text)
             Pi.select_thinking_level()
         else
             local session = require("agent-workbench.sessions.manager").get()
-            if session and session.rpc:is_running() then
+            if
+                session
+                and (session.capabilities == nil or session.capabilities.thinking)
+                and session.rpc
+                and session.rpc:is_running()
+            then
                 require("agent-workbench.thinking").set(session, args)
             else
                 Pi.select_thinking_level()

@@ -19,7 +19,9 @@
 ---@field id integer
 ---@field tab agent_workbench.TabId Current or most recent view tab.
 ---@field history_buf? integer
----@field rpc agent_workbench.Rpc
+---@field backend agent_workbench.BackendSession
+---@field capabilities agent_workbench.BackendCapabilities
+---@field rpc? agent_workbench.Rpc Temporary compatibility access for Pi-only features.
 ---@field chat agent_workbench.Chat
 ---@field attention agent_workbench.SessionAttention
 ---@field workspace_tab agent_workbench.TabId Workspace tab that created this session.
@@ -34,6 +36,7 @@
 ---@field _compaction_rebuilding? boolean True while compacted messages are being fetched/replayed.
 ---@field _compaction_event_queue? agent_workbench.RpcEvent[] Events received while compacted messages are being fetched/replayed.
 ---@field _switching_session? boolean True until persisted messages are installed after switch_session.
+---@field backend_history_item? agent_workbench.BackendHistoryItem Last backend-owned history item loaded into this session.
 
 ---@class agent_workbench.SessionCreateOpts
 ---@field layout? agent_workbench.LayoutMode
@@ -42,6 +45,7 @@
 local M = {}
 
 local Rpc = require("agent-workbench.rpc")
+local Backends = require("agent-workbench.backends")
 local Chat = require("agent-workbench.ui.chat")
 local Config = require("agent-workbench.config")
 local Startup = require("agent-workbench.startup")
@@ -211,6 +215,9 @@ end
 --- Fetch current state and update the status line.
 ---@param session agent_workbench.Session
 function M.refresh_state(session)
+    if not session.rpc then
+        return
+    end
     session.rpc:send({ type = "get_state" }, function(res)
         if res.success and res.data then
             vim.schedule(function()
@@ -265,6 +272,127 @@ local function refresh_state_and_pin(session)
             end)
         end
     end)
+end
+
+---@param session agent_workbench.Session
+---@param event agent_workbench.BackendEvent
+---@return boolean handled
+function M.handle_backend_event(session, event)
+    local chat = session.chat
+    local raw = event.raw or {}
+
+    if sessions_list_events[raw.type] then
+        require("agent-workbench.ui.sessions").request_refresh()
+        require("agent-workbench.ui.workspace_sidebar").request_refresh()
+        require("agent-workbench.ui.workspaces").refresh()
+    end
+
+    if event.type == "run_started" then
+        if not chat:is_streaming() then
+            chat:on_agent_start(event.timestamp)
+            require("agent-workbench.ui.sessions").on_agent_start(session)
+        end
+    elseif event.type == "run_turn_finished" then
+        chat:on_agent_end()
+        require("agent-workbench.ui.sessions").on_agent_end(session)
+        if session.rpc then
+            CommandsCache.refresh(session.rpc)
+            M.refresh_state(session)
+        end
+    elseif event.type == "run_settled" then
+        if chat:is_streaming() then
+            chat:on_agent_end()
+            require("agent-workbench.ui.sessions").on_agent_end(session)
+        end
+        chat:set_status(nil)
+    elseif event.type == "thinking_started" then
+        chat:on_thinking_start(event.replayed and { unmeasured = true } or nil)
+    elseif event.type == "thinking_delta" then
+        chat:on_thinking_delta(event.delta or "")
+    elseif event.type == "thinking_finished" then
+        chat:on_thinking_end()
+    elseif event.type == "text_delta" then
+        chat:on_thinking_end()
+        chat:on_text_delta(event.delta or "")
+    elseif event.type == "tool_call_finished" then
+        stash_file_tool_args(session, event.tool_name, event.tool_call_id, event.args)
+    elseif event.type == "tool_started" then
+        local args = normalize_tool_args(event.args) or event.args
+        chat:on_tool_start(event.tool_name or "tool", event.tool_call_id or "", args)
+        if session.capabilities.changed_files then
+            stash_file_tool_args(session, event.tool_name, event.tool_call_id, args)
+            require("agent-workbench.quickfix").on_tool_start(event.tool_name, event.tool_call_id, args)
+        end
+    elseif event.type == "tool_updated" then
+        chat:on_tool_update(event.tool_name or "tool", event.tool_call_id or "", raw)
+    elseif event.type == "tool_finished" then
+        chat:on_tool_end(event.tool_name or "tool", event.tool_call_id or "", event.result, event.is_error)
+        if session.capabilities.changed_files then
+            vim.schedule(function()
+                require("agent-workbench.quickfix").on_tool_end(
+                    event.tool_name,
+                    event.tool_call_id,
+                    event.result,
+                    event.is_error
+                )
+            end)
+            if session._pending_file_change_args and not event.is_error then
+                local args = session._pending_file_change_args[event.tool_call_id]
+                track_changed_file(session, args)
+                session._pending_file_change_args[event.tool_call_id] = nil
+                local changed_path = get_changed_file_path(args)
+                if changed_path then
+                    vim.schedule(function()
+                        require("agent-workbench.reload").on_file_changed(changed_path)
+                    end)
+                end
+            end
+        end
+    elseif event.type == "message_started" then
+        chat:on_message_start(raw)
+    elseif event.type == "message_finished" then
+        chat:on_message_end(raw)
+        require("agent-workbench.ui.sessions").on_message_end(session)
+        local message = event.message
+        if type(message) == "table" and message.stopReason == "error" then
+            require("agent-workbench.ui.sessions").mark_error(session)
+        end
+        if type(message) == "table" and message.role == "toolResult" and session._pending_file_change_args then
+            local tool_call_id = message.toolCallId or message.toolUseId
+            if type(tool_call_id) == "string" and tool_call_id ~= "" then
+                if message.isError ~= true then
+                    track_changed_file(session, session._pending_file_change_args[tool_call_id])
+                end
+                session._pending_file_change_args[tool_call_id] = nil
+            end
+        end
+    elseif event.type == "usage_changed" then
+        if type(event.usage) == "table" and type(event.usage.input) == "number" then
+            chat:add_usage(event.usage)
+        end
+    elseif event.type == "error" then
+        require("agent-workbench.ui.sessions").mark_error(session)
+        chat:on_error(event.message or "Backend error", { pad_top = true, pad_bottom = true })
+    elseif event.type == "state_changed" then
+        require("agent-workbench.ui.sessions").request_refresh()
+        require("agent-workbench.ui.workspace_sidebar").request_refresh()
+        require("agent-workbench.ui.workspaces").refresh()
+        if event.connection == "disconnected" then
+            chat:set_status({ type = "agent", text = "Disconnected (state stale)" })
+        end
+    elseif event.type == "semantic_result" then
+        if type(event.text) == "string" and event.text ~= "" and not chat:is_streaming() then
+            chat:on_text_delta(event.text)
+        end
+    elseif event.type == "execution_finished" then
+        if event.reason == "error" then
+            require("agent-workbench.ui.sessions").mark_error(session)
+            chat:on_error(event.message or "Sorcar task failed", { pad_top = true, pad_bottom = true })
+        end
+    else
+        return false
+    end
+    return true
 end
 
 --- Central event handler for a session.
@@ -686,7 +814,7 @@ local function destroy_session(session)
     Attention.clear_session(session)
     session.chat:clear_prompt_request()
     session.chat:destroy()
-    session.rpc:stop()
+    session.backend:close()
     if session.chat:is_visible() then
         session.chat:hide()
     end
@@ -720,24 +848,47 @@ function M.get_or_create(opts)
     next_session_id = next_session_id + 1
     local id = next_session_id
     local cwd = workspace_cwd
-    local rpc = Rpc.new(id, cwd)
-
-    if not rpc:start() then
-        Notify.error("Failed to start process")
+    local backend_options = vim.tbl_extend("force", {}, Config.options.backend_options or {}, { id = id, cwd = cwd })
+    local backend, backend_err = Backends.create(Config.options.backend or Backends.default(), backend_options)
+    if not backend then
+        Notify.error(backend_err or "Failed to create backend")
         return nil
+    end
+    local capabilities = backend:capabilities()
+
+    local function send_message(command_type, text, message_opts)
+        if session and session._switching_session then
+            Notify.warn("Session is still loading; wait before sending")
+            return false
+        end
+        local method = backend[command_type]
+        if not method then
+            Notify.warn("Backend does not support " .. command_type)
+            return false
+        end
+        return method(backend, text, message_opts)
     end
 
     local layout = opts.layout or Config.resolve_default_layout_mode()
-
     ---@type agent_workbench.ChatAgent
     local agent = {
-        send = function(msg, callback)
+        capabilities = capabilities,
+        prompt = function(text, message_opts)
+            return send_message("prompt", text, message_opts)
+        end,
+        steer = function(text, message_opts)
+            return send_message("steer", text, message_opts)
+        end,
+        follow_up = capabilities.follow_up and function(text, message_opts)
+            return send_message("follow_up", text, message_opts)
+        end or nil,
+        send = capabilities.raw_rpc and function(msg, callback)
             if session and session._switching_session then
                 Notify.warn("Session is still loading; wait before sending")
                 return false
             end
-            return rpc:send(msg, callback)
-        end,
+            return backend.rpc:send(msg, callback)
+        end or nil,
     }
 
     local uri = Workspace.uri(cwd, nil, id)
@@ -751,7 +902,9 @@ function M.get_or_create(opts)
         workspace_tab = tab,
         cwd = cwd,
         uri = uri,
-        rpc = rpc,
+        backend = backend,
+        capabilities = capabilities,
+        rpc = backend.rpc,
         chat = chat,
         attention = { pending = {} },
         startup_announcements = {},
@@ -759,9 +912,21 @@ function M.get_or_create(opts)
         changed_files = {},
     }
 
-    rpc:set_handler(function(msg)
-        M.handle_event(session, msg)
-    end)
+    if
+        not backend:start(function(event)
+            local raw = event.raw or {}
+            if session._compaction_rebuilding and raw.type ~= "response" then
+                M.handle_event(session, raw)
+            elseif not M.handle_backend_event(session, event) and event.type == "backend_event" then
+                M.handle_event(session, raw)
+            end
+        end)
+    then
+        backend:close()
+        chat:destroy()
+        Notify.error("Failed to start backend")
+        return nil
+    end
 
     sessions[id] = session
     register_components(session)
@@ -770,12 +935,15 @@ function M.get_or_create(opts)
     require("agent-workbench.ui.workspace_sidebar").request_refresh()
     require("agent-workbench.ui.workspaces").refresh()
 
-    -- Fetch available /commands for completion, highlighting, and system info
-    fetch_commands_and_show_startup_block(session)
+    if capabilities.commands and session.rpc then
+        fetch_commands_and_show_startup_block(session)
+    else
+        show_startup_block(session, {})
+    end
 
-    -- Fetch initial state for status line (model, thinking level) and
-    -- capture the initial model pin.
-    refresh_state_and_pin(session)
+    if capabilities.models and session.rpc then
+        refresh_state_and_pin(session)
+    end
 
     return session
 end
@@ -1008,6 +1176,161 @@ local function replay_messages(session, messages, opts)
         error(err)
     end
     run_slice()
+end
+
+---@param session agent_workbench.Session
+---@return boolean
+local function supports_backend_history(session)
+    return session.capabilities.history == true
+        and type(session.backend.list_history) == "function"
+        and type(session.backend.load_history) == "function"
+end
+
+---@param session agent_workbench.Session
+---@param item agent_workbench.BackendHistoryItem
+local function load_backend_history(session, item)
+    session._switching_session = true
+    Attention.begin_session_transition(session)
+    session.changed_files = {}
+    session._pending_file_change_args = nil
+    session.chat:clear()
+    session.chat:show_loading()
+    session.chat:focus_for_session_entry()
+
+    local function fail(message)
+        vim.schedule(function()
+            if sessions[session.id] ~= session then
+                return
+            end
+            session._switching_session = false
+            Attention.end_session_transition(session, false)
+            session.chat:clear_placeholder()
+            Notify.error(message)
+            session.chat:on_error(message, { pad_top = true, pad_bottom = true })
+        end)
+    end
+
+    local accepted, err = session.backend:load_history(item, function(result, load_err)
+        vim.schedule(function()
+            if sessions[session.id] ~= session then
+                return
+            end
+            if load_err or type(result) ~= "table" or type(result.messages) ~= "table" then
+                fail(load_err or "Backend returned invalid session history")
+                return
+            end
+
+            Attention.end_session_transition(session, true)
+            require("agent-workbench.ui.sessions").invalidate(session)
+            require("agent-workbench.ui.sessions").clear_flags(session)
+            require("agent-workbench.ui.sessions").request_refresh()
+            session.chat:begin_staged_replay()
+            session.chat:clear()
+            replay_messages(session, result.messages, {
+                asynchronous = true,
+                before_finish = function()
+                    session.chat:end_staged_replay()
+                end,
+                on_complete = function()
+                    session._switching_session = false
+                    session.backend_history_item = item
+                    show_startup_block(session, {})
+                end,
+                on_error = function(replay_err)
+                    session.chat:end_staged_replay()
+                    session.chat:clear()
+                    fail("Failed to render backend history: " .. tostring(replay_err))
+                end,
+            })
+        end)
+    end)
+    if not accepted then
+        fail(err or "Backend rejected session history load")
+    end
+end
+
+---@param value string|number|nil
+---@return string
+local function backend_history_date(value)
+    if type(value) == "number" then
+        local seconds = value > 1000000000000 and value / 1000 or value
+        return tostring(os.date("%Y-%m-%d %H:%M", math.floor(seconds)))
+    elseif type(value) == "string" and value ~= "" then
+        return value:match("^(%d%d%d%d%-%d%d%-%d%d[^Z]*)") or value
+    end
+    return "unknown date"
+end
+
+---@param item agent_workbench.BackendHistoryItem
+---@return string
+local function backend_history_label(item)
+    local label = item.title or item.preview or "(empty)"
+    label = tostring(label):gsub("[\r\n]+", " "):match("^%s*(.-)%s*$")
+    if #label > 100 then
+        label = label:sub(1, 97) .. "..."
+    end
+    local failed = item.failed == true and "  [failed]" or ""
+    return backend_history_date(item.timestamp) .. "  " .. label .. failed
+end
+
+---@param session agent_workbench.Session
+---@param callback fun(items:agent_workbench.BackendHistoryItem[])
+local function list_backend_history(session, callback)
+    local accepted, err = session.backend:list_history(function(items, list_err)
+        vim.schedule(function()
+            if sessions[session.id] ~= session then
+                return
+            end
+            if list_err or type(items) ~= "table" then
+                Notify.error(list_err or "Backend returned invalid history list")
+                return
+            end
+            callback(items)
+        end)
+    end)
+    if not accepted then
+        Notify.error(err or "Backend rejected session history request")
+    end
+end
+
+---@param session agent_workbench.Session
+local function continue_backend_history(session)
+    if session._switching_session or session.chat:is_busy() then
+        Notify.warn("Cannot continue session history while the current backend is busy")
+        return
+    end
+    list_backend_history(session, function(items)
+        if #items == 0 then
+            Notify.info("No previous sessions found")
+            session.chat:ensure_shown_and_focus_prompt()
+            return
+        end
+        load_backend_history(session, items[1])
+    end)
+end
+
+---@param session agent_workbench.Session
+local function resume_backend_history(session)
+    if session._switching_session or session.chat:is_busy() then
+        Notify.warn("Cannot resume session history while the current backend is busy")
+        return
+    end
+    list_backend_history(session, function(items)
+        if #items == 0 then
+            Notify.info("No sessions found")
+            session.chat:ensure_shown_and_focus_prompt()
+            return
+        end
+        vim.ui.select(items, {
+            prompt = "Resume session",
+            kind = "agent-workbench-backend-history",
+            format_item = backend_history_label,
+        }, function(item)
+            if item then
+                load_backend_history(session, item)
+            end
+        end)
+    end)
 end
 
 ---@param session agent_workbench.Session
@@ -1278,6 +1601,25 @@ end
 ---@param opts? agent_workbench.SessionCreateOpts
 function M.continue_session(opts)
     local session = M.get()
+    if not session and Config.options.backend ~= "pi" then
+        opts = vim.tbl_extend("force", opts or {}, { new = true })
+        session = M.get_or_create(opts)
+        if not session then
+            return
+        end
+    end
+    if session and supports_backend_history(session) then
+        continue_backend_history(session)
+        return
+    end
+    if session and not session.capabilities.history then
+        Notify.warn("Backend does not support session history")
+        return
+    end
+    if session and not session.rpc then
+        Notify.warn("Backend does not implement the session history contract")
+        return
+    end
     if not session then
         local session_path = find_continue_session_path(nil)
         opts = vim.tbl_extend("force", opts or {}, { new = true })
@@ -1327,6 +1669,26 @@ end
 --- Show a picker to resume a past session.
 ---@param opts? agent_workbench.SessionCreateOpts
 function M.resume_session(opts)
+    local active = M.get()
+    if not active and Config.options.backend ~= "pi" then
+        opts = vim.tbl_extend("force", opts or {}, { new = true })
+        active = M.get_or_create(opts)
+        if not active then
+            return
+        end
+    end
+    if active and supports_backend_history(active) then
+        resume_backend_history(active)
+        return
+    end
+    if active and not active.capabilities.history then
+        Notify.warn("Backend does not support session history")
+        return
+    end
+    if active and not active.rpc then
+        Notify.warn("Backend does not implement the session history contract")
+        return
+    end
     local History = require("agent-workbench.sessions.history")
     local sessions_list = History.list()
     if #sessions_list == 0 then
@@ -1606,7 +1968,7 @@ function M.setup_autocmds()
                 Attention.clear_session(session)
                 session.chat:clear_prompt_request()
                 session.chat:destroy()
-                session.rpc:stop()
+                session.backend:close()
             end
         end,
     })
