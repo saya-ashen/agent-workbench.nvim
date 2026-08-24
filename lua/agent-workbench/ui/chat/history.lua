@@ -169,7 +169,6 @@ local ns = vim.api.nvim_create_namespace("pi-chat")
 ---@type table<integer, agent_workbench.ChatHistory>
 local histories = {}
 
-local SCROLL_THRESHOLD = 10
 local LONG_TOOL_OUTPUT_LINES = 30
 local LONG_TOOL_PREVIEW_LINES = 4
 local STARTUP_HL_PRIORITY = 200
@@ -512,23 +511,37 @@ function History:_schedule(fn)
     vim.schedule(fn)
 end
 
+---@class agent_workbench.AutoScrollAnchor
+---@field win integer
+---@field cursor integer[]
+
 ---@return boolean
 function History:_should_auto_scroll()
     if self._replaying or not window_in_current_tab(self._win, self._buf) then
         return false
     end
-    local visible_bottom = vim.api.nvim_win_call(self._win, function()
-        return vim.fn.line("w$")
-    end)
-    local total = vim.api.nvim_buf_line_count(self._buf)
-    return (total - visible_bottom) <= SCROLL_THRESHOLD
+    local cursor = vim.api.nvim_win_get_cursor(self._win)
+    return cursor[1] == vim.api.nvim_buf_line_count(self._buf)
 end
 
-function History:_maybe_scroll()
+---@return agent_workbench.AutoScrollAnchor?
+function History:_capture_auto_scroll()
     if not self:_should_auto_scroll() then
+        return nil
+    end
+    return {
+        win = self._win,
+        cursor = vim.api.nvim_win_get_cursor(self._win),
+    }
+end
+
+---@param anchor? agent_workbench.AutoScrollAnchor|false position that must remain unchanged before the scroll runs
+function History:_maybe_scroll(anchor)
+    if anchor == false then
         return
     end
-    if self._scroll_scheduled then
+    anchor = anchor or self:_capture_auto_scroll()
+    if not anchor or self._scroll_scheduled then
         return
     end
     self._scroll_scheduled = true
@@ -537,6 +550,13 @@ function History:_maybe_scroll()
             return
         end
         self._scroll_scheduled = false
+        if self._win ~= anchor.win or not window_in_current_tab(anchor.win, self._buf) then
+            return
+        end
+        local cursor = vim.api.nvim_win_get_cursor(anchor.win)
+        if cursor[1] ~= anchor.cursor[1] or cursor[2] ~= anchor.cursor[2] then
+            return
+        end
         self:_scroll_to_bottom()
     end)
 end
@@ -1176,6 +1196,7 @@ end
 ---@param lines_list string[]
 ---@return integer start_row 0-indexed row where the first line was placed
 function History:_append_lines(lines_list)
+    local scroll_anchor = self:_capture_auto_scroll() or false
     local start_row = 0
     self:_with_modifiable(function()
         local line_count = vim.api.nvim_buf_line_count(self._buf)
@@ -1184,7 +1205,6 @@ function History:_append_lines(lines_list)
             if first == "" then
                 vim.api.nvim_buf_set_lines(self._buf, 0, 1, false, lines_list)
                 start_row = 0
-                self:_maybe_scroll()
                 return
             end
         end
@@ -1192,7 +1212,7 @@ function History:_append_lines(lines_list)
         vim.api.nvim_buf_set_lines(self._buf, line_count, line_count, false, lines_list)
     end)
     self:_update_status_extmark()
-    self:_maybe_scroll()
+    self:_maybe_scroll(scroll_anchor)
     return start_row
 end
 
@@ -1204,11 +1224,12 @@ end
 ---@return integer start_row 0-indexed row where the first line was placed
 ---@return integer next_row row after the last inserted line (for chaining)
 function History:_insert_lines(row, lines_list)
+    local scroll_anchor = self:_capture_auto_scroll() or false
     self:_with_modifiable(function()
         vim.api.nvim_buf_set_lines(self._buf, row, row, false, lines_list)
     end)
     self:_update_status_extmark()
-    self:_maybe_scroll()
+    self:_maybe_scroll(scroll_anchor)
     return row, row + #lines_list
 end
 
@@ -2280,7 +2301,6 @@ function History:_append_compaction_summary(summary, tokens_before)
     block.line_count = #lines
     self._compaction_blocks[#self._compaction_blocks + 1] = block
     self:_apply_compaction_marks(start, marks)
-    self:_scroll_to_bottom()
 end
 
 ---@param summary string
