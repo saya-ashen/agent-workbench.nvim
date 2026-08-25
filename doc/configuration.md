@@ -12,6 +12,13 @@ require("agent-workbench").setup({
     backend = "pi",
     -- Opaque options passed to the selected backend factory.
     backend_options = {},
+    -- Global mappings stay disabled unless the recommended preset is selected.
+    -- The prefix produces <Leader>aa, <Leader>aw, and the other mappings
+    -- documented in doc/keymaps.md.
+    keymaps = {
+        preset = false, -- false or "recommended"
+        prefix = "<Leader>a",
+    },
     -- pi CLI invocation. Used only by the built-in Pi backend.
     -- Extra args are inserted before `--mode rpc`.
     -- Args that conflict with RPC mode (`--mode`, `--print`, `--help`, etc.)
@@ -390,6 +397,7 @@ require("agent-workbench").setup({
 
 Notes on a few fields:
 
+- `keymaps.preset = "recommended"` installs opt-in global mappings: the `<Leader>` group uses `keymaps.prefix`, while fixed Normal-mode `<M-h/l>` and `<M-j/k>` mappings cycle listed buffers and workspaces. `<Leader>aw` opens the workspace picker, `<Leader>aW` creates a workspace, and `<Leader>ae` toggles the workspace explorer. Exact global collisions are skipped and reported rather than overwritten. See [Keymaps](keymaps.md#recommended-global-preset) for the complete set and lazy-loading guidance.
 - `render.assistant_blocks` draws a low-contrast left rail beside every buffer line in an assistant text segment, including blank lines, while leaving user, tool, thinking, status, and error blocks unchanged. Set `enabled = false` to remove it or change `border` to another glyph. Rails remain available when Markdown rendering falls back to raw text.
 - `render.markdown.enabled = false` keeps raw Markdown text and disables decorations; there is no second renderer. `markview.nvim` and the `markdown` Tree-sitter parser are required when enabled.
 - `render.markdown.cursor_reveal = "element"` provides Obsidian-style Live Preview: entering a heading, emphasis span, link, list item, checkbox, quote, code block, table row, or rule temporarily reveals only that element's source syntax. `"line"` reveals the complete cursor line through Neovim's `concealcursor`; `false` keeps the current element fully rendered. Element transitions reuse the compiled decoration plan and never reparse History.

@@ -8,6 +8,7 @@
 ---@field _return_win integer?
 ---@field _return_buf integer?
 ---@field _return_opts table<string, any>?
+---@field _buffer_history_win_owned boolean
 ---@field _history agent_workbench.ChatHistory
 ---@field _prompt agent_workbench.ChatPrompt
 ---@field _attachments agent_workbench.ChatAttachments
@@ -296,6 +297,7 @@ function Layout.new(mode, history, prompt, attachments)
     self._return_win = nil
     self._return_buf = nil
     self._return_opts = nil
+    self._buffer_history_win_owned = false
     self._history = history
     self._prompt = prompt
     self._attachments = attachments
@@ -712,9 +714,18 @@ function Layout:_open_in_buffer_layout()
     self._return_opts = capture_win_opts(self._return_win)
     local global_number = vim.go.number
     local global_relativenumber = vim.go.relativenumber
-    self._history_win = self._return_win
+    self._buffer_history_win_owned = vim.wo[self._return_win].winfixbuf
+    if self._buffer_history_win_owned then
+        -- Respect pinned dashboards, explorers, terminals, and other special
+        -- windows. Open a normal full-width split instead of replacing them.
+        vim.cmd("botright split")
+        self._history_win = vim.api.nvim_get_current_win()
+        set_win_option(self._history_win, "winfixbuf", false)
+    else
+        self._history_win = self._return_win
+    end
     set_win_buf(self._history_win, self:content_buf())
-    if self._return_buf and vim.api.nvim_buf_is_valid(self._return_buf) then
+    if not self._buffer_history_win_owned and self._return_buf and vim.api.nvim_buf_is_valid(self._return_buf) then
         local old_buf = self._return_buf
         if vim.api.nvim_buf_get_name(old_buf) == "" and not vim.bo[old_buf].modified then
             local lines = vim.api.nvim_buf_get_lines(old_buf, 0, -1, false)
@@ -860,6 +871,7 @@ function Layout:detach_for_buffer(entered_win, entered_buf)
         self._return_win = nil
         self._return_buf = nil
         self._return_opts = nil
+        self._buffer_history_win_owned = false
         vim.api.nvim_win_set_buf(entered_win, entered_buf)
         return
     end
@@ -887,6 +899,7 @@ function Layout:takeover(other)
     self._return_win = other._return_win
     self._return_buf = other._return_buf
     self._return_opts = other._return_opts
+    self._buffer_history_win_owned = other._buffer_history_win_owned
 
     other._history:set_win(nil)
     other._prompt:set_win(nil)
@@ -896,6 +909,7 @@ function Layout:takeover(other)
     other._return_win = nil
     other._return_buf = nil
     other._return_opts = nil
+    other._buffer_history_win_owned = false
 
     local hwin = self:history_win()
     if hwin then
@@ -970,18 +984,27 @@ function Layout:hide()
         local buffer_win = self:history_win()
         self._history:set_win(nil)
         if buffer_win then
-            local target = self._return_buf
-            if not target or not vim.api.nvim_buf_is_valid(target) then
-                target = vim.api.nvim_create_buf(true, false)
+            local can_close_owned = self._buffer_history_win_owned and #vim.api.nvim_tabpage_list_wins(0) > 1
+            if can_close_owned then
+                vim.api.nvim_win_close(buffer_win, false)
+                if self._return_win and vim.api.nvim_win_is_valid(self._return_win) then
+                    vim.api.nvim_set_current_win(self._return_win)
+                end
+            else
+                local target = self._return_buf
+                if not target or not vim.api.nvim_buf_is_valid(target) then
+                    target = vim.api.nvim_create_buf(true, false)
+                end
+                vim.api.nvim_win_set_buf(buffer_win, target)
+                restore_win_opts(buffer_win, self._return_opts or {})
             end
-            vim.api.nvim_win_set_buf(buffer_win, target)
-            restore_win_opts(buffer_win, self._return_opts or {})
         end
         self._history_win = nil
         self._history:set_win(nil)
         self._return_win = nil
         self._return_buf = nil
         self._return_opts = nil
+        self._buffer_history_win_owned = false
     else
         self:_close_history_win()
     end

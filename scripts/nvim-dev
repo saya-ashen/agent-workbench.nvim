@@ -7,4 +7,5 @@ exec "$nvim_bin" \
     --cmd "set runtimepath^=${repo}" \
     --cmd "set packpath^=${repo}" \
     --cmd "lua require('agent-workbench').setup()" \
+    -c "lua require('agent-workbench.config').options.keymaps.preset = 'recommended'; require('agent-workbench.recommended_keymaps').setup()" \
     "$@"

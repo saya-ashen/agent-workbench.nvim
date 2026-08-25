@@ -198,7 +198,7 @@ vim.pack.add({
 require("agent-workbench").setup()
 ```
 
-Defaults are usable without a custom configuration. Full options live in [doc/configuration.md](doc/configuration.md).
+Defaults are usable without a custom configuration. Global keymaps remain disabled unless you enable the [recommended preset](doc/keymaps.md#recommended-global-preset). Full options live in [doc/configuration.md](doc/configuration.md).
 
 ## Commands
 
@@ -244,6 +244,10 @@ Legacy `:Pi*` aliases remain available during the migration period. Agent Workbe
 ```lua
 require("agent-workbench").setup({
     auto_start_session = false,
+    keymaps = {
+        preset = "recommended", -- opt-in: <Leader>a…, <M-h/l> buffers, <M-j/k> workspaces
+        prefix = "<Leader>a",
+    },
     layout = {
         default = "buffer",
         side = { position = "right", width = 80 },
@@ -292,6 +296,8 @@ Run Neovim from this checkout:
 ```sh
 ./scripts/nvim-dev
 ```
+
+The development launcher enables the recommended global keymap preset after user configuration loads, so it respects the active `<Leader>` and any custom `keymaps.prefix`. Regular plugin setup still leaves the preset disabled by default.
 
 Record deterministic README demos with VHS:
 

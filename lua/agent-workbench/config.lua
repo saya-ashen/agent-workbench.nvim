@@ -307,11 +307,16 @@
 ---@field map_command? fun(cmd: table, ctx: agent_workbench.RpcAdapterContext): table? Map or drop outbound RPC commands.
 ---@field map_event? fun(msg: table, ctx: agent_workbench.RpcAdapterContext): table? Map or drop inbound RPC events.
 
+---@class agent_workbench.GlobalKeymapsConfig
+---@field preset false|"recommended" Opt-in global keymap preset (default: false)
+---@field prefix string Prefix for the recommended Leader mappings (default: "<Leader>a")
+
 ---@class agent_workbench.Options
 ---@field backend string Registered backend name (default: "pi")
 ---@field backend_options table Options passed unchanged to backend factory.
 ---@field cli agent_workbench.CliConfig
 ---@field auto_start_session boolean Create and show an agent session for every tab-backed workspace on startup and tab entry (default: false)
+---@field keymaps agent_workbench.GlobalKeymapsConfig
 ---@field rpc agent_workbench.RpcConfig
 ---@field agent_dir? string Override the π agent directory (default: $PI_CODING_AGENT_DIR or ~/.pi/agent)
 ---@field debug boolean Enable RPC debug logging to stdpath("log")/pi/<session>/rpc.log
@@ -357,6 +362,10 @@ local defaults = {
     auto_start_session = false,
     backend = "pi",
     backend_options = {},
+    keymaps = {
+        preset = false,
+        prefix = "<Leader>a",
+    },
     cli = {
         bin = "pi",
         args = {},

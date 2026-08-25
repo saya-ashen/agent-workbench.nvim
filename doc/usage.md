@@ -28,9 +28,9 @@ Related pages: [Sessions](sessions.md) · [Diff review](diff-review.md) · [Atte
 
 ## Chat & layouts
 
-The chat opens in a full-width `buffer` layout by default: history fills current editor window and prompt uses a small bottom split. `side` and `float` remain available through `layout.default` or `:AgentWorkbench layout=side|float`.
+The chat opens in a full-width `buffer` layout by default: history fills the current ordinary editor window and prompt uses a small bottom split. If the current window has `winfixbuf` enabled, Agent Workbench preserves that window and its buffer, then opens History in a new full-width bottom split instead. `side` and `float` remain available through `layout.default` or `:AgentWorkbench layout=side|float`.
 
-**Full buffer** keeps agent history in current editor window, with prompt in bottom split. This makes transcript navigation and block folding behave like normal Neovim buffer work.
+**Full buffer** keeps agent history in a normal listed buffer, with prompt in a bottom split. Closing a fallback view created beside a `winfixbuf` window closes only the Agent Workbench windows and returns focus to the pinned window. Transcript navigation and block folding otherwise behave like normal Neovim buffer work.
 
 **Floating window** opens π as a centered floating window over the editor. Good for the parts of the workflow where the conversation _is_ the work — planning, brainstorming, debugging out loud, writing specs — and you don't need the code visible at the same time. Having the chat comfortably wide and centered is much easier on your neck than spending forty minutes craned toward a side panel on the right.
 

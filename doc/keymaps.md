@@ -1,8 +1,41 @@
 # Keymaps
 
-`Agent Workbench` intentionally ships with a very small default keymap set. Keymaps tend to be highly personal, and many users already have their own conventions, leader-based layouts, or other mapping systems. Pi tries to provide the API and a few sensible defaults, while leaving the final keymap design to you.
+`Agent Workbench` leaves global keymaps unbound by default. Keymaps tend to be highly personal, and many users already have their own leader-based layouts or other mapping systems. Workflow-local mappings inside Agent Workbench buffers remain available without configuration.
 
-What the plugin does bind on its own:
+## Recommended global preset
+
+Enable the opt-in preset to add a small set of global entry points under `<Leader>a`:
+
+```lua
+require("agent-workbench").setup({
+    keymaps = {
+        preset = "recommended",
+        prefix = "<Leader>a", -- optional; this is the default prefix
+    },
+})
+```
+
+| Key | Modes | Action |
+| --- | --- | --- |
+| `<Leader>aa` | Normal | Create and activate a new independent session buffer |
+| `<Leader>ac` | Normal | Continue the latest session |
+| `<Leader>ar` | Normal | Resume a past session |
+| `<Leader>am` | Normal, Visual | Mention the current file or visual selection |
+| `<Leader>ad` | Normal | Review the current session diff |
+| `<Leader>at` | Normal | Open the next attention request |
+| `<Leader>aw` | Normal | Pick and switch workspace |
+| `<Leader>aW` | Normal | Create a workspace after choosing its directory |
+| `<Leader>ae` | Normal | Toggle the workspace explorer sidebar |
+| `<M-h>` | Normal | Switch to the previous listed buffer in the workspace |
+| `<M-l>` | Normal | Switch to the next listed buffer in the workspace |
+| `<M-j>` | Normal | Switch to the next workspace |
+| `<M-k>` | Normal | Switch to the previous workspace |
+
+Set `prefix` to another non-empty key sequence to move the `<Leader>` mappings; the four fixed Alt navigation mappings do not use the prefix. Existing global mappings are never overwritten: Agent Workbench skips each colliding mode/key pair and emits one warning listing the skipped mappings. Set `preset = false` (the default) to remove mappings previously installed by the preset without deleting user replacements.
+
+The preset is installed by `setup()`, so it does not itself act as a lazy.nvim key-trigger. Users who want key-triggered lazy loading should declare equivalent mappings in lazy.nvim's `keys` field instead.
+
+What the plugin binds inside its own buffers:
 
 - Submission keys in the prompt buffer (`<CR>`, `<A-CR>`, `<S-CR>` — see [Usage → Prompt](usage.md#prompt)).
 - `<Esc>` / double-`<Esc>` abort gestures (see [Usage → Aborting](usage.md#aborting-with-double-esc)).
@@ -51,26 +84,13 @@ Every π buffer gets a stable filetype, so you can target them from your own `Fi
 | `pi-workspaces` | The collapsible workspace explorer sidebar |
 | `pi-diff-review` | The `:AgentWorkbenchDiff` session diff review file list (left area of the panel) |
 
-## Example setup
+## Custom buffer-local setup
 
-A reasonable starting point looks like this:
+The preset only adds global entry points. Use the stable filetypes and public Lua interface for additional buffer-local mappings. The `<S-Up>` / `<S-Down>` mappings below are placeholders — replace them with whatever keys you already use to move between windows in the rest of Neovim. Focus navigation inside Agent Workbench should match your normal window navigation rather than introduce another convention.
 
 ```lua
 local pi = require("agent-workbench")
 
--- Global mappings — open / toggle / resume from anywhere.
-vim.keymap.set({ "n", "v" }, "<Leader>pp", function() vim.cmd("AgentWorkbench layout=side")  end, { desc = "Pi side"  })
-vim.keymap.set({ "n", "v" }, "<Leader>pf", function() vim.cmd("AgentWorkbench layout=float") end, { desc = "Pi float" })
-vim.keymap.set({ "n", "v" }, "<Leader>pl", "<Cmd>AgentWorkbenchToggleLayout<CR>",                 { desc = "Pi toggle layout" })
-vim.keymap.set({ "n", "v" }, "<Leader>pc", "<Cmd>AgentWorkbenchContinue<CR>",                     { desc = "Pi continue last session" })
-vim.keymap.set({ "n", "v" }, "<Leader>pr", "<Cmd>AgentWorkbenchResume<CR>",                       { desc = "Pi resume past session" })
-vim.keymap.set({ "n", "v" }, "<Leader>pm", "<Cmd>AgentWorkbenchSendMention<CR>",                  { desc = "Pi mention file/selection" })
-vim.keymap.set({ "n", "v" }, "<Leader>pa", "<Cmd>AgentWorkbenchAttention<CR>",                    { desc = "Pi open next attention request" })
-```
-
-The `<S-Up>` / `<S-Down>` mappings below are sort of placeholders — replace them with whatever keys you already use to move between windows in the rest of Neovim. The idea is that focus navigation inside π windows should match your normal buffer/window navigation, not introduce new conventions.
-
-```lua
 -- Buffer-local mappings inside π windows.
 -- Filetypes: "pi-chat-history", "pi-chat-prompt", "pi-chat-attachments".
 local group = vim.api.nvim_create_augroup("pi-keymaps", { clear = true })

@@ -44,6 +44,7 @@ end
 ---@param opts? agent_workbench.Options
 function M.setup(opts)
     Config.setup(opts)
+    require("agent-workbench.recommended_keymaps").setup()
 
     if is_initialized then
         return

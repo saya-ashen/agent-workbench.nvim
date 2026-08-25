@@ -98,6 +98,35 @@ describe("buffer-owned sessions", function()
         assert.are.equal(0, count)
     end)
 
+    it("creates a session buffer without replacing a winfixbuf-pinned window", function()
+        local original_win = vim.api.nvim_get_current_win()
+        local original_buf = vim.api.nvim_get_current_buf()
+        vim.wo[original_win].winfixbuf = true
+
+        local ok, err = pcall(Sessions.new_session)
+        local session = Sessions.get()
+        local history_win = session and session.chat._layout:history_win() or nil
+        local original_unchanged = vim.api.nvim_win_get_buf(original_win) == original_buf
+        local pin_preserved = vim.wo[original_win].winfixbuf
+        local hide_ok, hide_err = true, nil
+        if session and session.chat:is_visible() then
+            hide_ok, hide_err = pcall(session.chat.hide, session.chat)
+        end
+        local history_closed = history_win ~= nil and not vim.api.nvim_win_is_valid(history_win)
+        local returned_to_original = vim.api.nvim_get_current_win() == original_win
+        vim.wo[original_win].winfixbuf = false
+
+        assert.is_true(ok, err)
+        assert.is_true(hide_ok, hide_err)
+        assert.is_not_nil(session)
+        assert.is_not_nil(history_win)
+        assert.are_not.equal(original_win, history_win)
+        assert.is_true(original_unchanged)
+        assert.is_true(pin_preserved)
+        assert.is_true(history_closed)
+        assert.is_true(returned_to_original)
+    end)
+
     it("switches full chat view when a listed History buffer is entered", function()
         local first = assert(Sessions.get_or_create({ layout = "buffer" }))
         local second = assert(Sessions.get_or_create({ new = true, layout = "buffer" }))
