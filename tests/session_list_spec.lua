@@ -30,6 +30,7 @@ end
 describe("session listing parser", function()
     local agent_dir
     local cwd
+    local extra_cwd
     local saved_agent_dir
     local saved_cwd
 
@@ -53,6 +54,9 @@ describe("session listing parser", function()
         vim.cmd("cd " .. vim.fn.fnameescape(saved_cwd))
         vim.fn.delete(agent_dir, "rf")
         vim.fn.delete(cwd, "rf")
+        if extra_cwd then
+            vim.fn.delete(extra_cwd, "rf")
+        end
     end)
 
     local function sessions_dir()
@@ -115,6 +119,25 @@ describe("session listing parser", function()
 
         local list = SessionHistory.list()
         assert.equals("buried", list[1].name)
+    end)
+
+    it("lists an explicit workspace cwd without changing the editor cwd", function()
+        extra_cwd = vim.fn.tempname()
+        vim.fn.mkdir(extra_cwd, "p")
+        extra_cwd = assert(vim.uv.fs_realpath(extra_cwd))
+        local dir = agent_dir .. "/sessions/" .. encode_cwd(extra_cwd)
+        vim.fn.mkdir(dir, "p")
+        write_jsonl(dir .. "/other.jsonl", {
+            { type = "session", id = "other", timestamp = "t" },
+            { type = "message", message = { role = "user", content = "another workspace" } },
+        })
+
+        local list = SessionHistory.list(extra_cwd)
+
+        assert.equals(1, #list)
+        assert.equals("other", list[1].id)
+        assert.equals(cwd, vim.fn.getcwd())
+        assert.equals(dir, SessionHistory.get_sessions_dir(extra_cwd))
     end)
 
     it("does not fully decode huge lines to list a session (perf guard)", function()

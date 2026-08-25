@@ -13,14 +13,18 @@ describe("workspace sidebar", function()
     local original_sessions
     local original_attention
     local original_workspace_buffers
+    local original_session_history
     local original_devicons
     local original_confirm
     local original_notify
     local activated
     local focused_session
+    local resumed_session
     local created_session
     local created_session_win
     local created_workspace
+    local historical_sessions
+    local history_list_calls
     local history_buffers
 
     local function session(id, tab, state)
@@ -36,6 +40,9 @@ describe("workspace sidebar", function()
             rpc = {
                 is_running = function()
                     return state ~= "exited"
+                end,
+                send = function()
+                    return false
                 end,
             },
             chat = {
@@ -79,9 +86,12 @@ describe("workspace sidebar", function()
         original_sessions = package.loaded["agent-workbench.sessions.manager"]
         original_attention = package.loaded["agent-workbench.attention"]
         original_workspace_buffers = package.loaded["agent-workbench.workspace_buffers"]
+        original_session_history = package.loaded["agent-workbench.sessions.history"]
         original_devicons = package.loaded["nvim-web-devicons"]
         original_confirm = require("agent-workbench.ui.dialog").confirm
         original_notify = vim.notify
+        historical_sessions = {}
+        history_list_calls = {}
         history_buffers = {}
         local sessions = { session(11, start_tab, "busy"), session(22, second_tab, "idle") }
         SessionsUi.on_session_info_changed(sessions[1], "Build authentication flow")
@@ -118,9 +128,22 @@ describe("workspace sidebar", function()
             activate = function(value)
                 activated = value
             end,
+            resume_path = function(path)
+                resumed_session = {
+                    path = path,
+                    tab = vim.api.nvim_get_current_tabpage(),
+                    win = vim.api.nvim_get_current_win(),
+                }
+            end,
             new_session = function()
                 created_session = vim.api.nvim_get_current_tabpage()
                 created_session_win = vim.api.nvim_get_current_win()
+            end,
+        }
+        package.loaded["agent-workbench.sessions.history"] = {
+            list = function(cwd)
+                history_list_calls[cwd] = (history_list_calls[cwd] or 0) + 1
+                return historical_sessions[cwd] or {}
             end,
         }
         package.loaded["agent-workbench.attention"] = {
@@ -143,6 +166,7 @@ describe("workspace sidebar", function()
         package.loaded["agent-workbench.sessions.manager"] = original_sessions
         package.loaded["agent-workbench.attention"] = original_attention
         package.loaded["agent-workbench.workspace_buffers"] = original_workspace_buffers
+        package.loaded["agent-workbench.sessions.history"] = original_session_history
         package.loaded["nvim-web-devicons"] = original_devicons
         require("agent-workbench.ui.dialog").confirm = original_confirm
         vim.notify = original_notify
@@ -165,9 +189,12 @@ describe("workspace sidebar", function()
         Config.setup({})
         activated = nil
         focused_session = nil
+        resumed_session = nil
         created_session = nil
         created_session_win = nil
         created_workspace = nil
+        historical_sessions = nil
+        history_list_calls = nil
     end)
 
     it("renders compact tree-style workspace rows", function()
@@ -197,6 +224,124 @@ describe("workspace sidebar", function()
         callback_for(buf, "<CR>")()
         assert.are.equal(11, activated.id)
         assert.are.equal(11, focused_session)
+    end)
+
+    it("groups historical sessions by age and expands only Today by default", function()
+        local today = os.date("*t")
+        today.hour = 12
+        today.min = 0
+        today.sec = 0
+        today.isdst = nil
+        local noon = os.time(today)
+        historical_sessions[dirs[1]] = {
+            {
+                id = "today",
+                path = dirs[1] .. "/today.jsonl",
+                timestamp = "",
+                modified = noon,
+                first_message = "Today plan",
+            },
+            {
+                id = "yesterday",
+                path = dirs[1] .. "/yesterday.jsonl",
+                timestamp = "",
+                modified = noon - 24 * 60 * 60,
+                first_message = "Yesterday note",
+            },
+            {
+                id = "week",
+                path = dirs[1] .. "/week.jsonl",
+                timestamp = "",
+                modified = noon - 4 * 24 * 60 * 60,
+                first_message = "Week task",
+            },
+            {
+                id = "older",
+                path = dirs[1] .. "/older.jsonl",
+                timestamp = "",
+                modified = noon - 30 * 24 * 60 * 60,
+                first_message = "Old session",
+            },
+        }
+
+        Sidebar.open()
+        local win = vim.api.nvim_get_current_win()
+        local buf = vim.api.nvim_win_get_buf(win)
+        callback_for(buf, "l")()
+
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        assert.are.equal("   󰋚 Today", lines[3])
+        assert.are.equal("    󰋚 Today plan", lines[4])
+        assert.are.equal("   󰋚 Yesterday", lines[5])
+        assert.are.equal("   󰋚 Last 7 days", lines[6])
+        assert.are.equal("   󰋚 Older", lines[7])
+        assert.are.equal(1, history_list_calls[dirs[1]])
+
+        vim.api.nvim_win_set_cursor(win, { 5, 0 })
+        callback_for(buf, "l")()
+        lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        assert.are.equal("   󰋚 Yesterday", lines[5])
+        assert.are.equal("    󰋚 Yesterday note", lines[6])
+
+        callback_for(buf, "h")()
+        assert.are.equal(5, vim.api.nvim_win_get_cursor(win)[1])
+        lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        assert.are.equal("   󰋚 Yesterday", lines[5])
+
+        Sidebar._render()
+        assert.are.equal(1, history_list_calls[dirs[1]])
+        callback_for(buf, "R")()
+        assert.are.equal(2, history_list_calls[dirs[1]])
+    end)
+
+    it("resumes a historical session in its workspace from the cached tree", function()
+        local path = dirs[2] .. "/past.jsonl"
+        historical_sessions[dirs[2]] = {
+            {
+                id = "past",
+                path = path,
+                timestamp = "",
+                modified = os.time(),
+                first_message = "Past release",
+            },
+        }
+
+        Sidebar.open()
+        local sidebar_win = vim.api.nvim_get_current_win()
+        local sidebar_buf = vim.api.nvim_win_get_buf(sidebar_win)
+        vim.api.nvim_win_set_cursor(sidebar_win, { 2, 0 })
+        callback_for(sidebar_buf, "l")()
+        vim.api.nvim_win_set_cursor(sidebar_win, { 5, 0 })
+        callback_for(sidebar_buf, "<CR>")()
+
+        assert.are.equal(path, resumed_session.path)
+        assert.are.equal(second_tab, resumed_session.tab)
+        assert.are_not.equal(sidebar_win, resumed_session.win)
+        assert.are.equal(1, history_list_calls[dirs[2]])
+    end)
+
+    it("does not duplicate an open persisted session in history groups", function()
+        local path = dirs[1] .. "/open.jsonl"
+        local live = package.loaded["agent-workbench.sessions.manager"].list()[1]
+        live.session_file = path
+        historical_sessions[dirs[1]] = {
+            {
+                id = "open",
+                path = path,
+                timestamp = "",
+                modified = os.time(),
+                first_message = "Already open",
+            },
+        }
+
+        Sidebar.open()
+        local buf = vim.api.nvim_get_current_buf()
+        callback_for(buf, "l")()
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+        assert.are.equal(3, #lines)
+        assert.are.equal("  󰔟 Build authentic…", lines[2])
+        assert.are.equal(" 󰙅 " .. vim.fn.fnamemodify(dirs[2], ":~"), lines[3])
     end)
 
     it("opens from a History-only workspace without creating another window", function()

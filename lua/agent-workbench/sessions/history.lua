@@ -48,11 +48,12 @@ local function encode_cwd(cwd)
     return "--" .. encoded .. "--"
 end
 
---- Get the sessions directory for the current cwd.
+--- Get the sessions directory for a cwd (current cwd by default).
+---@param cwd? string
 ---@return string
-function M.get_sessions_dir()
+function M.get_sessions_dir(cwd)
     local agent_dir = get_agent_dir()
-    local cwd = vim.fn.getcwd()
+    cwd = cwd or vim.fn.getcwd()
     return join_path(agent_dir, "sessions", encode_cwd(cwd))
 end
 
@@ -291,10 +292,11 @@ function M.load_messages(path)
     return { messages = messages, leaf_id = leaf_id }
 end
 
---- List all sessions for the current cwd, sorted by modified time (newest first).
+--- List all sessions for a cwd (current cwd by default), newest first.
+---@param cwd? string
 ---@return agent_workbench.SessionInfo[]
-function M.list()
-    local dir = M.get_sessions_dir()
+function M.list(cwd)
+    local dir = M.get_sessions_dir(cwd)
     ---@type string[]
     local files = vim.fn.glob(join_path(dir, "*.jsonl"), false, true)
     ---@type agent_workbench.SessionInfo[]

@@ -2,6 +2,7 @@
 
 ## 2026-08-25
 
+- **ADDED:** The workspace explorer now includes persisted sessions under collapsible `Today`, `Yesterday`, `Last 7 days`, and `Older` groups. `Today` starts open; selecting history resumes it in the owning workspace as a separate live session or reuses an already-open buffer, while lazy cached metadata keeps ordinary redraws cheap.
 - **ADDED:** Opt-in `keymaps.preset = "recommended"` installs collision-safe global Agent Workbench entry points under configurable `<Leader>a`: `<Leader>aa` creates and activates an independent session buffer, `<Leader>aw` picks a workspace, `<Leader>aW` creates one, and `<Leader>ae` opens the explorer. Fixed Normal-mode `<M-h/l>` cycle listed buffers, while `<M-j/k>` cycle workspaces. Global mappings remain disabled by default.
 - **CHANGED:** `scripts/nvim-dev` opts its development instance into the recommended preset after user configuration loads, preserving the active `<Leader>` and configured prefix without changing normal plugin defaults.
 - **FIXED:** Creating or opening a buffer-layout session from a `winfixbuf`-pinned dashboard, explorer, terminal, or other special window now preserves that window and opens History in a separate full-width split. Hiding chat closes only the fallback Agent Workbench windows and returns focus to the pinned window instead of raising `E1513` or overriding the pin.

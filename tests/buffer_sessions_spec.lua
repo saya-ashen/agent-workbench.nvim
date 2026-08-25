@@ -560,6 +560,59 @@ describe("buffer-owned sessions", function()
         assert.are.equal(second.chat:prompt_buf(), vim.api.nvim_win_get_buf(prompt_win))
     end)
 
+    it("reuses a historical session that is already loading", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+
+        local resumed = assert(Sessions.resume_path(path, { layout = "buffer" }))
+        local reused = assert(Sessions.resume_path(path, { layout = "buffer" }))
+        local switches = 0
+        for _, entry in ipairs(pending) do
+            if entry.rpc == resumed.rpc and entry.msg.type == "switch_session" then
+                switches = switches + 1
+                assert.are.equal(path, entry.msg.sessionPath)
+            end
+        end
+
+        assert.are.equal(resumed, reused)
+        assert.are.equal(vim.fs.normalize(path), resumed._resuming_path)
+        assert.are.equal(1, #Sessions.list())
+        assert.are.equal(1, switches)
+
+        local switch = take_pending(pending, resumed.rpc, "switch_session")
+        switch.callback({ success = true, data = { cancelled = true } })
+        vim.wait(20)
+        assert.is_nil(resumed._resuming_path)
+        local retried = assert(Sessions.resume_path(path, { layout = "buffer" }))
+        assert.are_not.equal(resumed, retried)
+        assert.are.equal(2, #Sessions.list())
+    end)
+
+    it("keeps resume deduplication until persisted identity arrives", function()
+        local pending = install_pending_rpc()
+        local path = vim.fn.tempname() .. ".jsonl"
+        local resumed = assert(Sessions.resume_path(path, { layout = "buffer" }))
+        local switch = take_pending(pending, resumed.rpc, "switch_session")
+        clear_pending(pending)
+        switch.callback({ success = true, data = { cancelled = false } })
+        local state = take_pending(pending, resumed.rpc, "get_state")
+        local messages = take_pending(pending, resumed.rpc, "get_messages")
+
+        messages.callback({ success = true, data = { messages = {} } })
+        assert.is_true(vim.wait(200, function()
+            return not resumed._switching_session
+        end))
+        assert.are.equal(vim.fs.normalize(path), resumed._resuming_path)
+        assert.are.equal(resumed, Sessions.resume_path(path, { layout = "buffer" }))
+
+        state.callback({ success = true, data = { sessionFile = path } })
+        assert.is_true(vim.wait(200, function()
+            return resumed._resuming_path == nil
+        end))
+        assert.are.equal(resumed, Sessions.resume_path(path, { layout = "buffer" }))
+        assert.are.equal(1, #Sessions.list())
+    end)
+
     it("keeps loading visible while backend messages replay in bounded slices", function()
         local pending = install_pending_rpc()
         local path = vim.fn.tempname() .. ".jsonl"

@@ -37,6 +37,7 @@
 ---@field _compaction_event_queue? agent_workbench.RpcEvent[] Events received while compacted messages are being fetched/replayed.
 ---@field _switching_session? boolean True until persisted messages are installed after switch_session.
 ---@field backend_history_item? agent_workbench.BackendHistoryItem Last backend-owned history item loaded into this session.
+---@field _resuming_path? string Normalized persisted path targeted by an in-flight resume.
 
 ---@class agent_workbench.SessionCreateOpts
 ---@field layout? agent_workbench.LayoutMode
@@ -98,8 +99,19 @@ local sessions = {}
 local sessions_by_component = {}
 ---@type table<agent_workbench.TabId, agent_workbench.Session>
 local active_by_tab = {}
+---@type table<string, agent_workbench.Session>
+local resuming_by_path = {}
 local next_session_id = 0
 local activating = false
+
+---@param session agent_workbench.Session
+local function clear_resuming_path(session)
+    local path = session._resuming_path
+    if path and resuming_by_path[path] == session then
+        resuming_by_path[path] = nil
+    end
+    session._resuming_path = nil
+end
 
 ---@return agent_workbench.TabId
 local function current_tab()
@@ -257,6 +269,15 @@ local function update_identity(session, state)
     end
     if vim.api.nvim_buf_is_valid(session.history_buf) then
         vim.b[session.history_buf].pi_session_uri = session.uri
+    end
+    if
+        session._resuming_path
+        and session.session_file
+        and vim.fs.normalize(session.session_file) == session._resuming_path
+    then
+        -- The stable persisted URI now owns the History buffer, so path-level
+        -- deduplication is no longer needed.
+        clear_resuming_path(session)
     end
 end
 
@@ -812,6 +833,7 @@ local function destroy_session(session)
         return
     end
     Attention.clear_session(session)
+    clear_resuming_path(session)
     session.chat:clear_prompt_request()
     session.chat:destroy()
     session.backend:close()
@@ -828,7 +850,7 @@ local function destroy_session(session)
         end
     end
     require("agent-workbench.ui.sessions").request_refresh()
-    require("agent-workbench.ui.workspace_sidebar").request_refresh()
+    require("agent-workbench.ui.workspace_sidebar").invalidate_history(session.cwd)
     require("agent-workbench.ui.workspaces").refresh()
 end
 
@@ -1477,6 +1499,7 @@ load_session = function(session, session_path)
     ---@param end_transition boolean
     local function fail_load(message, end_transition)
         session._switching_session = false
+        clear_resuming_path(session)
         vim.schedule(function()
             if end_transition then
                 Attention.end_session_transition(session, false)
@@ -1495,6 +1518,7 @@ load_session = function(session, session_path)
         end
         if data.cancelled then
             session._switching_session = false
+            clear_resuming_path(session)
             vim.schedule(function()
                 Attention.end_session_transition(session, false)
                 session.chat:clear()
@@ -1528,6 +1552,8 @@ load_session = function(session, session_path)
                     end,
                     on_complete = function()
                         session._switching_session = false
+                        -- Keep `_resuming_path` reserved until get_state installs
+                        -- the persisted URI; replay can finish before that response.
                         CommandsCache.fetch(session.rpc, function(commands)
                             show_startup_block(session, commands)
                         end)
@@ -1557,13 +1583,16 @@ local function find_continue_session_path(current_session_file)
     local History = require("agent-workbench.sessions.history")
     local live_files = {}
     for _, live in ipairs(M.list()) do
-        if live.session_file then
-            live_files[live.session_file] = true
+        local path = live.session_file or live._resuming_path
+        if path then
+            live_files[vim.fs.normalize(path)] = true
         end
     end
+    local current_path = current_session_file and vim.fs.normalize(current_session_file) or nil
     local sessions_list = History.list()
     for _, session in ipairs(sessions_list) do
-        if session.path ~= current_session_file and not live_files[session.path] then
+        local path = vim.fs.normalize(session.path)
+        if path ~= current_path and not live_files[path] then
             return session.path
         end
     end
@@ -1664,6 +1693,37 @@ function M.continue_session(opts)
     if not sent then
         Notify.error("Failed to fetch session state")
     end
+end
+
+--- Resume a persisted session path in the current workspace.
+--- Reuse an already-open session buffer; otherwise create a separate live session.
+---@param session_path string
+---@param opts? agent_workbench.SessionCreateOpts
+---@return agent_workbench.Session?
+function M.resume_path(session_path, opts)
+    local uri = Workspace.uri(Workspace.cwd(), session_path, session_path)
+    local existing = Workspace.buffer(uri)
+    local live = existing and sessions_by_component[existing]
+    local path_key = vim.fs.normalize(session_path)
+    local resuming = resuming_by_path[path_key]
+    if live or resuming and sessions[resuming.id] == resuming then
+        local session = live or resuming
+        M.activate(session)
+        session.chat:focus_for_session_entry()
+        return session
+    end
+    resuming_by_path[path_key] = nil
+
+    opts = vim.tbl_extend("force", opts or {}, { new = true })
+    local session = M.get_or_create(opts)
+    if not session then
+        return nil
+    end
+    session._resuming_path = path_key
+    resuming_by_path[path_key] = session
+    session.chat:show({ loading = true })
+    load_session(session, session_path)
+    return session
 end
 
 --- Show a picker to resume a past session.
@@ -1778,23 +1838,9 @@ function M.resume_session(opts)
             },
         },
     }, function(item)
-        if not item then
-            return
+        if item then
+            M.resume_path(item.session.path, opts)
         end
-        local uri = Workspace.uri(Workspace.cwd(), item.session.path, item.session.path)
-        local existing = Workspace.buffer(uri)
-        local live = existing and sessions_by_component[existing]
-        if live then
-            M.activate(live)
-            return
-        end
-        opts = vim.tbl_extend("force", opts or {}, { new = true })
-        local session = M.get_or_create(opts)
-        if not session then
-            return
-        end
-        session.chat:show({ loading = true })
-        load_session(session, item.session.path)
     end)
 end
 
@@ -1820,6 +1866,7 @@ function M._reset()
     sessions_by_component = {}
     active_by_tab = {}
     transcript_resources = {}
+    resuming_by_path = {}
     next_session_id = 0
     activating = false
 end

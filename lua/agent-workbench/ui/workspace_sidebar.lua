@@ -14,9 +14,23 @@ local buf
 local wins = {}
 ---@type table<agent_workbench.TabId, boolean>
 local expanded = {}
+---@type table<agent_workbench.TabId, table<string, boolean>>
+local expanded_history_groups = {}
+---@type table<string, agent_workbench.SessionInfo[]>
+local history_cache = {}
+
+---@alias agent_workbench.WorkspaceHistoryGroupKey "today"|"yesterday"|"week"|"older"
+
+---@class agent_workbench.WorkspaceHistoryGroup
+---@field key agent_workbench.WorkspaceHistoryGroupKey
+---@field label string
+---@field sessions agent_workbench.SessionInfo[]
+
 ---@type table<integer, {
---- kind: "workspace"|"session"|"buffer",
+--- kind: "workspace"|"history_group"|"session"|"history_session"|"buffer",
 --- workspace?: agent_workbench.WorkspaceRow,
+--- history_group?: agent_workbench.WorkspaceHistoryGroup,
+--- history_session?: agent_workbench.SessionInfo,
 --- session?: agent_workbench.Session,
 --- buf?: integer,
 ---}>
@@ -29,17 +43,25 @@ local preview_wins = {}
 ---@type table<integer, table<integer, integer>> history buffer -> sidebar window -> preview window
 local preview_watchers = {}
 
+---@type { key: agent_workbench.WorkspaceHistoryGroupKey, label: string }[]
+local HISTORY_GROUPS = {
+    { key = "today", label = "Today" },
+    { key = "yesterday", label = "Yesterday" },
+    { key = "week", label = "Last 7 days" },
+    { key = "older", label = "Older" },
+}
+
 ---@type [string, string][]
 local HELP_ENTRIES = {
     { "<CR>", "Switch workspace or open item" },
-    { "h / l", "Toggle workspace; collapse/open item" },
-    { "e, <Tab>", "Toggle workspace" },
-    { "p", "Preview session without switching workspace" },
-    { "d", "Close workspace / delete item" },
+    { "h / l", "Collapse or open workspace/time group/item" },
+    { "e, <Tab>", "Toggle workspace or time group" },
+    { "p", "Preview an open session" },
+    { "d", "Close workspace / stop session / delete buffer" },
     { "a", "Create session in workspace" },
     { "A", "Create workspace" },
     { "o", "Open and close sidebar" },
-    { "R", "Refresh workspaces and titles" },
+    { "R", "Reload workspaces, history, and titles" },
     { "q", "Close sidebar" },
     { "?", "Toggle this help" },
 }
@@ -83,6 +105,127 @@ local function sessions_for(workspace)
         return a.id < b.id
     end)
     return result
+end
+
+---@param path string?
+---@return string?
+local function normalized_path(path)
+    if type(path) ~= "string" or path == "" then
+        return nil
+    end
+    return vim.fs.normalize(path)
+end
+
+---@param workspace agent_workbench.WorkspaceRow
+---@return agent_workbench.SessionInfo[]
+local function historical_sessions_for(workspace)
+    local cached = history_cache[workspace.cwd]
+    if not cached then
+        local ok, listed = pcall(require("agent-workbench.sessions.history").list, workspace.cwd)
+        if not ok then
+            require("agent-workbench.notify").warn("Could not load session history: " .. tostring(listed))
+            listed = {}
+        end
+        cached = listed
+        history_cache[workspace.cwd] = cached
+    end
+
+    local open_paths = {}
+    for _, session in ipairs(require("agent-workbench.sessions.manager").list()) do
+        local path = normalized_path(session.session_file or session._resuming_path)
+        if path then
+            open_paths[path] = true
+        end
+    end
+
+    local result = {} ---@type agent_workbench.SessionInfo[]
+    for _, session in ipairs(cached) do
+        if not open_paths[normalized_path(session.path)] then
+            result[#result + 1] = session
+        end
+    end
+    return result
+end
+
+---@param timestamp number
+---@return string
+local function date_key(timestamp)
+    return tostring(os.date("%Y-%m-%d", timestamp))
+end
+
+---@param sessions agent_workbench.SessionInfo[]
+---@param now? number
+---@return agent_workbench.WorkspaceHistoryGroup[]
+local function group_historical_sessions(sessions, now)
+    now = now or os.time()
+    local today = os.date("*t", now)
+    if type(today) ~= "table" then
+        return {}
+    end
+
+    ---@param days_ago integer
+    ---@return string
+    local function calendar_key(days_ago)
+        ---@type osdateparam
+        local day = {
+            year = today.year,
+            month = today.month,
+            day = today.day - days_ago,
+            hour = 12,
+            min = 0,
+            sec = 0,
+        }
+        return date_key(os.time(day))
+    end
+
+    local today_key = calendar_key(0)
+    local yesterday_key = calendar_key(1)
+    local recent_keys = {}
+    for days_ago = 2, 6 do
+        recent_keys[calendar_key(days_ago)] = true
+    end
+
+    ---@type table<agent_workbench.WorkspaceHistoryGroupKey, agent_workbench.SessionInfo[]>
+    local grouped = { today = {}, yesterday = {}, week = {}, older = {} }
+    for _, session in ipairs(sessions) do
+        local key = date_key(session.modified)
+        local group_key = key == today_key and "today"
+            or (key == yesterday_key and "yesterday" or (recent_keys[key] and "week" or "older"))
+        grouped[group_key][#grouped[group_key] + 1] = session
+    end
+
+    local result = {} ---@type agent_workbench.WorkspaceHistoryGroup[]
+    for _, spec in ipairs(HISTORY_GROUPS) do
+        local grouped_sessions = grouped[spec.key]
+        if #grouped_sessions > 0 then
+            result[#result + 1] = { key = spec.key, label = spec.label, sessions = grouped_sessions }
+        end
+    end
+    return result
+end
+
+---@param workspace agent_workbench.WorkspaceRow
+---@param group agent_workbench.WorkspaceHistoryGroup
+---@return boolean
+local function history_group_is_expanded(workspace, group)
+    local states = expanded_history_groups[workspace.tab]
+    local state = states and states[group.key]
+    if state ~= nil then
+        return state
+    end
+    return group.key == "today"
+end
+
+---@param workspace agent_workbench.WorkspaceRow
+---@param group agent_workbench.WorkspaceHistoryGroup
+local function toggle_history_group(workspace, group)
+    local states = expanded_history_groups[workspace.tab]
+    if not states then
+        states = {}
+        expanded_history_groups[workspace.tab] = states
+    end
+    states[group.key] = not history_group_is_expanded(workspace, group)
+    M._render()
 end
 
 ---@param workspace agent_workbench.WorkspaceRow
@@ -236,6 +379,33 @@ local function session_title(session)
     return title
 end
 
+---@param session agent_workbench.SessionInfo
+---@return string
+local function historical_session_title(session)
+    local title = session.name or (session.first_message ~= "" and session.first_message or nil)
+    if not title then
+        title = session.id ~= "" and ("session " .. session.id) or "(empty)"
+    end
+    local max_chars = math.max(12, (Config.options.workspace_sidebar.width or 38) - 18)
+    if vim.fn.strchars(title) > max_chars then
+        return vim.fn.strcharpart(title, 0, max_chars - 1) .. "…"
+    end
+    return title
+end
+
+---@param session agent_workbench.SessionInfo
+---@param group agent_workbench.WorkspaceHistoryGroup
+---@return string
+local function historical_session_time(session, group)
+    if group.key == "today" or group.key == "yesterday" then
+        return tostring(os.date("%H:%M", session.modified))
+    end
+    if group.key == "week" then
+        return tostring(os.date("%a", session.modified))
+    end
+    return tostring(os.date("%Y-%m-%d", session.modified))
+end
+
 ---@param tab agent_workbench.TabId
 local function switch_workspace(tab)
     if vim.api.nvim_tabpage_is_valid(tab) then
@@ -387,6 +557,11 @@ end
 local function preview_under_cursor()
     local list_win = vim.api.nvim_get_current_win()
     local item = item_under_cursor()
+    if item and item.kind == "history_session" then
+        close_preview(list_win)
+        require("agent-workbench.notify").info("Open a historical session to view its transcript")
+        return
+    end
     if not item or item.kind ~= "session" or not item.session then
         close_preview(list_win)
         return
@@ -452,11 +627,33 @@ end
 
 local function toggle_under_cursor()
     local item = item_under_cursor()
-    if not item or item.kind ~= "workspace" or not item.workspace then
+    if not item or not item.workspace then
         return
     end
-    expanded[item.workspace.tab] = not expanded[item.workspace.tab]
-    M._render()
+    if item.kind == "workspace" then
+        expanded[item.workspace.tab] = not expanded[item.workspace.tab]
+        M._render()
+    elseif item.kind == "history_group" and item.history_group then
+        toggle_history_group(item.workspace, item.history_group)
+    end
+end
+
+---@param item_kind string
+---@param workspace agent_workbench.WorkspaceRow
+---@param group_key? agent_workbench.WorkspaceHistoryGroupKey
+---@return integer
+local function find_parent_line(item_kind, workspace, group_key)
+    local parent_line = vim.api.nvim_win_get_cursor(0)[1]
+    while parent_line > 1 do
+        parent_line = parent_line - 1
+        local parent = line_items[parent_line]
+        if parent and parent.kind == item_kind and parent.workspace and parent.workspace.tab == workspace.tab then
+            if not group_key or parent.history_group and parent.history_group.key == group_key then
+                return parent_line
+            end
+        end
+    end
+    return parent_line
 end
 
 local function close_under_cursor()
@@ -468,19 +665,23 @@ local function close_under_cursor()
         toggle_under_cursor()
         return
     end
-    local tab = item.workspace.tab
-    if expanded[tab] ~= true then
+    if item.kind == "history_group" and item.history_group then
+        if history_group_is_expanded(item.workspace, item.history_group) then
+            toggle_history_group(item.workspace, item.history_group)
+            return
+        end
+    elseif item.kind == "history_session" and item.history_group then
+        local group_line = find_parent_line("history_group", item.workspace, item.history_group.key)
+        local states = expanded_history_groups[item.workspace.tab] or {}
+        expanded_history_groups[item.workspace.tab] = states
+        states[item.history_group.key] = false
+        M._render()
+        pcall(vim.api.nvim_win_set_cursor, 0, { group_line, 0 })
         return
     end
-    local parent_line = vim.api.nvim_win_get_cursor(0)[1]
-    while parent_line > 1 do
-        parent_line = parent_line - 1
-        local parent = line_items[parent_line]
-        if parent and parent.kind == "workspace" and parent.workspace and parent.workspace.tab == tab then
-            break
-        end
-    end
-    expanded[tab] = false
+
+    local parent_line = find_parent_line("workspace", item.workspace)
+    expanded[item.workspace.tab] = false
     M._render()
     pcall(vim.api.nvim_win_set_cursor, 0, { parent_line, 0 })
 end
@@ -537,6 +738,12 @@ local function open_under_cursor_tree()
         item.session.chat:focus_for_session_entry()
         return
     end
+    if item.kind == "history_session" and item.history_session and item.workspace then
+        switch_workspace(item.workspace.tab)
+        focus_editor(item.workspace.tab)
+        require("agent-workbench.sessions.manager").resume_path(item.history_session.path)
+        return
+    end
     if item.kind == "buffer" and item.buf and item.workspace then
         switch_workspace(item.workspace.tab)
         local editor = focus_editor(item.workspace.tab)
@@ -555,6 +762,10 @@ local function open_under_cursor(close_after)
         return
     end
     close_preview(vim.api.nvim_get_current_win())
+    if item.kind == "history_group" and item.workspace and item.history_group then
+        toggle_history_group(item.workspace, item.history_group)
+        return
+    end
     if item.kind == "session" and item.session then
         local tab = item.workspace and item.workspace.tab or current_tab()
         if close_after then
@@ -564,6 +775,16 @@ local function open_under_cursor(close_after)
         focus_editor(tab)
         require("agent-workbench.sessions.manager").activate(item.session)
         item.session.chat:focus_for_session_entry()
+        return
+    end
+    if item.kind == "history_session" and item.history_session and item.workspace then
+        local tab = item.workspace.tab
+        if close_after then
+            M.close()
+        end
+        switch_workspace(tab)
+        focus_editor(tab)
+        require("agent-workbench.sessions.manager").resume_path(item.history_session.path)
         return
     end
     if item.kind == "buffer" and item.buf and item.workspace then
@@ -743,6 +964,10 @@ local function delete_under_cursor()
         close_workspace(item.workspace)
         return
     end
+    if item.kind == "history_session" then
+        require("agent-workbench.notify").info("Historical sessions are not deleted from the workspace explorer")
+        return
+    end
     local target = item.kind == "session" and item.session and item.session.history_buf or item.buf
     if not target or not vim.api.nvim_buf_is_valid(target) then
         return
@@ -750,6 +975,7 @@ local function delete_under_cursor()
     if item.kind == "session" then
         Dialog.confirm({ title = "Stop session and delete buffer" }, function(confirmed)
             if confirmed and vim.api.nvim_buf_is_valid(target) then
+                history_cache[item.session.cwd] = nil
                 delete_buffer(target)
             end
         end)
@@ -759,6 +985,7 @@ local function delete_under_cursor()
 end
 
 local function refresh()
+    history_cache = {}
     for _, session in ipairs(require("agent-workbench.sessions.manager").list()) do
         SessionsUi.invalidate(session)
     end
@@ -789,21 +1016,26 @@ local function ensure_buf()
         "n",
         "<Tab>",
         toggle_under_cursor,
-        vim.tbl_extend("force", opts, { desc = "Toggle workspace items" })
+        vim.tbl_extend("force", opts, { desc = "Toggle workspace or history group" })
     )
     vim.keymap.set(
         "n",
         "h",
         close_under_cursor,
-        vim.tbl_extend("force", opts, { desc = "Toggle workspace or collapse item" })
+        vim.tbl_extend("force", opts, { desc = "Collapse workspace or history group" })
     )
     vim.keymap.set(
         "n",
         "l",
         open_under_cursor_tree,
-        vim.tbl_extend("force", opts, { desc = "Toggle workspace or open item" })
+        vim.tbl_extend("force", opts, { desc = "Expand group or open item" })
     )
-    vim.keymap.set("n", "e", toggle_under_cursor, vim.tbl_extend("force", opts, { desc = "Toggle workspace" }))
+    vim.keymap.set(
+        "n",
+        "e",
+        toggle_under_cursor,
+        vim.tbl_extend("force", opts, { desc = "Toggle workspace or history group" })
+    )
     vim.keymap.set(
         "n",
         "p",
@@ -900,6 +1132,40 @@ function M._render()
                     suffix = status_label(status),
                 }
             end
+
+            local historical = historical_sessions_for(workspace)
+            for _, group in ipairs(group_historical_sessions(historical)) do
+                local group_open = history_group_is_expanded(workspace, group)
+                local group_prefix = group_open and "   󰋚 " or "   󰋚 "
+                lines[#lines + 1] = group_prefix .. group.label
+                line_items[#lines] = { kind = "history_group", workspace = workspace, history_group = group }
+                highlights[#highlights + 1] = {
+                    line = #lines - 1,
+                    start_col = 2,
+                    end_col = #lines[#lines],
+                    group = "Directory",
+                    suffix = tostring(#group.sessions),
+                }
+                if group_open then
+                    for _, historical_session in ipairs(group.sessions) do
+                        lines[#lines + 1] = "    󰋚 " .. historical_session_title(historical_session)
+                        line_items[#lines] = {
+                            kind = "history_session",
+                            workspace = workspace,
+                            history_group = group,
+                            history_session = historical_session,
+                        }
+                        highlights[#highlights + 1] = {
+                            line = #lines - 1,
+                            start_col = 4,
+                            end_col = #lines[#lines],
+                            group = "Comment",
+                            suffix = historical_session_time(historical_session, group),
+                        }
+                    end
+                end
+            end
+
             for _, target in ipairs(buffers_for(workspace, sessions)) do
                 local title = buffer_title(target)
                 local status = buffer_status(target)
@@ -950,6 +1216,16 @@ function M._render()
             close_preview(list_win)
         end
     end
+end
+
+---@param cwd? string
+function M.invalidate_history(cwd)
+    if cwd then
+        history_cache[cwd] = nil
+    else
+        history_cache = {}
+    end
+    M.request_refresh()
 end
 
 function M.request_refresh()
@@ -1046,6 +1322,8 @@ function M._reset()
     buf = nil
     wins = {}
     expanded = {}
+    expanded_history_groups = {}
+    history_cache = {}
     line_items = {}
     help_wins = {}
     preview_wins = {}
