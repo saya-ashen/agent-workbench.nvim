@@ -2,7 +2,7 @@
 
 > A workspace-aware Neovim workbench for coding agents, currently powered by [pi.dev](https://pi.dev).
 >
-> Built from [`pi.nvim`](https://github.com/alex35mil/pi.nvim)'s foundation, independently maintained around multi-workspace sessions, reviewed edits, and an in-editor command workflow.
+> Built from [`pi2.nvim`](https://github.com/zgs225/pi2.nvim)'s foundation, independently maintained around multi-workspace sessions, reviewed edits, and an in-editor command workflow.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Neovim](https://img.shields.io/badge/Neovim-0.10%2B-green.svg?logo=neovim)](https://neovim.io)
