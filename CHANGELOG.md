@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-29
+
+- **FIXED:** The workspace explorer no longer exposes Pi JSONL session files while an external backend is active. External backend history remains available through the backend-owned continue/resume contract instead of being sent through Pi's `switch_session` RPC path.
+
 ## 2026-08-25
 
 - **ADDED:** The workspace explorer now includes persisted sessions under collapsible `Today`, `Yesterday`, `Last 7 days`, and `Older` groups. `Today` starts open; selecting history resumes it in the owning workspace as a separate live session or reuses an already-open buffer, while lazy cached metadata keeps ordinary redraws cheap.

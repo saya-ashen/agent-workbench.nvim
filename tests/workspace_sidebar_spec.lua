@@ -294,6 +294,35 @@ describe("workspace sidebar", function()
         assert.are.equal(2, history_list_calls[dirs[1]])
     end)
 
+    it("does not expose Pi session files while an external backend is active", function()
+        historical_sessions[dirs[1]] = {
+            {
+                id = "pi-only",
+                path = dirs[1] .. "/pi-only.jsonl",
+                timestamp = "",
+                modified = os.time(),
+                first_message = "Do not leak this Pi session",
+            },
+        }
+        Config.setup({
+            backend = "external-test",
+            workspace_sidebar = { position = "right", width = 32 },
+        })
+
+        Sidebar.open()
+        local buf = vim.api.nvim_get_current_buf()
+        callback_for(buf, "l")()
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+        assert.are.same({
+            " 󰙅 " .. vim.fn.fnamemodify(dirs[1], ":~"),
+            "  󰔟 Build authentic…",
+            " 󰙅 " .. vim.fn.fnamemodify(dirs[2], ":~"),
+        }, lines)
+        assert.is_nil(history_list_calls[dirs[1]])
+        assert.is_nil(resumed_session)
+    end)
+
     it("resumes a historical session in its workspace from the cached tree", function()
         local path = dirs[2] .. "/past.jsonl"
         historical_sessions[dirs[2]] = {

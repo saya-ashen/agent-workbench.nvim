@@ -119,6 +119,14 @@ end
 ---@param workspace agent_workbench.WorkspaceRow
 ---@return agent_workbench.SessionInfo[]
 local function historical_sessions_for(workspace)
+    -- The explorer's persisted rows are backed by Pi JSONL paths and resume
+    -- through the Pi-only switch_session RPC flow. External backends expose
+    -- history through BackendSession:list_history/load_history instead; do not
+    -- leak unrelated Pi files into their workspace tree.
+    if Config.options.backend ~= "pi" then
+        return {}
+    end
+
     local cached = history_cache[workspace.cwd]
     if not cached then
         local ok, listed = pcall(require("agent-workbench.sessions.history").list, workspace.cwd)

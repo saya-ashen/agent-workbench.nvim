@@ -57,8 +57,8 @@ Each tab acts as an independent workspace with its own working directory, buffer
 
 - `:AgentWorkbenchNewWorkspace` creates a workspace rooted at a selected directory.
 - `:AgentWorkbenchWorkspaces` switches workspaces through a searchable picker.
-- `:AgentWorkbenchWorkspaceSidebar` shows workspaces, open sessions, time-grouped session history, and ordinary buffers together.
-- Open a historical row to resume it in that workspace without replacing another session; press `p` on an open-session row to preview live output without switching workspace or changing cwd.
+- `:AgentWorkbenchWorkspaceSidebar` shows workspaces, open sessions, Pi's time-grouped file history, and ordinary buffers together.
+- With the built-in Pi backend, open a historical row to resume it in that workspace without replacing another session; external backends use the standard continue/resume commands for their backend-owned history. Press `p` on an open-session row to preview live output without switching workspace or changing cwd.
 - `:AgentWorkbenchMoveBuffer` moves ordinary buffers between workspaces.
 - Workspace buffers stay scoped to the current tab instead of leaking across projects.
 - Changing workspace cwd starts a fresh session only when the current session is idle.
